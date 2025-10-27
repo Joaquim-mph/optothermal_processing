@@ -1,0 +1,27 @@
+# Core data processing
+polars>=0.19.0
+numpy>=1.24.0
+scipy>=1.11.0  # For signal processing (Savitzky-Golay filtering in transconductance)
+
+# Staging layer (Phase 1)
+pydantic>=2.0.0  # Schema validation for manifest and configuration
+pyarrow>=14.0.0  # Parquet support for Polars
+
+# Plotting
+matplotlib>=3.7.0
+scienceplots>=2.0.0
+
+# Image/GIF generation
+imageio>=2.28.0
+Pillow>=10.0.0
+
+# Interactive analysis (optional, for Jupyter notebooks)
+ipython>=8.0.0
+jupyter>=1.0.0
+
+# CLI tools (for process_and_analyze.py)
+typer>=0.9.0
+rich>=13.0.0
+
+# TUI (Terminal User Interface - for tui_app.py)
+textual==6.3.0

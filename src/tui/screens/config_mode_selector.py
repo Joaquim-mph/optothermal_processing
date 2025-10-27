@@ -230,8 +230,7 @@ class ConfigModeSelectorScreen(Screen):
                 chip_number=self.chip_number,
                 chip_group=self.chip_group,
                 plot_type=self.plot_type,
-                metadata_dir=self.app.metadata_dir,
-                raw_dir=self.app.raw_dir,
+                history_dir=self.app.history_dir,
             ))
         else:
             # Go to custom config screen for the plot type
@@ -246,16 +245,14 @@ class ConfigModeSelectorScreen(Screen):
                     chip_number=self.chip_number,
                     chip_group=self.chip_group,
                     plot_type=self.plot_type,
-                    metadata_dir=self.app.metadata_dir,
-                    raw_dir=self.app.raw_dir,
+                    history_dir=self.app.history_dir,
                 ))
             elif self.plot_type == "Transconductance":
                 self.app.push_screen(TransconductanceConfigScreen(
                     chip_number=self.chip_number,
                     chip_group=self.chip_group,
                     plot_type=self.plot_type,
-                    metadata_dir=self.app.metadata_dir,
-                    raw_dir=self.app.raw_dir,
+                    history_dir=self.app.history_dir,
                 ))
             else:
                 self.app.notify(f"Unknown plot type: {self.plot_type}", severity="error")

@@ -77,15 +77,13 @@ class IVgConfigScreen(Screen):
         chip_number: int,
         chip_group: str,
         plot_type: str,
-        metadata_dir: Path,
-        raw_dir: Path,
+        history_dir: Path,
     ):
         super().__init__()
         self.chip_number = chip_number
         self.chip_group = chip_group
         self.plot_type = plot_type
-        self.metadata_dir = metadata_dir
-        self.raw_dir = raw_dir
+        self.history_dir = history_dir
 
     def compose(self) -> ComposeResult:
         """Compose the configuration form."""
@@ -263,9 +261,7 @@ class IVgConfigScreen(Screen):
                     chip_number=self.chip_number,
                     chip_group=self.chip_group,
                     plot_type=self.plot_type,
-                    metadata_dir=self.metadata_dir,
-                    raw_dir=self.raw_dir,
-                    config=config,
+                    history_dir=self.history_dir,
                 )
             )
         else:
@@ -278,8 +274,7 @@ class IVgConfigScreen(Screen):
                     plot_type=self.plot_type,
                     seq_numbers=[],  # TODO: Auto-select based on filters
                     config=config,
-                    metadata_dir=self.metadata_dir,
-                    raw_dir=self.raw_dir,
+                    history_dir=self.history_dir,
                 )
             )
 

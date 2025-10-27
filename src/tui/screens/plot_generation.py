@@ -113,37 +113,119 @@ class PlotGenerationScreen(Screen):
 
     def _generate_plot(self) -> None:
         """Generate the plot in background thread."""
+        # Setup logging
+        import logging
+        from pathlib import Path as PathLib
+
+        log_file = PathLib("tui_plot_generation.log")
+        logging.basicConfig(
+            level=logging.DEBUG,
+            format='%(asctime)s - %(levelname)s - %(message)s',
+            handlers=[
+                logging.FileHandler(log_file, mode='w'),
+                logging.StreamHandler()
+            ]
+        )
+        logger = logging.getLogger(__name__)
+
         try:
+            logger.info("="*80)
+            logger.info("Starting plot generation")
+            logger.info(f"Chip: {self.chip_group}{self.chip_number}")
+            logger.info(f"Plot type: {self.plot_type}")
+            logger.info(f"Seq numbers: {self.seq_numbers}")
+            logger.info(f"Config keys: {list(self.config.keys())}")
+
             # Force non-interactive matplotlib backend for thread-safety
             import matplotlib
             matplotlib.use('Agg')  # Non-GUI backend for headless plotting
+            logger.info("Set matplotlib backend to Agg")
 
             # Import plotting modules
-            from pathlib import Path as PathLib
-            from src.plotting import its, ivg, transconductance, plot_utils
+            from src.plotting import its, ivg, transconductance
+            import polars as pl
+            logger.info("Imported plotting modules")
 
-            # Step 1: Load metadata
-            self.app.call_from_thread(self._update_progress, 10, "⣾ Loading experiment metadata...")
+            # Step 1: Load history
+            self.app.call_from_thread(self._update_progress, 10, "⣾ Loading experiment history...")
 
-            metadata_dir = PathLib(self.config.get("metadata_dir", "metadata"))
-            raw_dir = PathLib(self.config.get("raw_dir", "."))
+            history_dir = PathLib(self.config.get("history_dir", "data/03_history"))
+            stage_dir = PathLib(self.config.get("stage_dir", "data/02_stage/raw_measurements"))
 
-            # Load metadata using combine_metadata_by_seq
-            meta = plot_utils.combine_metadata_by_seq(
-                metadata_dir,
-                raw_dir,
-                float(self.chip_number),
-                self.seq_numbers,
-                self.chip_group
-            )
+            logger.info(f"History directory: {history_dir} (exists: {history_dir.exists()})")
+            logger.info(f"Stage directory: {stage_dir} (exists: {stage_dir.exists()})")
+
+            # Load history file
+            chip_name = f"{self.chip_group}{self.chip_number}"
+            history_file = history_dir / f"{chip_name}_history.parquet"
+            logger.info(f"Looking for history file: {history_file}")
+
+            if not history_file.exists():
+                logger.error(f"History file not found: {history_file}")
+                raise FileNotFoundError(f"History file not found: {history_file}")
+
+            logger.info(f"Loading history file: {history_file}")
+            # Load and filter history for selected seq numbers
+            history = pl.read_parquet(history_file)
+            logger.info(f"Loaded history with {history.height} total experiments")
+            logger.info(f"History columns: {history.columns}")
+
+            meta = history.filter(pl.col("seq").is_in(self.seq_numbers))
+            logger.info(f"Filtered to {meta.height} experiments matching seq numbers")
 
             if meta.height == 0:
-                raise ValueError("No metadata loaded for selected experiments")
+                logger.error(f"No experiments found for seq numbers: {self.seq_numbers}")
+                raise ValueError(f"No experiments found for seq numbers: {self.seq_numbers}")
+
+            # Validate all seq numbers were found
+            found_seqs = set(meta["seq"].to_list())
+            missing_seqs = set(self.seq_numbers) - found_seqs
+            if missing_seqs:
+                logger.error(f"Missing seq numbers: {sorted(missing_seqs)}")
+                raise ValueError(f"Seq numbers not found in history: {sorted(missing_seqs)}")
+
+            # Rename parquet_path to source_file for compatibility with plotting functions
+            if "parquet_path" in meta.columns:
+                meta = meta.rename({"parquet_path": "source_file"})
+                logger.info("Renamed 'parquet_path' to 'source_file'")
+            elif "source_file" not in meta.columns:
+                logger.error("History file missing both parquet_path and source_file columns")
+                raise ValueError("History file missing both parquet_path and source_file columns")
+
+            # FIX: source_file contains absolute paths but plotting functions expect relative paths
+            # Strip the stage_dir prefix to make paths relative
+            stage_dir_str = str(stage_dir)
+            logger.info(f"Converting source_file paths from absolute to relative (removing prefix: {stage_dir_str})")
+
+            def make_relative(path_str: str) -> str:
+                """Remove stage_dir prefix if present."""
+                if path_str.startswith(stage_dir_str + "/"):
+                    return path_str[len(stage_dir_str) + 1:]
+                elif path_str.startswith(stage_dir_str):
+                    return path_str[len(stage_dir_str):]
+                return path_str
+
+            meta = meta.with_columns(
+                pl.col("source_file").map_elements(make_relative, return_dtype=pl.Utf8).alias("source_file")
+            )
+            logger.info("Converted source_file paths to relative paths")
+
+            logger.info(f"Metadata preview (after path conversion):\n{meta.head()}")
+
+            # Check source_file paths
+            logger.info("Checking source_file paths:")
+            for row in meta.iter_rows(named=True):
+                source = row.get("source_file", "MISSING")
+                full_path = stage_dir / source if source != "MISSING" else "N/A"
+                exists = full_path.exists() if full_path != "N/A" else False
+                logger.info(f"  seq={row.get('seq')}, proc={row.get('proc')}, "
+                           f"source_file={source}, full_path={full_path}, exists={exists}")
 
             self.app.call_from_thread(self._update_progress, 30, f"⣾ Loaded {meta.height} experiment(s)...")
 
             # Step 2: Setup output directory (always append chip subdirectory)
             base_output_dir = PathLib(self.config.get("output_dir", "figs"))
+            logger.info(f"Base output directory: {base_output_dir}")
 
             # If user specified "figs/Alisson67/" or similar, extract just the base
             # Otherwise, always append chip subdirectory automatically
@@ -161,19 +243,25 @@ class PlotGenerationScreen(Screen):
                 # Append chip subdirectory
                 output_dir = base_output_dir / chip_subdir_name
 
+            logger.info(f"Final output directory: {output_dir}")
             output_dir.mkdir(parents=True, exist_ok=True)
+            logger.info(f"Created output directory (exists: {output_dir.exists()})")
 
             # Step 3: Generate plot tag from seq numbers
             seq_str = "_".join(map(str, self.seq_numbers[:10]))
             if len(self.seq_numbers) > 10:
                 seq_str += f"_plus{len(self.seq_numbers) - 10}more"
             plot_tag = seq_str
+            logger.info(f"Plot tag: {plot_tag}")
 
             self.app.call_from_thread(self._update_progress, 50, "⣾ Generating plot...")
 
             # Step 4: Call appropriate plotting function based on plot type
+            logger.info(f"Calling plotting function for {self.plot_type}")
+
             if self.plot_type == "ITS":
                 # ITS plot
+                logger.info("Setting ITS FIG_DIR")
                 its.FIG_DIR = output_dir
 
                 # Get ITS-specific config
@@ -186,9 +274,11 @@ class PlotGenerationScreen(Screen):
                 check_duration_mismatch = self.config.get("check_duration_mismatch", False)
                 duration_tolerance = self.config.get("duration_tolerance", 0.10)
 
+                logger.info(f"ITS config - legend_by: {legend_by}, baseline_t: {baseline_t}, "
+                           f"baseline_mode: {baseline_mode}, padding: {padding}")
+
                 # Check if all ITS are dark (no laser)
-                import polars as pl
-                its_df = meta.filter(pl.col("proc") == "ITS")
+                its_df = meta.filter(pl.col("proc") == "It")  # Changed from "ITS" to "It"
                 all_dark = False
 
                 if its_df.height > 0:
@@ -212,74 +302,110 @@ class PlotGenerationScreen(Screen):
 
                 # Call appropriate ITS plotting function
                 # For dark plots, always use vg legend (no LED/wavelength data)
-                if all_dark:
-                    its.plot_its_dark(
-                        meta,
-                        raw_dir,
-                        plot_tag,
-                        baseline_t=baseline_t,
-                        baseline_mode=baseline_mode,
-                        baseline_auto_divisor=baseline_auto_divisor,
-                        plot_start_time=plot_start_time,
-                        legend_by="vg",  # Force vg for dark plots
-                        padding=padding,
-                        check_duration_mismatch=check_duration_mismatch,
-                        duration_tolerance=duration_tolerance
-                    )
-                else:
-                    its.plot_its_overlay(
-                        meta,
-                        raw_dir,
-                        plot_tag,
-                        baseline_t=baseline_t,
-                        baseline_mode=baseline_mode,
-                        baseline_auto_divisor=baseline_auto_divisor,
-                        plot_start_time=plot_start_time,
-                        legend_by=legend_by,
-                        padding=padding,
-                        check_duration_mismatch=check_duration_mismatch,
-                        duration_tolerance=duration_tolerance
-                    )
+
+                # Capture stdout from plotting function to log
+                import sys
+                import io
+
+                stdout_capture = io.StringIO()
+                old_stdout = sys.stdout
+
+                try:
+                    sys.stdout = stdout_capture
+
+                    if all_dark:
+                        logger.info("Calling plot_its_dark()")
+                        logger.info(f"Arguments: stage_dir={stage_dir}, plot_tag={plot_tag}")
+                        its.plot_its_dark(
+                            meta,
+                            stage_dir,
+                            plot_tag,
+                            baseline_t=baseline_t,
+                            baseline_mode=baseline_mode,
+                            baseline_auto_divisor=baseline_auto_divisor,
+                            plot_start_time=plot_start_time,
+                            legend_by="vg",  # Force vg for dark plots
+                            padding=padding,
+                            check_duration_mismatch=check_duration_mismatch,
+                            duration_tolerance=duration_tolerance
+                        )
+                        logger.info("plot_its_dark() completed")
+                    else:
+                        logger.info("Calling plot_its_overlay()")
+                        logger.info(f"Arguments: stage_dir={stage_dir}, plot_tag={plot_tag}")
+                        its.plot_its_overlay(
+                            meta,
+                            stage_dir,
+                            plot_tag,
+                            baseline_t=baseline_t,
+                            baseline_mode=baseline_mode,
+                            baseline_auto_divisor=baseline_auto_divisor,
+                            plot_start_time=plot_start_time,
+                            legend_by=legend_by,
+                            padding=padding,
+                            check_duration_mismatch=check_duration_mismatch,
+                            duration_tolerance=duration_tolerance
+                        )
+                        logger.info("plot_its_overlay() completed")
+                finally:
+                    sys.stdout = old_stdout
+                    # Log any output from the plotting function
+                    output = stdout_capture.getvalue()
+                    if output:
+                        logger.info(f"Output from plotting function:\n{output}")
+                    else:
+                        logger.info("No output from plotting function")
 
             elif self.plot_type == "IVg":
                 # IVg plot
+                logger.info("Setting IVg FIG_DIR")
                 ivg.FIG_DIR = output_dir
-                ivg.plot_ivg_sequence(meta, raw_dir, plot_tag)
+                logger.info("Calling plot_ivg_sequence()")
+                logger.info(f"Arguments: stage_dir={stage_dir}, plot_tag={plot_tag}")
+                ivg.plot_ivg_sequence(meta, stage_dir, plot_tag)
+                logger.info("plot_ivg_sequence() completed")
 
             elif self.plot_type == "Transconductance":
                 # Transconductance plot
+                logger.info("Setting Transconductance FIG_DIR")
                 transconductance.FIG_DIR = output_dir
 
                 # Get transconductance-specific config
                 method = self.config.get("method", "gradient")
+                logger.info(f"Transconductance method: {method}")
 
                 if method == "savgol":
                     window_length = self.config.get("window_length", 9)
                     polyorder = self.config.get("polyorder", 3)
+                    logger.info(f"Calling plot_ivg_transconductance_savgol() with window={window_length}, polyorder={polyorder}")
                     transconductance.plot_ivg_transconductance_savgol(
                         meta,
-                        raw_dir,
+                        stage_dir,
                         plot_tag,
                         window_length=window_length,
                         polyorder=polyorder
                     )
+                    logger.info("plot_ivg_transconductance_savgol() completed")
                 else:
+                    logger.info("Calling plot_ivg_transconductance()")
                     transconductance.plot_ivg_transconductance(
                         meta,
-                        raw_dir,
+                        stage_dir,
                         plot_tag
                     )
+                    logger.info("plot_ivg_transconductance() completed")
             else:
+                logger.error(f"Unknown plot type: {self.plot_type}")
                 raise ValueError(f"Unknown plot type: {self.plot_type}")
 
+            logger.info("Plotting function completed successfully")
             self.app.call_from_thread(self._update_progress, 90, "⣾ Saving file...")
 
             # Step 5: Determine output file path (using standardized naming)
             if self.plot_type == "ITS":
                 # Check if it's a dark measurement
                 all_dark = False
-                import polars as pl
-                its_df = meta.filter(pl.col("proc") == "ITS")
+                its_df = meta.filter(pl.col("proc") == "It")  # Changed from "ITS" to "It"
                 if its_df.height > 0 and "Laser toggle" in its_df.columns:
                     try:
                         toggles = []
@@ -314,11 +440,22 @@ class PlotGenerationScreen(Screen):
                     filename = f"encap{self.chip_number}_gm_{plot_tag}.png"
 
             output_path = output_dir / filename
+            logger.info(f"Expected output file: {output_path}")
 
             # Get file size
             file_size = 0.0
             if output_path.exists():
                 file_size = output_path.stat().st_size / (1024 * 1024)  # Convert to MB
+                logger.info(f"Output file exists! Size: {file_size:.2f} MB")
+            else:
+                logger.warning(f"Output file does not exist at expected path: {output_path}")
+                # List files in output directory to debug
+                if output_dir.exists():
+                    logger.info(f"Files in {output_dir}:")
+                    for f in output_dir.iterdir():
+                        logger.info(f"  - {f.name} ({f.stat().st_size / 1024:.1f} KB)")
+                else:
+                    logger.error(f"Output directory does not exist: {output_dir}")
 
             # Complete
             self.app.call_from_thread(self._update_progress, 100, "✓ Complete!")
@@ -326,12 +463,20 @@ class PlotGenerationScreen(Screen):
 
             # Show success screen
             elapsed = time.time() - self.start_time
+            logger.info(f"Plot generation completed in {elapsed:.2f}s")
+            logger.info("="*80)
             self.app.call_from_thread(self._on_success, elapsed, output_path, file_size)
 
         except Exception as e:
             # Show error screen
             import traceback
             error_details = traceback.format_exc()
+            logger.error("="*80)
+            logger.error(f"Plot generation failed with exception: {type(e).__name__}")
+            logger.error(f"Error message: {str(e)}")
+            logger.error("Full traceback:")
+            logger.error(error_details)
+            logger.error("="*80)
             self.app.call_from_thread(self._on_error, str(e), type(e).__name__, error_details)
 
     def _update_progress(self, progress: float, status: str) -> None:
@@ -560,16 +705,14 @@ class PlotSuccessScreen(Screen):
             from pathlib import Path as PathLib
 
             # Get config paths
-            metadata_dir = PathLib(self.app.plot_config.get("metadata_dir", "metadata"))
-            raw_dir = PathLib(self.app.plot_config.get("raw_dir", "."))
+            history_dir = PathLib(self.app.plot_config.get("history_dir", "data/03_history"))
 
             # Push experiment selector for the same plot type and chip
             self.app.push_screen(ExperimentSelectorScreen(
                 chip_number=self.chip_number,
                 chip_group=self.chip_group,
                 plot_type=self.plot_type,
-                metadata_dir=metadata_dir,
-                raw_dir=raw_dir,
+                history_dir=history_dir,
             ))
 
     def action_main_menu(self) -> None:

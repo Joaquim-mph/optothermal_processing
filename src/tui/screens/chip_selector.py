@@ -145,14 +145,10 @@ class ChipSelectorScreen(Screen):
 
     def __init__(
         self,
-        metadata_dir: Path,
-        raw_dir: Path,
         history_dir: Path,
         chip_group: str,
     ):
         super().__init__()
-        self.metadata_dir = metadata_dir
-        self.raw_dir = raw_dir
         self.history_dir = history_dir
         self.chip_group = chip_group
         self.chips: list[ChipInfo] = []
@@ -196,8 +192,6 @@ class ChipSelectorScreen(Screen):
             # Discover chips
             loading.update("⣾ Scanning chip histories...")
             self.chips = discover_chips(
-                self.metadata_dir,
-                self.raw_dir,
                 self.history_dir,
                 self.chip_group
             )
@@ -237,7 +231,7 @@ class ChipSelectorScreen(Screen):
 
         except Exception as e:
             loading.update("")
-            error_text.update(f"⚠ Error discovering chips: {e}\nPaths: metadata={self.metadata_dir}, history={self.history_dir}")
+            error_text.update(f"⚠ Error discovering chips: {e}\nHistory dir: {self.history_dir}")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle button presses."""

@@ -15,7 +15,6 @@ from textual.screen import Screen
 from textual.binding import Binding
 
 from src.interactive_selector import ExperimentSelectorScreen as BaseExperimentSelector
-from src.core.timeline import build_chip_history
 
 
 class ExperimentSelectorScreen(Screen):
@@ -34,15 +33,13 @@ class ExperimentSelectorScreen(Screen):
         chip_number: int,
         chip_group: str,
         plot_type: str,
-        metadata_dir: Path,
-        raw_dir: Path,
+        history_dir: Path,
     ):
         super().__init__()
         self.chip_number = chip_number
         self.chip_group = chip_group
         self.plot_type = plot_type
-        self.metadata_dir = metadata_dir
-        self.raw_dir = raw_dir
+        self.history_dir = history_dir
 
     def compose(self) -> ComposeResult:
         """Compose is handled by the nested screen."""
@@ -51,14 +48,21 @@ class ExperimentSelectorScreen(Screen):
 
     def on_mount(self) -> None:
         """Load chip history and launch the interactive selector."""
-        # Build chip history
+        # Load chip history from Parquet file
         try:
-            history_df = build_chip_history(
-                self.metadata_dir,
-                self.raw_dir,
-                self.chip_number,
-                self.chip_group
-            )
+            chip_name = f"{self.chip_group}{self.chip_number}"
+            history_file = self.history_dir / f"{chip_name}_history.parquet"
+
+            if not history_file.exists():
+                self.app.notify(
+                    f"History file not found: {history_file}",
+                    severity="error",
+                    timeout=5
+                )
+                self.app.pop_screen()
+                return
+
+            history_df = pl.read_parquet(history_file)
 
             if history_df.height == 0:
                 self.app.notify(
@@ -122,8 +126,7 @@ class ExperimentSelectorScreen(Screen):
                 plot_type=self.plot_type,
                 seq_numbers=result,
                 config=config,
-                metadata_dir=self.metadata_dir,
-                raw_dir=self.raw_dir,
+                history_dir=self.history_dir,
             ))
 
     def action_cancel(self) -> None:

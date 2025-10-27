@@ -47,9 +47,8 @@ class PlotterApp(App):
 
     def __init__(
         self,
-        metadata_dir: Path = Path("metadata"),
-        raw_dir: Path = Path("."),
-        history_dir: Path = Path("chip_histories"),
+        stage_dir: Path = Path("data/02_stage/raw_measurements"),
+        history_dir: Path = Path("data/03_history"),
         output_dir: Path = Path("figs"),
         chip_group: str = "Alisson",
     ):
@@ -58,12 +57,10 @@ class PlotterApp(App):
 
         Parameters
         ----------
-        metadata_dir : Path
-            Metadata directory path
-        raw_dir : Path
-            Raw data directory path
+        stage_dir : Path
+            Staged Parquet data directory path
         history_dir : Path
-            Chip history directory path
+            Chip history directory path (Parquet files)
         output_dir : Path
             Output directory for plots
         chip_group : str
@@ -72,16 +69,14 @@ class PlotterApp(App):
         super().__init__()
 
         # Store configuration paths
-        self.metadata_dir = metadata_dir
-        self.raw_dir = raw_dir
+        self.stage_dir = stage_dir
         self.history_dir = history_dir
         self.output_dir = output_dir
         self.chip_group = chip_group
 
         # Initialize plot configuration
         self.plot_config = {
-            "metadata_dir": metadata_dir,
-            "raw_dir": raw_dir,
+            "stage_dir": stage_dir,
             "history_dir": history_dir,
             "output_dir": output_dir,
             "chip_group": chip_group,
@@ -106,8 +101,7 @@ class PlotterApp(App):
     def reset_config(self) -> None:
         """Reset plot configuration to defaults."""
         self.plot_config = {
-            "metadata_dir": self.metadata_dir,
-            "raw_dir": self.raw_dir,
+            "stage_dir": self.stage_dir,
             "history_dir": self.history_dir,
             "output_dir": self.output_dir,
             "chip_group": self.chip_group,

@@ -15,17 +15,15 @@ from src.tui.app import PlotterApp
 
 def main():
     """Launch the TUI application."""
-    # Default configuration paths
-    metadata_dir = Path("metadata")
-    raw_dir = Path(".")
-    history_dir = Path("chip_histories")
+    # Default configuration paths (Parquet-based pipeline)
+    stage_dir = Path("data/02_stage/raw_measurements")
+    history_dir = Path("data/03_history")
     output_dir = Path("figs")
     chip_group = "Alisson"
 
     # Create and run the app
     app = PlotterApp(
-        metadata_dir=metadata_dir,
-        raw_dir=raw_dir,
+        stage_dir=stage_dir,
         history_dir=history_dir,
         output_dir=output_dir,
         chip_group=chip_group,

@@ -166,8 +166,6 @@ class MainMenuScreen(Screen):
 
         # Navigate to Chip Selector (Step 1)
         self.app.push_screen(ChipSelectorScreen(
-            metadata_dir=self.app.metadata_dir,
-            raw_dir=self.app.raw_dir,
             history_dir=self.app.history_dir,
             chip_group=self.app.chip_group,
         ))

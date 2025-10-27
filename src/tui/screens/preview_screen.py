@@ -31,8 +31,7 @@ class PreviewScreen(Screen):
         plot_type: str,
         seq_numbers: List[int],
         config: dict,
-        metadata_dir: Optional[Path] = None,
-        raw_dir: Optional[Path] = None,
+        history_dir: Optional[Path] = None,
     ):
         super().__init__()
         self.chip_number = chip_number
@@ -40,8 +39,7 @@ class PreviewScreen(Screen):
         self.plot_type = plot_type
         self.seq_numbers = seq_numbers
         self.config = config
-        self.metadata_dir = metadata_dir or Path("metadata")
-        self.raw_dir = raw_dir or Path("raw_data")
+        self.history_dir = history_dir or Path("data/03_history")
 
     BINDINGS = [
         Binding("escape", "back", "Back", priority=True),
@@ -292,12 +290,19 @@ class PreviewScreen(Screen):
         """Generate the plot."""
         from src.tui.screens.plot_generation import PlotGenerationScreen
 
+        # Add stage_dir and history_dir from app to config
+        config_with_paths = {
+            **self.config,
+            "stage_dir": self.app.stage_dir,
+            "history_dir": self.app.history_dir,
+        }
+
         self.app.push_screen(PlotGenerationScreen(
             chip_number=self.chip_number,
             chip_group=self.chip_group,
             plot_type=self.plot_type,
             seq_numbers=self.seq_numbers,
-            config=self.config,
+            config=config_with_paths,
         ))
 
     def action_save_exit(self) -> None:
@@ -444,29 +449,32 @@ class PreviewScreen(Screen):
         if not self.config.get("check_duration_mismatch", False):
             return None
 
-        # Need polars to load metadata
+        # Need polars to load history
         if pl is None:
             return None
 
         try:
-            # Load metadata using combine_metadata_by_seq approach
-            from src.plots import combine_metadata_by_seq
+            # Load history file
+            chip_name = f"{self.chip_group}{self.chip_number}"
+            history_file = self.history_dir / f"{chip_name}_history.parquet"
 
-            df = combine_metadata_by_seq(
-                metadata_dir=self.metadata_dir,
-                raw_data_dir=self.raw_dir,
-                chip=float(self.chip_number),
-                seq_numbers=self.seq_numbers,
-                chip_group_name=self.chip_group
-            )
+            if not history_file.exists():
+                return None
 
-            if df is None or len(df) == 0:
+            # Load and filter history for selected seq numbers
+            history = pl.read_parquet(history_file)
+            meta = history.filter(pl.col("seq").is_in(self.seq_numbers))
+
+            if meta.height == 0:
                 return None
 
             # Get durations from metadata
             from src.plotting.its import _get_experiment_durations, _check_duration_mismatch
 
-            durations = _get_experiment_durations(df, self.raw_dir)
+            # Get stage_dir from app config
+            stage_dir = self.config.get("stage_dir", Path("data/02_stage/raw_measurements"))
+
+            durations = _get_experiment_durations(meta, stage_dir)
 
             if not durations:
                 return None

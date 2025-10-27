@@ -273,8 +273,7 @@ class RecentConfigsScreen(Screen):
             plot_type=plot_type,
             seq_numbers=seq_numbers,
             config=config,
-            metadata_dir=app.metadata_dir,
-            raw_dir=app.raw_dir,
+            history_dir=app.history_dir,
         ))
 
     def action_delete_config(self) -> None:

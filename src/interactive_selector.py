@@ -24,8 +24,6 @@ from textual.widgets import (
 from textual.binding import Binding
 from textual.screen import Screen
 
-from src.core.timeline import build_chip_history
-
 
 class ExperimentSelectorScreen(Screen):
     """Screen for selecting experiments interactively."""
@@ -705,32 +703,32 @@ class ExperimentSelectorApp(App):
         self,
         chip_number: int,
         chip_group: str,
-        metadata_dir: Path,
-        raw_dir: Path,
+        history_dir: Path,
         proc_filter: Optional[str] = None,
         title: str = "Select Experiments",
     ):
         super().__init__()
         self.chip_number = chip_number
         self.chip_group = chip_group
-        self.metadata_dir = metadata_dir
-        self.raw_dir = raw_dir
+        self.history_dir = history_dir
         self.proc_filter = proc_filter
         self.title_text = title
         self.selected_seqs: Optional[List[int]] = None
 
     def on_mount(self) -> None:
         """Load history and show selector screen."""
-        
+
         self.theme = "tokyo-night"
-        
-        # Build chip history
-        history_df = build_chip_history(
-            self.metadata_dir,
-            self.raw_dir,
-            self.chip_number,
-            self.chip_group
-        )
+
+        # Load chip history from Parquet file
+        chip_name = f"{self.chip_group}{self.chip_number}"
+        history_file = self.history_dir / f"{chip_name}_history.parquet"
+
+        if not history_file.exists():
+            self.exit(message=f"History file not found: {history_file}")
+            return
+
+        history_df = pl.read_parquet(history_file)
 
         if history_df.height == 0:
             self.exit(message=f"No experiments found for {self.chip_group}{self.chip_number}")

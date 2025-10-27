@@ -5,7 +5,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import polars as pl
 
-from src.core.utils import _read_measurement
+from src.core.utils import read_measurement_parquet
 
 # Configuration (will be overridden by CLI)
 FIG_DIR = Path("figs")
@@ -38,17 +38,29 @@ def plot_ivg_sequence(df: pl.DataFrame, base_dir: Path, tag: str):
         if not path.exists():
             print(f"[warn] missing file: {path}")
             continue
-        d = _read_measurement(path)
+        d = read_measurement_parquet(path)
+
+        # Normalize column names (handle both formats)
+        col_map = {}
+        if "VG (V)" in d.columns:
+            col_map["VG (V)"] = "VG"
+        elif "Vg (V)" in d.columns:
+            col_map["Vg (V)"] = "VG"
+        if "I (A)" in d.columns:
+            col_map["I (A)"] = "I"
+        if col_map:
+            d = d.rename(col_map)
+
         # Expect columns: VG, I (standardized)
         if not {"VG", "I"} <= set(d.columns):
             print(f"[warn] {path} lacks VG/I; got {d.columns}")
             continue
-        lbl = f"#{int(row['file_idx'])}  {'light' if row['with_light'] else 'dark'}"
+        lbl = f"#{int(row['file_idx'])}  {'light' if row['has_light'] else 'dark'}"
         plt.plot(d["VG"], d["I"]*1e6, label=lbl)
 
     plt.xlabel("$\\rm{V_g\\ (V)}$")
     plt.ylabel("$\\rm{I_{ds}\\ (\\mu A)}$")
-    chipnum = int(df['Chip number'][0])
+    chipnum = int(df['chip_number'][0])  # Use snake_case column name from history
     plt.title(f"Encap{chipnum} — IVg")
     plt.legend()
     plt.ylim(bottom=0)

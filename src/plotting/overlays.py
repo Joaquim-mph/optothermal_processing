@@ -7,7 +7,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 import polars as pl
 
-from src.core.utils import _read_measurement
+from src.core.utils import read_measurement_parquet
 
 try:
     import imageio.v3 as iio
@@ -65,7 +65,19 @@ def ivg_sequence_gif(
         if not p.exists():
             print(f"[warn] missing file: {p}")
             continue
-        d = _read_measurement(p)
+        d = read_measurement_parquet(p)
+
+        # Normalize column names (handle both formats)
+        col_map = {}
+        if "VG (V)" in d.columns:
+            col_map["VG (V)"] = "VG"
+        elif "Vg (V)" in d.columns:
+            col_map["Vg (V)"] = "VG"
+        if "I (A)" in d.columns:
+            col_map["I (A)"] = "I"
+        if col_map:
+            d = d.rename(col_map)
+
         if not {"VG", "I"} <= set(d.columns):
             print(f"[warn] {p} lacks VG/I; got {d.columns}")
             continue
@@ -76,7 +88,7 @@ def ivg_sequence_gif(
             y = y * 1e6
 
         # legend label: "#idx  light/dark  [λ=… nm]"
-        label = f"#{int(row['file_idx'])}  {'light' if row.get('with_light', False) else 'dark'}"
+        label = f"#{int(row['file_idx'])}  {'light' if row.get('has_light', False) else 'dark'}"
         # show λ only if Laser toggle is true
         if bool(row.get("Laser toggle", False)):
             wl = row.get("Laser wavelength", None)
@@ -106,7 +118,7 @@ def ivg_sequence_gif(
 
     # -------- render frames to memory using PIL instead of matplotlib canvas --------
     frames = []
-    chip_txt = f"Encap{int(df['Chip number'][0])}" if "Chip number" in df.columns else "Chip"
+    chip_txt = f"Encap{int(df['chip_number'][0])}" if "chip_number" in df.columns else "Chip"
 
     for i in range(len(curves)):
         plt.close("all")

@@ -1,0 +1,82 @@
+# Chip Parameters Configuration
+# ==============================
+#
+# Chip-specific parameters for staging validation and analysis.
+# Used by the staging pipeline to validate measurements and provide
+# chip-specific defaults.
+#
+# Format: chip_number → parameters
+#
+# Available procedure types (from procedures.yml):
+#   - IVg: Gate voltage sweep
+#   - IV: Drain voltage sweep
+#   - IVgT: Gate voltage sweep with temperature
+#   - It: Current vs time (photoresponse, time series)
+#   - ITt: Current vs time with temperature
+#   - LaserCalibration: Laser power calibration
+#   - Tt: Temperature vs time
+
+# ══════════════════════════════════════════════════════════════════
+# Chip Definitions
+# ══════════════════════════════════════════════════════════════════
+#
+# Add chip-specific parameters below. Example format:
+#
+# 67:
+#   chip_group: "Alisson"
+#   notes: "Description of this chip"
+#   expected_procs: ["IVg", "It", "IV"]
+#   typical_vg_range: [-10.0, 10.0]  # V (optional)
+#   typical_vds: 1.0                 # V (optional)
+#   typical_wavelengths: [455, 530, 625]  # nm (optional)
+#   fabrication_date: "2025-09-15"   # (optional)
+#   encapsulation: true              # (optional)
+
+# Chips will be added here as needed...
+
+# ══════════════════════════════════════════════════════════════════
+# Global Defaults
+# ══════════════════════════════════════════════════════════════════
+
+defaults:
+  # Timezone for timestamp localization
+  # All timestamps in CSVs are localized to this timezone before
+  # conversion to UTC for storage in manifest.parquet
+  local_tz: "America/Santiago"
+
+  # Extraction/parser version
+  # Auto-detected from git describe if not specified
+  # Format: v{major}.{minor}.{patch}+g{commit_hash}[-dirty]
+  extraction_version: null  # null = auto-detect from git
+
+  # Performance settings for staging pipeline
+  workers: 6              # Parallel worker processes (1-32)
+  polars_threads: 1       # Polars threads per worker (1-16)
+
+  # Default chip group if not detected from filename
+  default_chip_group: "Alisson"
+
+  # Staging behavior
+  force_overwrite: false  # Overwrite existing Parquet files if true
+  only_yaml_data: false   # Drop columns not in procedures.yml if true
+
+  # Validation thresholds (future use)
+  # max_current_a: 1.0e-3
+  # max_voltage_v: 100.0
+  # min_measurement_duration_s: 1.0
+
+# ══════════════════════════════════════════════════════════════════
+# Notes
+# ══════════════════════════════════════════════════════════════════
+#
+# Usage:
+#   1. Add new chips as they are fabricated/tested
+#   2. Update expected_procs based on measurement plan
+#   3. Document chip-specific quirks in notes field
+#   4. Use for staging validation and metadata enrichment
+#
+# Future enhancements:
+#   - Chip-specific validation rules (voltage limits, etc.)
+#   - Fabrication batch tracking
+#   - Material/structure metadata
+#   - Cross-reference with lab notebook entries

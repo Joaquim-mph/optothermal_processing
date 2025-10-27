@@ -194,16 +194,16 @@ def auto_select_experiments(
     [52, 57, 58]
     """
     chip_name = f"{chip_group}{chip}"
-    history_file = history_dir / f"{chip_name}_history.csv"
+    history_file = history_dir / f"{chip_name}_history.parquet"
 
     if not history_file.exists():
         raise FileNotFoundError(
             f"Chip history file not found: {history_file}\n"
-            f"Run 'chip-histories' command first to generate history files."
+            f"Run 'build-all-histories' command first to generate history files."
         )
 
     # Load history
-    history = pl.read_csv(history_file)
+    history = pl.read_parquet(history_file)
 
     # Filter by procedure
     filtered = history.filter(pl.col("proc") == proc)
@@ -276,13 +276,13 @@ def validate_experiments_exist(
     (False, ['Seq number 999 not found in Alisson67 history'])
     """
     chip_name = f"{chip_group}{chip}"
-    history_file = history_dir / f"{chip_name}_history.csv"
+    history_file = history_dir / f"{chip_name}_history.parquet"
 
     if not history_file.exists():
         return False, [f"Chip history file not found: {history_file}"]
 
     # Load history
-    history = pl.read_csv(history_file)
+    history = pl.read_parquet(history_file)
     valid_seqs = set(history["seq"].to_list())
 
     # Check each seq number
@@ -292,6 +292,84 @@ def validate_experiments_exist(
             errors.append(f"Seq number {seq} not found in {chip_name} history")
 
     return len(errors) == 0, errors
+
+
+def load_history_for_plotting(
+    seq_numbers: list[int],
+    chip: int,
+    history_dir: Path,
+    chip_group: str
+) -> pl.DataFrame:
+    """
+    Load chip history data for plotting, filtered by seq numbers.
+
+    This function loads the chip history Parquet file and returns rows
+    for the specified seq numbers. The returned DataFrame includes the
+    `parquet_path` column pointing to staged measurement data.
+
+    Parameters
+    ----------
+    seq_numbers : list[int]
+        Seq numbers to load
+    chip : int
+        Chip number
+    history_dir : Path
+        Directory containing chip history Parquet files
+    chip_group : str
+        Chip group name prefix
+
+    Returns
+    -------
+    pl.DataFrame
+        History data for specified experiments with columns:
+        seq, date, time_hms, proc, summary, has_light, parquet_path, ...
+
+    Raises
+    ------
+    FileNotFoundError
+        If chip history file doesn't exist
+    ValueError
+        If seq numbers not found in history
+
+    Examples
+    --------
+    >>> history = load_history_for_plotting([52, 57, 58], 67, Path("data/03_history"), "Alisson")
+    >>> print(history.columns)
+    ['seq', 'date', 'proc', 'parquet_path', ...]
+    """
+    chip_name = f"{chip_group}{chip}"
+    history_file = history_dir / f"{chip_name}_history.parquet"
+
+    if not history_file.exists():
+        raise FileNotFoundError(
+            f"Chip history file not found: {history_file}\n"
+            f"Run 'build-all-histories' command first to generate history files."
+        )
+
+    # Load full history
+    history = pl.read_parquet(history_file)
+
+    # Filter by seq numbers
+    filtered = history.filter(pl.col("seq").is_in(seq_numbers))
+
+    if filtered.height == 0:
+        raise ValueError(
+            f"No experiments found for seq numbers: {seq_numbers}\n"
+            f"Available seq range: {history['seq'].min()} to {history['seq'].max()}"
+        )
+
+    # Verify all seq numbers were found
+    found_seqs = set(filtered["seq"].to_list())
+    missing_seqs = set(seq_numbers) - found_seqs
+    if missing_seqs:
+        raise ValueError(
+            f"Seq numbers not found in {chip_name} history: {sorted(missing_seqs)}"
+        )
+
+    # Sort by seq to maintain order
+    filtered = filtered.sort("seq")
+
+    return filtered
 
 
 def apply_metadata_filters(

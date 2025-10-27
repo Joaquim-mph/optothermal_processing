@@ -68,15 +68,15 @@ def show_history_command(
         python process_and_analyze.py show-history 72 --proc ITS --limit 20
     """
     chip_name = f"{chip_group}{chip_number}"
-    history_file = history_dir / f"{chip_name}_history.csv"
+    history_file = history_dir / f"{chip_name}_history.parquet"
 
     # Check if file exists
     if not history_file.exists():
         console.print(f"[red]Error:[/red] History file not found: {history_file}")
-        console.print(f"\n[yellow]Hint:[/yellow] Run [cyan]chip-histories[/cyan] command first to generate history files.")
+        console.print(f"\n[yellow]Hint:[/yellow] Run [cyan]build-all-histories[/cyan] command first to generate history files.")
         console.print(f"Available files in {history_dir}:")
         if history_dir.exists():
-            for f in sorted(history_dir.glob("*_history.csv")):
+            for f in sorted(history_dir.glob("*_history.parquet")):
                 console.print(f"  • {f.name}")
         else:
             console.print(f"  [dim](directory does not exist)[/dim]")
@@ -84,7 +84,7 @@ def show_history_command(
 
     # Load history
     try:
-        history = pl.read_csv(history_file)
+        history = pl.read_parquet(history_file)
     except Exception as e:
         console.print(f"[red]Error:[/red] Failed to read history file: {e}")
         raise typer.Exit(1)

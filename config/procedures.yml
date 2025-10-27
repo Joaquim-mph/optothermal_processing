@@ -1,0 +1,179 @@
+procedures:
+  ITt:
+    Parameters:
+      Irange: float
+      NPLC: int
+      N_avg: int
+      Chained execution: bool
+      Chip group name: str
+      Chip number: int
+      Information: str
+      Laser ON+OFF period: float
+      Laser voltage: float
+      Laser wavelength: float
+      Procedure version: str
+      Sample: str
+      Sampling time (excluding Keithley): float
+      Show more: bool
+      VDS: float
+      VG: float
+      Pulse time: float
+    Metadata:
+      Start time: datetime
+    Data:
+      t (s): float
+      I (A): float
+      VL (V): float
+      Plate T (degC): float
+      Ambient T (degC): float
+      Clock (ms): float
+  IVg:
+    Parameters:
+      Irange: float
+      N_avg: int
+      Chained execution: bool
+      NPLC: int
+      Burn-in time: float
+      Chip group name: str
+      Chip number: int
+      Information: str
+      Laser toggle: bool
+      Laser voltage: float
+      Laser wavelength: float
+      Procedure version: str
+      Sample: str
+      Show more: bool
+      Step time: float
+      VDS: float
+      VG end: float
+      VG start: float
+      VG step: float
+    Metadata:
+      Start time: datetime
+    Data:
+      Vg (V): float
+      I (A): float
+  IVgT:
+    Parameters:
+      Irange: float
+      NPLC: int
+      N_avg: int
+      Burn-in time: float
+      Chained execution: bool
+      Chip group name: str
+      Chip number: int
+      Information: str
+      Laser toggle: bool
+      Laser voltage: float
+      Laser wavelength: float_no_unit
+      Procedure version: str
+      Sample: str
+      Show more: bool
+      Step time: float
+      VDS: float
+      VG end: float
+      VG start: float
+      VG step: float
+    Metadata:
+      Start time: datetime
+    Data:
+      Vg (V): float
+      I (A): float
+      Plate T (degC): float
+      Ambient T (degC): float
+      Clock (ms): float
+
+  It:
+    Parameters:
+      Irange: float
+      N_avg: int
+      NPLC: int
+      Chip group name: str
+      Chip number: int
+      Information: str
+      Laser ON+OFF period: float
+      Laser voltage: float
+      Laser wavelength: float
+      Procedure version: str
+      Sample: str
+      Sampling time (excluding Keithley): float
+      Show more: bool
+      VDS: float
+      VG: float
+      T step start time: float
+      Initial (current) T: float
+      Target T: float
+      Chained execution: bool
+    Metadata:
+      Start time: datetime
+    Data:
+      t (s): float
+      I (A): float
+      VL (V): float
+  LaserCalibration:
+    Parameters:
+      N_avg: int
+      Optical fiber: str
+      Chained execution: bool
+      Laser wavelength: float
+      Procedure version: str
+      Step time: float
+      Laser voltage end: float
+      Laser voltage start: float
+      Laser voltage step: float
+    Metadata:
+      Start time: datetime
+      Sensor model: str
+    Data:
+      VL (V): float
+      Power (W): float
+  Tt:
+    Parameters:
+      Chained execution: bool
+      Chip group name: str
+      Chip number: int
+      Information: str
+      Initial (current) T: float
+      Target T: float      
+      T start: float
+      T end: float
+      T step: float
+      Step time: float
+      Laser ON+OFF period: float
+      Procedure version: str
+      Sample: str
+      Sampling time (excluding Keithley): float
+      Show more: bool
+    Metadata:
+      Start time: datetime
+    Data:
+      Time (s): float
+      Plate Temperature (degC): float
+      Ambient Temperature (degC): float
+      Clock: float
+  IV:
+    Parameters:
+      Irange: float
+      NPLC: int
+      N_avg: int
+      Burn-in time: float
+      Chained execution: bool
+      Chip group name: str
+      Chip number: int
+      Information: str
+      Laser toggle: bool
+      Laser voltage: float
+      Laser wavelength: float
+      Procedure version: str
+      Sample: str
+      Show more: bool
+      Step time: float
+      VG: float
+      VSD end: float
+      VSD start: float
+      VSD step: float
+    Metadata:
+      Start time: datetime
+    Data:
+      Vsd (V): float
+      I (A): float

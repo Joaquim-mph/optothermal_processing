@@ -139,6 +139,47 @@ def _read_measurement(path: Path) -> pl.DataFrame:
 # -------------------------------
 # Make timeline + sessions
 # -------------------------------
+def read_measurement_parquet(path: Path) -> pl.DataFrame:
+    """
+    Read measurement data from staged Parquet file.
+
+    This is the modern replacement for _read_measurement() that reads from
+    schema-validated Parquet files in the staging area instead of raw CSVs.
+
+    Parameters
+    ----------
+    path : Path
+        Path to staged Parquet file (e.g., data/02_stage/raw_measurements/proc=It/date=2025-10-18/run_id=abc123/part-000.parquet)
+
+    Returns
+    -------
+    pl.DataFrame
+        Measurement data with standardized column names
+
+    Notes
+    -----
+    Parquet files from the staging system already have:
+    - Schema validation
+    - Correct types
+    - Standardized column names
+    - No header parsing needed
+
+    Example
+    -------
+    >>> path = Path("data/02_stage/raw_measurements/proc=It/date=2025-10-18/run_id=a1b2c3d4/part-000.parquet")
+    >>> df = read_measurement_parquet(path)
+    >>> print(df.columns)
+    ['t (s)', 'I (A)', 'VL (V)', ...]
+    """
+    try:
+        return pl.read_parquet(path)
+    except FileNotFoundError:
+        return pl.DataFrame()
+    except Exception as e:
+        print(f"Warning: Failed to read Parquet file {path}: {e}")
+        return pl.DataFrame()
+
+
 def load_and_prepare_metadata(meta_csv: str, chip: float) -> pl.DataFrame:
     df = pl.read_csv(meta_csv, infer_schema_length=1000)
     # Normalize column names we will use often

@@ -10,10 +10,7 @@ import typer
 
 # Import command functions from command modules
 from src.cli.commands.data_pipeline import (
-    parse_all_command,
-    chip_histories_command,
     full_pipeline_command,
-    quick_stats_command
 )
 from src.cli.commands.history import (
     show_history_command,
@@ -38,10 +35,7 @@ app = typer.Typer(
 )
 
 # Register data pipeline commands
-app.command(name="parse-all")(parse_all_command)
-app.command(name="chip-histories")(chip_histories_command)
 app.command(name="full-pipeline")(full_pipeline_command)
-app.command(name="quick-stats")(quick_stats_command)
 
 # Register history commands
 app.command(name="show-history")(show_history_command)

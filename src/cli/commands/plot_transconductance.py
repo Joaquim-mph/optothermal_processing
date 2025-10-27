@@ -89,20 +89,10 @@ def plot_transconductance_command(
         "--date",
         help="Filter by date (YYYY-MM-DD)"
     ),
-    metadata_dir: Path = typer.Option(
-        Path("metadata"),
-        "--metadata",
-        help="Metadata directory"
-    ),
-    raw_dir: Path = typer.Option(
-        Path("."),
-        "--raw-dir",
-        help="Raw data directory"
-    ),
     history_dir: Path = typer.Option(
-        Path("chip_histories"),
+        Path("data/03_history"),
         "--history-dir",
-        help="Chip history directory"
+        help="Chip history directory (Parquet files)"
     ),
     preview: bool = typer.Option(
         False,
@@ -185,30 +175,12 @@ def plot_transconductance_command(
             )
             console.print(f"[green]✓[/green] Auto-selected {len(seq_numbers)} IVg experiment(s)")
         elif interactive:
-            # Launch interactive selector
-            from src.interactive_selector import select_experiments_interactive
-
-            console.print("[cyan]Launching interactive selector...[/cyan]")
-            console.print("[dim]Use Space to select, Enter to confirm, Q to quit[/dim]\n")
-
-            seq_numbers = select_experiments_interactive(
-                chip_number,
-                chip_group=chip_group,
-                metadata_dir=metadata_dir,
-                raw_dir=raw_dir,
-                proc_filter="IVg",
-                title=f"Select IVg Experiments - {chip_group}{chip_number} (Transconductance)"
-            )
-
-            if seq_numbers is None:
-                console.print("\n[yellow]Selection cancelled[/yellow]")
-                raise typer.Exit(0)
-
-            if not seq_numbers:
-                console.print("\n[red]No experiments selected[/red]")
-                raise typer.Exit(1)
-
-            console.print(f"\n[green]✓[/green] Selected {len(seq_numbers)} IVg experiment(s)")
+            console.print("[red]Error:[/red] Interactive mode not yet updated for Parquet-based pipeline")
+            console.print("[yellow]Hint:[/yellow] Use --seq or --auto instead:")
+            console.print("  [cyan]--seq 2,8,14[/cyan]   # Specify seq numbers")
+            console.print("  [cyan]--auto[/cyan]         # Auto-select all IVg")
+            console.print("  [cyan]--auto --vds 0.1[/cyan] # Auto-select with filter")
+            raise typer.Exit(1)
         else:
             seq_numbers = parse_seq_list(seq)
             console.print(f"[cyan]Using specified seq numbers:[/cyan] {seq_numbers}")
@@ -261,40 +233,49 @@ def plot_transconductance_command(
         console.print("[dim]  Use --preview to see full experiment details[/dim]")
         raise typer.Exit(0)
 
-    # Step 3: Load metadata using combine_metadata_by_seq
-    console.print("\n[cyan]Loading experiment metadata...[/cyan]")
+    # Step 3: Load history data (includes parquet_path to staged measurements)
+    console.print("\n[cyan]Loading experiment history...[/cyan]")
     try:
-        meta = plot_utils.combine_metadata_by_seq(
-            metadata_dir,
-            raw_dir,
-            float(chip_number),
+        from src.cli.helpers import load_history_for_plotting
+        history = load_history_for_plotting(
             seq_numbers,
+            chip_number,
+            history_dir,
             chip_group
         )
     except Exception as e:
-        console.print(f"[red]Error loading metadata:[/red] {e}")
+        console.print(f"[red]Error loading history:[/red] {e}")
         raise typer.Exit(1)
 
-    if meta.height == 0:
-        console.print("[red]Error:[/red] No metadata loaded")
+    if history.height == 0:
+        console.print("[red]Error:[/red] No experiments loaded")
+        raise typer.Exit(1)
+
+    # For backward compatibility, rename parquet_path to source_file
+    # (plotting functions expect source_file column)
+    if "parquet_path" in history.columns and "source_file" not in history.columns:
+        history = history.rename({"parquet_path": "source_file"})
+    elif "parquet_path" not in history.columns and "source_file" not in history.columns:
+        console.print("[red]Error:[/red] History file missing both 'parquet_path' and 'source_file' columns")
+        console.print("[yellow]Hint:[/yellow] Regenerate history files with: [cyan]build-all-histories[/cyan]")
         raise typer.Exit(1)
 
     # Step 4: Apply additional filters (if any)
     if vds is not None or date is not None:
         console.print("\n[cyan]Applying filters...[/cyan]")
-        original_count = meta.height
-        meta = apply_metadata_filters(meta, vds=vds, date=date)
+        original_count = history.height
+        history = apply_metadata_filters(history, vds=vds, date=date)
 
-        if meta.height == 0:
+        if history.height == 0:
             console.print("[red]Error:[/red] No experiments remain after filtering")
             raise typer.Exit(1)
 
-        console.print(f"[green]✓[/green] Filtered: {original_count} → {meta.height} experiment(s)")
+        console.print(f"[green]✓[/green] Filtered: {original_count} → {history.height} experiment(s)")
 
     # Step 5: CRITICAL - Verify ALL experiments are IVg type
     console.print("\n[cyan]Validating experiment types...[/cyan]")
-    if "proc" in meta.columns:
-        non_ivg = meta.filter(pl.col("proc") != "IVg")
+    if "proc" in history.columns:
+        non_ivg = history.filter(pl.col("proc") != "IVg")
         if non_ivg.height > 0:
             console.print(f"[red]Error:[/red] Found {non_ivg.height} non-IVg experiment(s)")
             console.print("[red]Transconductance can only be computed from IVg experiments![/red]")
@@ -309,11 +290,11 @@ def plot_transconductance_command(
         console.print("[yellow]Warning:[/yellow] Could not verify experiment types (no 'proc' column)")
         console.print("[dim]Proceeding anyway, but results may fail if non-IVg data is present[/dim]")
 
-    console.print(f"[green]✓[/green] All {meta.height} experiment(s) are IVg type")
+    console.print(f"[green]✓[/green] All {history.height} experiment(s) are IVg type")
 
     # Step 6: Display selected experiments
     console.print()
-    display_experiment_list(meta, title="IVg Experiments for Transconductance")
+    display_experiment_list(history, title="IVg Experiments for Transconductance")
 
     # Step 7: Display plot settings
     console.print()
@@ -324,7 +305,7 @@ def plot_transconductance_command(
     display_plot_settings({
         "Plot type": "Transconductance (gm = dI/dVg)",
         "Method": method_desc[method],
-        "Curves": f"{meta.height} IVg measurement(s)",
+        "Curves": f"{history.height} IVg measurement(s)",
         "Output directory": str(output_dir)
     })
 
@@ -358,17 +339,22 @@ def plot_transconductance_command(
     console.print("\n[cyan]Generating transconductance plot...[/cyan]")
     transconductance.FIG_DIR = output_dir
 
+    # NOTE: Plotting functions expect 'source_file' column which we created by renaming 'parquet_path'
+    # The plotting functions now read from staged Parquet files (fast!)
+    # base_dir parameter is now ignored since paths are absolute in source_file column
+    base_dir = Path(".")  # Not used, but kept for API compatibility
+
     try:
         if method == "gradient":
             transconductance.plot_ivg_transconductance(
-                meta,
-                raw_dir,
+                history,
+                base_dir,
                 plot_tag
             )
         else:  # savgol
             transconductance.plot_ivg_transconductance_savgol(
-                meta,
-                raw_dir,
+                history,
+                base_dir,
                 plot_tag,
                 window_length=window_length,
                 polyorder=polyorder

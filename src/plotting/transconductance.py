@@ -6,7 +6,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import polars as pl
 
-from src.core.utils import _read_measurement
+from src.core.utils import read_measurement_parquet
 from src.plotting.plot_utils import (
     get_chip_label,
     segment_voltage_sweep,
@@ -70,7 +70,19 @@ def plot_ivg_transconductance(
             print(f"[warn] missing file: {path}")
             continue
 
-        d = _read_measurement(path)
+        d = read_measurement_parquet(path)
+
+        # Normalize column names (handle both formats)
+        col_map = {}
+        if "VG (V)" in d.columns:
+            col_map["VG (V)"] = "VG"
+        elif "Vg (V)" in d.columns:
+            col_map["Vg (V)"] = "VG"
+        if "I (A)" in d.columns:
+            col_map["I (A)"] = "I"
+        if col_map:
+            d = d.rename(col_map)
+
         if not {"VG", "I"} <= set(d.columns):
             print(f"[warn] {path} lacks VG/I; got {d.columns}")
             continue
@@ -85,7 +97,7 @@ def plot_ivg_transconductance(
             continue
 
         # Legend label per measurement
-        base_lbl = f"#{int(row['file_idx'])} {'light' if row.get('with_light', False) else 'dark'}"
+        base_lbl = f"#{int(row['file_idx'])} {'light' if row.get('has_light', False) else 'dark'}"
         if bool(row.get("Laser toggle", False)):
             wl = row.get("Laser wavelength", None)
             if wl is not None and str(wl) != "nan":
@@ -132,7 +144,7 @@ def plot_ivg_transconductance(
 
     ax.set_xlabel("VG (V)")
     ax.set_ylabel("Transconductance gm (µS)")
-    chipnum = int(df['Chip number'][0])
+    chipnum = int(df['chip_number'][0])  # Use snake_case column name from history
     ax.set_title(f"Encap{chipnum} — Transconductance (np.gradient, joined, no sort)")
     ax.legend()
     ax.axhline(y=0, color='k', linestyle=':')
@@ -201,7 +213,19 @@ def plot_ivg_transconductance_savgol(
             print(f"[warn] missing file: {path}")
             continue
 
-        d = _read_measurement(path)
+        d = read_measurement_parquet(path)
+
+        # Normalize column names (handle both formats)
+        col_map = {}
+        if "VG (V)" in d.columns:
+            col_map["VG (V)"] = "VG"
+        elif "Vg (V)" in d.columns:
+            col_map["Vg (V)"] = "VG"
+        if "I (A)" in d.columns:
+            col_map["I (A)"] = "I"
+        if col_map:
+            d = d.rename(col_map)
+
         if not {"VG", "I"} <= set(d.columns):
             print(f"[warn] {path} lacks VG/I; got {d.columns}")
             continue
@@ -215,7 +239,7 @@ def plot_ivg_transconductance_savgol(
             continue
 
         # Build label
-        base_lbl = f"#{int(row['file_idx'])} {'light' if row.get('with_light', False) else 'dark'}"
+        base_lbl = f"#{int(row['file_idx'])} {'light' if row.get('has_light', False) else 'dark'}"
         if bool(row.get("Laser toggle", False)):
             wl = row.get("Laser wavelength", None)
             if wl is not None and str(wl) != "nan":
@@ -294,7 +318,7 @@ def plot_ivg_transconductance_savgol(
     ax.set_xlabel("VG (V)")
     ax.set_ylabel("Transconductance gm (µS)")
 
-    chipnum = int(df['Chip number'][0])
+    chipnum = int(df['chip_number'][0])  # Use snake_case column name from history
 
     ax.legend()
 

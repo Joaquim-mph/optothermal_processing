@@ -109,7 +109,7 @@ def stage_all_command(
         process_and_analyze stage-all --only-yaml-data
     """
     from src.models.parameters import StagingParameters
-    from src.staging import run_staging_pipeline, discover_csvs
+    from src.core import run_staging_pipeline, discover_csvs
 
     console.print()
     console.print(Panel.fit(

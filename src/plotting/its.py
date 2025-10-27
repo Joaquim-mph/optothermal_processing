@@ -6,7 +6,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import polars as pl
 from typing import Tuple
-from src.core.utils import _read_measurement
+from src.core.utils import read_measurement_parquet
 from src.plotting.plot_utils import interpolate_baseline
 
 # Constants
@@ -163,7 +163,7 @@ def _get_experiment_durations(df: pl.DataFrame, base_dir: Path) -> list[float]:
         List of experiment durations in seconds
     """
     durations = []
-    its = df.filter(pl.col("proc") == "ITS")
+    its = df.filter(pl.col("proc") == "It")
 
     for row in its.iter_rows(named=True):
         path = base_dir / row["source_file"]
@@ -171,7 +171,7 @@ def _get_experiment_durations(df: pl.DataFrame, base_dir: Path) -> list[float]:
             continue
 
         try:
-            d = _read_measurement(path)
+            d = read_measurement_parquet(path)
             if "t" in d.columns:
                 tt = np.asarray(d["t"])
                 if tt.size > 0:
@@ -397,7 +397,7 @@ def plot_its_overlay(
                         pass
         return None
 
-    its = df.filter(pl.col("proc") == "ITS").sort("file_idx")
+    its = df.filter(pl.col("proc") == "It").sort("file_idx")
     if its.height == 0:
         print("[warn] no ITS rows in metadata")
         return
@@ -418,7 +418,17 @@ def plot_its_overlay(
             print(f"[warn] missing file: {path}")
             continue
 
-        d = _read_measurement(path)
+        d = read_measurement_parquet(path)
+
+        # Normalize column names (handle both "t" and "t (s)" formats)
+        col_map = {}
+        if "t (s)" in d.columns:
+            col_map["t (s)"] = "t"
+        if "I (A)" in d.columns:
+            col_map["I (A)"] = "I"
+        if col_map:
+            d = d.rename(col_map)
+
         if not {"t", "I"} <= set(d.columns):
             print(f"[warn] {path} lacks t/I; got {d.columns}")
             continue
@@ -536,7 +546,7 @@ def plot_its_overlay(
 
     plt.xlabel(r"$t\ (\mathrm{s})$")
     plt.ylabel(r"$\Delta I_{ds}\ (\mu\mathrm{A})$")
-    chipnum = int(df["Chip number"][0])  # keep your original pattern
+    chipnum = int(df["chip_number"][0])  # Use snake_case column name from history
     #plt.title(f"Chip {chipnum} — ITS overlay")
     plt.legend(title=legend_title)
 
@@ -752,7 +762,7 @@ def plot_its_dark(
                     pass
         return None
 
-    its = df.filter(pl.col("proc") == "ITS").sort("file_idx")
+    its = df.filter(pl.col("proc") == "It").sort("file_idx")
     if its.height == 0:
         print("[warn] no ITS rows in metadata")
         return
@@ -769,7 +779,17 @@ def plot_its_dark(
             print(f"[warn] missing file: {path}")
             continue
 
-        d = _read_measurement(path)
+        d = read_measurement_parquet(path)
+
+        # Normalize column names (handle both "t" and "t (s)" formats)
+        col_map = {}
+        if "t (s)" in d.columns:
+            col_map["t (s)"] = "t"
+        if "I (A)" in d.columns:
+            col_map["I (A)"] = "I"
+        if col_map:
+            d = d.rename(col_map)
+
         if not {"t", "I"} <= set(d.columns):
             print(f"[warn] {path} lacks t/I; got {d.columns}")
             continue
@@ -850,7 +870,7 @@ def plot_its_dark(
 
     plt.xlabel(r"$t\ (\mathrm{s})$")
     plt.ylabel(r"$\Delta I_{ds}\ (\mu\mathrm{A})$")
-    chipnum = int(df["Chip number"][0])
+    chipnum = int(df["chip_number"][0])  # Use snake_case column name from history
     #plt.title(f"Chip {chipnum} — ITS overlay (dark)")
     plt.legend(title=legend_title)
 

@@ -1,9 +1,10 @@
 """
 Build chip histories from staged manifest data.
 
-This module creates chip history CSV files from the manifest.parquet generated
+This module creates chip history Parquet files from the manifest.parquet generated
 during the staging process. Histories are saved to data/03_history/ and include
-sequential experiment numbers, dates, procedures, and summaries.
+sequential experiment numbers, dates, procedures, summaries, and paths to staged
+Parquet measurement files.
 """
 
 from pathlib import Path
@@ -12,8 +13,35 @@ import polars as pl
 from datetime import datetime
 
 
+def compute_parquet_path(stage_root: Path, proc: str, date_local: str, run_id: str) -> str:
+    """
+    Compute path to staged Parquet file from manifest columns.
+
+    The staging system uses Hive-style partitioning:
+    stage_root/proc={proc}/date={date_local}/run_id={run_id}/part-000.parquet
+
+    Parameters
+    ----------
+    stage_root : Path
+        Stage root directory (e.g., data/02_stage/raw_measurements)
+    proc : str
+        Procedure type (e.g., "IVg", "It")
+    date_local : str
+        Local date string (YYYY-MM-DD)
+    run_id : str
+        Run ID (16-char hash)
+
+    Returns
+    -------
+    str
+        Relative path to Parquet file from project root
+    """
+    return str(stage_root / f"proc={proc}" / f"date={date_local}" / f"run_id={run_id}" / "part-000.parquet")
+
+
 def build_chip_history_from_manifest(
     manifest_path: Path,
+    stage_root: Optional[Path] = None,
     chip_number: Optional[int] = None,
     chip_group: Optional[str] = None,
     information: Optional[str] = None,
@@ -23,12 +51,15 @@ def build_chip_history_from_manifest(
     Build experiment history for a specific chip from manifest.parquet.
 
     Filters manifest by chip identifier and returns chronologically ordered
-    history with sequential experiment numbers.
+    history with sequential experiment numbers and paths to staged Parquet files.
 
     Parameters
     ----------
     manifest_path : Path
         Path to manifest.parquet file
+    stage_root : Path, optional
+        Stage root directory for computing parquet paths
+        (e.g., data/02_stage/raw_measurements). If None, tries to infer from manifest_path.
     chip_number : int, optional
         Chip numeric ID (e.g., 67 for Alisson67)
     chip_group : str, optional
@@ -41,10 +72,15 @@ def build_chip_history_from_manifest(
     Returns
     -------
     pl.DataFrame
-        Chip history with columns: seq, date, time_hms, proc, summary, has_light, etc.
+        Chip history with columns: seq, date, time_hms, proc, summary, has_light, parquet_path, etc.
     """
     if not manifest_path.exists():
         raise FileNotFoundError(f"Manifest not found: {manifest_path}")
+
+    # Infer stage_root from manifest_path if not provided
+    # manifest_path is typically: data/02_stage/raw_measurements/_manifest/manifest.parquet
+    if stage_root is None:
+        stage_root = manifest_path.parent.parent  # Go up from _manifest/ to raw_measurements/
 
     # Load manifest
     df = pl.read_parquet(manifest_path)
@@ -135,6 +171,19 @@ def build_chip_history_from_manifest(
             summary_expr.alias("summary")
         ])
 
+    # Add parquet_path column pointing to staged measurement data
+    # Use Polars format string to construct the path
+    if all(col in df.columns for col in ["proc", "date_local", "run_id"]):
+        df = df.with_columns([
+            pl.format(
+                "{}/proc={}/date={}/run_id={}/part-000.parquet",
+                pl.lit(str(stage_root)),
+                pl.col("proc"),
+                pl.col("date_local"),
+                pl.col("run_id"),
+            ).alias("parquet_path")
+        ])
+
     # Select relevant columns for history
     history_cols = [
         "seq",
@@ -143,11 +192,13 @@ def build_chip_history_from_manifest(
         "proc",
         "summary",
         "has_light",
+        "parquet_path",  # Path to staged Parquet measurement file (NOT source_file!)
         "chip_number",
         "chip_group",
         "chip_name",
         "run_id",
-        "source_file",
+        # Note: source_file is intentionally excluded - it points to raw CSVs
+        # We only want parquet_path which points to staged Parquet files
         "file_idx",
         "date_local",
     ]
@@ -199,7 +250,7 @@ def save_chip_history(
     chip_name: str,
 ) -> Path:
     """
-    Save chip history to CSV file.
+    Save chip history to Parquet file.
 
     Parameters
     ----------
@@ -216,14 +267,15 @@ def save_chip_history(
         Path to saved history file
     """
     output_dir.mkdir(parents=True, exist_ok=True)
-    output_path = output_dir / f"{chip_name}_history.csv"
-    history.write_csv(output_path)
+    output_path = output_dir / f"{chip_name}_history.parquet"
+    history.write_parquet(output_path)
     return output_path
 
 
 def generate_all_chip_histories(
     manifest_path: Path,
     output_dir: Path,
+    stage_root: Optional[Path] = None,
     min_experiments: int = 5,
     chip_group: Optional[str] = None,
 ) -> dict[str, Path]:
@@ -231,7 +283,7 @@ def generate_all_chip_histories(
     Generate history files for all chips found in manifest.
 
     Automatically discovers all unique chips and creates individual
-    history CSV files in the output directory.
+    history Parquet files in the output directory.
 
     Parameters
     ----------
@@ -239,6 +291,9 @@ def generate_all_chip_histories(
         Path to manifest.parquet file
     output_dir : Path
         Output directory for history files (e.g., data/03_history)
+    stage_root : Path, optional
+        Stage root directory for computing parquet paths.
+        If None, tries to infer from manifest_path.
     min_experiments : int
         Minimum number of experiments required to generate history
     chip_group : str, optional
@@ -251,6 +306,10 @@ def generate_all_chip_histories(
     """
     if not manifest_path.exists():
         raise FileNotFoundError(f"Manifest not found: {manifest_path}")
+
+    # Infer stage_root if not provided
+    if stage_root is None:
+        stage_root = manifest_path.parent.parent
 
     # Load manifest
     df = pl.read_parquet(manifest_path)
@@ -307,6 +366,7 @@ def generate_all_chip_histories(
             # Build history
             history = build_chip_history_from_manifest(
                 manifest_path,
+                stage_root=stage_root,
                 chip_number=chip_id["chip_number"],
                 chip_group=chip_id["chip_group"],
                 information=chip_id["information"],

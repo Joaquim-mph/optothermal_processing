@@ -181,9 +181,9 @@ class MainMenuScreen(WizardScreen):
         self.app.notify("Batch Mode - Coming in Phase 6!")
 
     def action_settings(self) -> None:
-        """Show settings."""
-        # TODO: Navigate to Settings (Phase 6)
-        self.app.notify("Settings - Coming in Phase 6!")
+        """Show theme settings."""
+        from src.tui.screens.navigation.theme_settings import ThemeSettingsScreen
+        self.app.push_screen(ThemeSettingsScreen())
 
     def action_help(self) -> None:
         """Show help."""

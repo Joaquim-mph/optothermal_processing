@@ -92,14 +92,12 @@ The pipeline follows a three-stage data processing architecture:
 ### Module Organization
 
 **Core Processing** (`src/core/`)
-- `parser.py`: CSV header parsing, procedure detection
-- `utils.py`: Common utilities, numeric coercion, light detection
-- `timeline.py`: Day timeline builder for TUI experiment selection
+- `parser.py`: CSV header parsing, procedure detection (legacy)
+- `utils.py`: Common utilities, numeric coercion, light detection, Parquet reading
+- `timeline.py`: Day timeline builder for TUI experiment selection (legacy)
 - `history_builder.py`: Chip history generation from manifest
-
-**Staging Layer** (`src/staging/`)
 - `stage_raw_measurements.py`: Main staging pipeline (CSV → Parquet + manifest)
-- `stage_utils.py`: Validation helpers, type coercion
+- `stage_utils.py`: Validation helpers, type coercion for staging
 - Uses `config/procedures.yml` for schema validation
 - Uses `config/chip_params.yaml` for chip-specific settings
 

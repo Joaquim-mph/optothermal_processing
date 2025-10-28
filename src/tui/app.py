@@ -16,6 +16,7 @@ from src.tui.screens import MainMenuScreen
 from src.tui.config_manager import ConfigManager
 from src.tui.session import PlotSession
 from src.tui.router import Router
+from src.tui.settings_manager import SettingsManager
 
 
 class PlotterApp(App):
@@ -42,6 +43,7 @@ class PlotterApp(App):
     BINDINGS = [
         Binding("ctrl+q", "quit", "Quit", priority=True),
         Binding("ctrl+h", "help", "Help", show=False),
+        Binding("ctrl+t", "theme_settings", "Theme Settings", show=False),
     ]
 
     def __init__(
@@ -84,13 +86,16 @@ class PlotterApp(App):
         # Initialize configuration manager
         self.config_manager = ConfigManager()
 
+        # Initialize settings manager (theme, UI preferences)
+        self.settings_manager = SettingsManager()
+
         # Initialize navigation router
         self.router = Router(self)
 
     def on_mount(self) -> None:
         """Set theme and show main menu on startup."""
-        # Apply Tokyo Night theme
-        self.theme = "tokyo-night"
+        # Apply theme from settings (defaults to Tokyo Night)
+        self.theme = self.settings_manager.theme
 
         # Push main menu screen
         self.push_screen(MainMenuScreen())
@@ -99,6 +104,11 @@ class PlotterApp(App):
         """Show help screen."""
         # TODO: Implement help screen in Phase 7
         self.notify("Help: Use arrow keys to navigate, Enter to select, Ctrl+Q to quit")
+
+    def action_theme_settings(self) -> None:
+        """Show theme settings screen."""
+        from src.tui.screens.navigation.theme_settings import ThemeSettingsScreen
+        self.push_screen(ThemeSettingsScreen())
 
     # ═══════════════════════════════════════════════════════════════════
     # Backward Compatibility Methods (for gradual migration)

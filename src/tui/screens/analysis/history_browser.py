@@ -15,7 +15,7 @@ import polars as pl
 
 from textual.app import ComposeResult
 from textual.containers import Container, Horizontal, Vertical, VerticalScroll
-from textual.widgets import Button, DataTable, Label, Select, Static
+from textual.widgets import Button, DataTable, Label, Select, Static, Header, Footer
 from textual.binding import Binding
 from textual.screen import ModalScreen, Screen
 
@@ -30,14 +30,19 @@ class HistoryBrowserScreen(Screen):
     """
     Display chip history in a full-width table with filtering controls.
 
-    Simplified layout without nested WizardScreen containers.
+    Features keyboard shortcuts, procedure filtering, and light status filters.
     """
 
     BINDINGS = [
         Binding("escape", "back", "Back", priority=True),
-        Binding("f", "focus_filter", "Filter", show=False),
+        Binding("q", "back", "Quit", show=False),
         Binding("enter", "inspect", "Inspect", priority=True),
-        Binding("ctrl+p", "plot", "Plot Selection", show=False),
+        Binding("ctrl+p", "plot", "Plot", show=False),
+        Binding("f", "focus_filter", "Filter", show=False),
+        # Light filter shortcuts
+        Binding("1", "filter_all", "All", show=False),
+        Binding("2", "filter_light", "Light", show=False),
+        Binding("3", "filter_dark", "Dark", show=False),
     ]
 
     CSS = """
@@ -45,79 +50,78 @@ class HistoryBrowserScreen(Screen):
         background: $surface;
     }
 
-    #history-header {
-        dock: top;
+    #main-container {
         width: 100%;
-        height: auto;
-        background: $panel;
-        padding: 1 2;
-        border-bottom: solid $primary;
+        height: 100%;
+        layout: vertical;
     }
 
-    #title {
+    #screen-title {
         text-align: center;
         text-style: bold;
-        color: $accent;
+        color: cyan;
+        height: 1;
+        padding: 0 2;
+        margin-top: 1;
     }
 
-    #chip-info {
-        text-align: center;
-        color: $text-muted;
-        margin-bottom: 1;
+    #header-line {
+        text-align: left;
+        height: 1;
+        padding: 0 2;
+    }
+
+    #controls-text {
+        text-align: left;
+        color: $accent;
+        height: 1;
+        padding: 0 2;
+    }
+
+    #spacer {
+        height: 1;
     }
 
     #filter-bar {
-        dock: top;
-        width: 100%;
-        height: 4;
-        background: $panel;
-        border-bottom: solid $primary;
-        padding: 1 2;
-    }
-
-    #filter-content {
-        width: 100%;
-        height: 100%;
+        height: auto;
+        padding: 0 2;
+        margin-bottom: 1;
+        layout: horizontal;
         align: left middle;
-    }
-
-    #filter-label {
-        width: auto;
-        margin-right: 1;
     }
 
     #procedure-select {
         width: 25;
+        height: 3;
         margin-right: 2;
     }
 
-    .light-btn {
-        min-width: 10;
+    .light-filter-button {
+        min-width: 14;
+        height: 3;
         margin-right: 1;
     }
 
-    #history-table {
-        border: none;
+    #table-container {
+        width: 100%;
+        height: 1fr;
+        border: solid $primary;
+        margin: 0;
     }
 
-    #actions-bar {
-        dock: bottom;
+    #history-table {
         width: 100%;
         height: auto;
+    }
+
+    #status-bar {
+        dock: bottom;
+        text-align: center;
+        height: 1;
         background: $panel;
+        color: $text-muted;
         border-top: solid $primary;
-        padding: 1 2;
-    }
-
-    #actions-content {
-        width: 100%;
-        height: 100%;
-        align: center middle;
-    }
-
-    .action-btn {
-        min-width: 16;
-        margin: 0 1;
+        padding: 0 2;
     }
     """
 
@@ -137,36 +141,48 @@ class HistoryBrowserScreen(Screen):
 
     def compose(self) -> ComposeResult:
         """Compose the screen layout."""
-        # Header
-        with Vertical(id="history-header"):
-            yield Static("Chip History Browser", id="title")
+        yield Header()
+
+        with Container(id="main-container"):
+            # Get chip info for title
             chip_group = getattr(self.app.session, "chip_group", "Chip")
             chip_number = getattr(self.app.session, "chip_number", None)
             chip_label = f"{chip_group}{chip_number}" if chip_number is not None else "Unknown"
-            yield Static(f"[bold]{chip_label}[/bold] — Complete experiment history", id="chip-info")
 
-        # Filter bar
-        with Container(id="filter-bar"):
-            with Horizontal(id="filter-content"):
-                yield Label("Procedure:", id="filter-label")
+            # Centered title
+            yield Static(f"Chip Experiment Timeline - {chip_label}", id="screen-title")
+
+            # Header line (stats, populated on mount)
+            yield Static("", id="header-line")
+
+            # Controls
+            yield Static(
+                "[bold]Controls:[/bold] Enter=Inspect  Esc=Back  1/2/3=Light Filters",
+                id="controls-text"
+            )
+
+            # Spacer
+            yield Static("", id="spacer")
+
+            # Filter bar (procedure + light filters)
+            with Horizontal(id="filter-bar"):
                 yield Select(
                     options=[("All", "All")],
                     id="procedure-select",
                     value="All"
                 )
-                yield Button("All", id="light-all", variant="primary", classes="light-btn")
-                yield Button("💡 Light", id="light-light", classes="light-btn")
-                yield Button("🌙 Dark", id="light-dark", classes="light-btn")
+                yield Button("All", id="light-all", variant="primary", classes="light-filter-button")
+                yield Button("💡 Light", id="light-light", classes="light-filter-button")
+                yield Button("🌙 Dark", id="light-dark", classes="light-filter-button")
 
-        # Main table (no wrapper containers)
-        yield DataTable(id="history-table", cursor_type="row", zebra_stripes=True)
+            # Main table wrapped in scroll container
+            with VerticalScroll(id="table-container"):
+                yield DataTable(id="history-table", cursor_type="row", zebra_stripes=True)
 
-        # Actions bar
-        with Container(id="actions-bar"):
-            with Horizontal(id="actions-content"):
-                yield Button("Close", id="btn-close", variant="default", classes="action-btn")
-                yield Button("Inspect Row", id="btn-inspect", variant="default", classes="action-btn")
-                yield Button("Plot Selection", id="btn-plot", variant="primary", classes="action-btn")
+            # Status bar at bottom (shows filter status)
+            yield Static("", id="status-bar")
+
+        yield Footer()
 
     def on_mount(self) -> None:
         """Initialize table and load chip history."""
@@ -225,10 +241,53 @@ class HistoryBrowserScreen(Screen):
         self._populate_procedure_options()
         self._set_light_controls_state()
         self._highlight_light_filter(self.light_filter)
+        self._update_stats()
         self.filtered_df = self.history_df
         self.filtered_summary = self.history_summary
         self.applied_filters = []
         self._apply_filters()
+
+    def _update_stats(self) -> None:
+        """Update the header line with stats summary."""
+        if self.history_df is None:
+            return
+
+        header_widget = self.query_one("#header-line", Static)
+
+        # Get chip info
+        chip_group = getattr(self.app.session, "chip_group", "Chip")
+        chip_number = getattr(self.app.session, "chip_number", None)
+        chip_label = f"{chip_group}{chip_number}" if chip_number is not None else "Unknown"
+
+        # Build stats
+        total = len(self.history_df)
+        proc_counts = self.history_df.group_by("proc").agg(
+            pl.count().alias("count")
+        ).sort("count", descending=True)
+
+        # Format as single line: "Alisson67 | Total: 90 | IVg: 39  It: 51"
+        proc_parts = []
+        for row in proc_counts.iter_rows(named=True):
+            proc_parts.append(f"{row['proc']}: {row['count']}")
+
+        stats_text = f"[bold]{chip_label}[/bold]  |  Total: {total}  |  " + "  ".join(proc_parts)
+        header_widget.update(stats_text)
+
+    def _update_status_bar(self) -> None:
+        """Update status bar with current filter status."""
+        status_widget = self.query_one("#status-bar", Static)
+
+        if self.filtered_df is None or self.history_df is None:
+            return
+
+        total = len(self.history_df)
+        filtered = len(self.filtered_df)
+
+        if self.applied_filters:
+            filter_text = ", ".join(self.applied_filters)
+            status_widget.update(f"Showing {filtered} of {total} experiments — Filters: {filter_text}")
+        else:
+            status_widget.update(f"Showing all {total} experiments")
 
     def _populate_table(self, df: pl.DataFrame) -> None:
         """Fill the data table from a history DataFrame."""
@@ -252,6 +311,8 @@ class HistoryBrowserScreen(Screen):
 
         if self.table.row_count > 0:
             self.table.move_cursor(row=0)
+
+        self._update_status_bar()
 
     @staticmethod
     def _format_summary(row: dict) -> str:
@@ -404,6 +465,27 @@ class HistoryBrowserScreen(Screen):
         select = self.query_one("#procedure-select", Select)
         select.focus()
 
+    def action_filter_all(self) -> None:
+        """Set light filter to All."""
+        if self.extract_light:
+            self.light_filter = "all"
+            self._highlight_light_filter(self.light_filter)
+            self._apply_filters()
+
+    def action_filter_light(self) -> None:
+        """Set light filter to Light only."""
+        if self.extract_light:
+            self.light_filter = "light"
+            self._highlight_light_filter(self.light_filter)
+            self._apply_filters()
+
+    def action_filter_dark(self) -> None:
+        """Set light filter to Dark only."""
+        if self.extract_light:
+            self.light_filter = "dark"
+            self._highlight_light_filter(self.light_filter)
+            self._apply_filters()
+
     def action_inspect(self) -> None:
         """Display detailed metadata for the selected history row."""
         row = self._get_row_at_cursor()
@@ -456,13 +538,7 @@ class HistoryBrowserScreen(Screen):
         """Handle button presses."""
         button_id = event.button.id
 
-        if button_id == "btn-close":
-            self.app.pop_screen()
-        elif button_id == "btn-plot":
-            self.action_plot()
-        elif button_id == "btn-inspect":
-            self.action_inspect()
-        elif button_id in {"light-all", "light-light", "light-dark"}:
+        if button_id in {"light-all", "light-light", "light-dark"}:
             mapping = {
                 "light-all": "all",
                 "light-light": "light",
@@ -476,6 +552,7 @@ class HistoryBrowserScreen(Screen):
         """React to procedure selection changes."""
         if event.select.id == "procedure-select":
             # Explicitly check for Select.BLANK since it's a truthy enum value
+            from textual.widgets import Select
             self.proc_filter = event.value if event.value is not Select.BLANK else "All"
             self._apply_filters()
 

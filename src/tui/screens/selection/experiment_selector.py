@@ -11,20 +11,23 @@ from typing import Optional, List
 
 import polars as pl
 from textual.app import ComposeResult
-from textual.screen import Screen
 from textual.binding import Binding
 
+from src.tui.screens.base import WizardScreen
 from src.interactive_selector import ExperimentSelectorScreen as BaseExperimentSelector
 
 
-class ExperimentSelectorScreen(Screen):
+class ExperimentSelectorScreen(WizardScreen):
     """
     Experiment selector screen for the wizard (Step 4a - Quick mode).
 
     Wraps the existing ExperimentSelectorScreen and integrates it into the wizard.
     """
 
-    BINDINGS = [
+    SCREEN_TITLE = "Select Experiments"
+    STEP_NUMBER = 5  # Step 5 in the wizard flow
+
+    BINDINGS = WizardScreen.BINDINGS + [
         Binding("escape", "cancel", "Cancel", priority=True),
     ]
 
@@ -41,8 +44,8 @@ class ExperimentSelectorScreen(Screen):
         self.plot_type = plot_type
         self.history_dir = history_dir
 
-    def compose(self) -> ComposeResult:
-        """Compose is handled by the nested screen."""
+    def compose_content(self) -> ComposeResult:
+        """Compose is minimal - the nested screen handles the UI."""
         # This screen doesn't have its own widgets - it immediately pushes the selector
         return []
 
@@ -108,27 +111,19 @@ class ExperimentSelectorScreen(Screen):
             # User cancelled - go back to config mode
             self.app.pop_screen()
         else:
-            # User confirmed selection - save and proceed to preview
-            self.app.update_config(seq_numbers=result)
+            # User confirmed selection - save to session (replaces app.update_config)
+            self.app.session.seq_numbers = result
 
             # Pop this screen (experiment selector wrapper)
             self.app.pop_screen()
 
-            # Navigate to preview screen (Step 5/6)
-            from src.tui.screens.preview_screen import PreviewScreen
-
-            # Get current config
-            config = self.app.plot_config.copy()
-
-            self.app.push_screen(PreviewScreen(
-                chip_number=self.chip_number,
-                chip_group=self.chip_group,
-                plot_type=self.plot_type,
-                seq_numbers=result,
-                config=config,
-                history_dir=self.history_dir,
-            ))
+            # Navigate to preview screen using router
+            self.app.router.go_to_preview()
 
     def action_cancel(self) -> None:
         """Cancel and return to config mode."""
         self.app.pop_screen()
+
+    def action_back(self) -> None:
+        """Override back action to cancel."""
+        self.action_cancel()

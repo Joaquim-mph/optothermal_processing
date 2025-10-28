@@ -9,11 +9,12 @@ from pathlib import Path
 from typing import List, Optional
 
 from textual.app import ComposeResult
-from textual.containers import Container, Vertical, Horizontal
-from textual.screen import Screen
-from textual.widgets import Header, Footer, Static, Button
+from textual.containers import Horizontal
+from textual.widgets import Static, Button
 from textual.binding import Binding
 from textual import events
+
+from src.tui.screens.base import WizardScreen
 
 try:
     import polars as pl
@@ -21,8 +22,11 @@ except ImportError:
     pl = None
 
 
-class PreviewScreen(Screen):
-    """Preview screen showing configuration before plot generation (Step 5/6)."""
+class PreviewScreen(WizardScreen):
+    """Preview screen showing configuration before plot generation (Step 6)."""
+
+    SCREEN_TITLE = "Preview - Plot Configuration"
+    STEP_NUMBER = 6
 
     def __init__(
         self,
@@ -41,61 +45,10 @@ class PreviewScreen(Screen):
         self.config = config
         self.history_dir = history_dir or Path("data/03_history")
 
-    BINDINGS = [
-        Binding("escape", "back", "Back", priority=True),
-        Binding("ctrl+b", "back", "Back", show=False),
-    ]
+    BINDINGS = WizardScreen.BINDINGS + []
 
-    CSS = """
-    PreviewScreen {
-        align: center middle;
-    }
-
-    #main-container {
-        width: 70;
-        height: auto;
-        max-height: 90%;
-        background: $surface;
-        border: thick $primary;
-        padding: 2 4;
-        overflow-y: auto;
-    }
-
-    #header-container {
-        width: 100%;
-        height: auto;
-        margin-bottom: 2;
-    }
-
-    #title {
-        width: 100%;
-        content-align: center middle;
-        text-style: bold;
-        color: $accent;
-    }
-
-    #chip-info {
-        width: 100%;
-        content-align: center middle;
-        color: $accent;
-        margin-bottom: 1;
-    }
-
-    #step-indicator {
-        width: 100%;
-        content-align: center middle;
-        color: $text-muted;
-        text-style: dim;
-        margin-bottom: 1;
-    }
-
-    .section-title {
-        text-style: bold;
-        color: $accent;
-        margin-top: 1;
-        margin-bottom: 1;
-    }
-
+    # Preview-specific CSS (extends WizardScreen CSS)
+    CSS = WizardScreen.CSS + """
     .info-text {
         color: $text;
         margin-left: 2;
@@ -114,117 +67,89 @@ class PreviewScreen(Screen):
         margin-left: 2;
         margin-bottom: 1;
     }
-
-    #button-container {
-        width: 100%;
-        height: auto;
-        layout: horizontal;
-        margin-top: 2;
-    }
-
-    .nav-button {
-        width: 1fr;
-        margin: 0 1;
-    }
-
-    .nav-button:focus {
-        background: $primary;
-        border: tall $accent;
-        color: $primary-background;
-        text-style: bold;
-    }
-
-    .nav-button:hover {
-        background: $primary;
-        color: $primary-background;
-    }
     """
 
-    def compose(self) -> ComposeResult:
-        """Create preview widgets."""
-        yield Header()
+    def compose_header(self) -> ComposeResult:
+        """Compose header with title, chip info, and step indicator."""
+        yield Static(f"{self.SCREEN_TITLE} - {self.plot_type}", id="title")
+        yield Static(
+            f"Chip: [bold]{self.chip_group}{self.chip_number}[/bold]",
+            id="chip-info"
+        )
+        yield Static(f"[Step {self.STEP_NUMBER}/{self.TOTAL_STEPS}]", id="step-indicator")
 
-        with Container(id="main-container"):
-            with Vertical(id="header-container"):
-                yield Static(f"Preview - {self.plot_type} Plot", id="title")
-                yield Static(
-                    f"Chip: [bold]{self.chip_group}{self.chip_number}[/bold]",
-                    id="chip-info"
-                )
-                yield Static("[Step 5/6]", id="step-indicator")
+    def compose_content(self) -> ComposeResult:
+        """Compose preview content."""
+        # Experiments Section
+        yield Static("─── Experiments ────────────────────────", classes="section-title")
+        yield Static(
+            f"Selected: [bold]{len(self.seq_numbers)}[/bold] experiments",
+            classes="info-text"
+        )
 
-            # Experiments Section
-            yield Static("─── Experiments ────────────────────────", classes="section-title")
+        # Format seq numbers nicely
+        seq_str = ", ".join(map(str, self.seq_numbers[:20]))
+        if len(self.seq_numbers) > 20:
+            seq_str += f", ... ({len(self.seq_numbers) - 20} more)"
+        yield Static(f"Seq numbers: {seq_str}", classes="info-text")
+
+        # Check for duration warnings (ITS only)
+        duration_warning = self._check_duration_warnings()
+        if duration_warning:
             yield Static(
-                f"Selected: [bold]{len(self.seq_numbers)}[/bold] experiments",
-                classes="info-text"
+                f"⚠ {duration_warning}",
+                classes="warning-text"
             )
 
-            # Format seq numbers nicely
-            seq_str = ", ".join(map(str, self.seq_numbers[:20]))
-            if len(self.seq_numbers) > 20:
-                seq_str += f", ... ({len(self.seq_numbers) - 20} more)"
-            yield Static(f"Seq numbers: {seq_str}", classes="info-text")
+        # Configuration Section
+        yield Static("─── Configuration ──────────────────────", classes="section-title")
 
-            # Check for duration warnings (ITS only)
-            duration_warning = self._check_duration_warnings()
-            if duration_warning:
-                yield Static(
-                    f"⚠ {duration_warning}",
-                    classes="warning-text"
-                )
+        # Build config summary
+        config_lines = self._build_config_summary()
+        for line in config_lines:
+            yield Static(line, classes="info-text")
 
-            # Configuration Section
-            yield Static("─── Configuration ──────────────────────", classes="section-title")
+        # Output Section
+        yield Static("─── Output ─────────────────────────────", classes="section-title")
 
-            # Build config summary
-            config_lines = self._build_config_summary()
-            for line in config_lines:
-                yield Static(line, classes="info-text")
+        # Generate output filename and directory (with automatic chip subdirectory)
+        output_filename = self._generate_filename()
+        base_output_dir = self.config.get("output_dir", "figs")
 
-            # Output Section
-            yield Static("─── Output ─────────────────────────────", classes="section-title")
+        # Apply same logic as plot_generation.py: always append chip subdirectory
+        base_str = str(base_output_dir)
+        chip_subdir_name = f"{self.chip_group}{self.chip_number}"
 
-            # Generate output filename and directory (with automatic chip subdirectory)
-            output_filename = self._generate_filename()
-            base_output_dir = self.config.get("output_dir", "figs")
+        # Check if the path already ends with the chip subdirectory
+        if base_str.endswith(f"/{chip_subdir_name}") or base_str.endswith(f"/{chip_subdir_name}/"):
+            output_dir = base_output_dir
+        elif base_str.endswith(chip_subdir_name):
+            output_dir = base_output_dir
+        else:
+            # Append chip subdirectory
+            output_dir = f"{base_output_dir}/{chip_subdir_name}"
 
-            # Apply same logic as plot_generation.py: always append chip subdirectory
-            base_str = str(base_output_dir)
-            chip_subdir_name = f"{self.chip_group}{self.chip_number}"
+        yield Static(f"Directory: {output_dir}", classes="info-text")
+        yield Static(f"Filename: {output_filename}", classes="info-text")
 
-            # Check if the path already ends with the chip subdirectory
-            if base_str.endswith(f"/{chip_subdir_name}") or base_str.endswith(f"/{chip_subdir_name}/"):
-                output_dir = base_output_dir
-            elif base_str.endswith(chip_subdir_name):
-                output_dir = base_output_dir
-            else:
-                # Append chip subdirectory
-                output_dir = f"{base_output_dir}/{chip_subdir_name}"
+        # Check if file exists
+        output_path = Path(output_dir) / output_filename
+        if output_path.exists():
+            yield Static(
+                "⚠ Warning: File exists and will be overwritten",
+                classes="warning-text"
+            )
+        else:
+            yield Static(
+                "✓ Ready to generate (file does not exist)",
+                classes="success-text"
+            )
 
-            yield Static(f"Directory: {output_dir}", classes="info-text")
-            yield Static(f"Filename: {output_filename}", classes="info-text")
-
-            # Check if file exists
-            output_path = Path(output_dir) / output_filename
-            if output_path.exists():
-                yield Static(
-                    "⚠ Warning: File exists and will be overwritten",
-                    classes="warning-text"
-                )
-            else:
-                yield Static(
-                    "✓ Ready to generate (file does not exist)",
-                    classes="success-text"
-                )
-
-            # Buttons
-            with Horizontal(id="button-container"):
-                yield Button("← Edit Config", id="back-button", variant="default", classes="nav-button")
-                yield Button("Generate Plot", id="generate-button", variant="default", classes="nav-button")
-                yield Button("Save & Exit", id="save-button", variant="default", classes="nav-button")
-
-        yield Footer()
+        # Buttons
+        with Horizontal(id="button-container"):
+            yield Button("← Edit Config", id="back-button", variant="default", classes="nav-button")
+            yield Button("Generate Plot", id="generate-button", variant="primary", classes="nav-button")
+            yield Button("Save & Exit", id="save-button", variant="default", classes="nav-button")
 
     def on_mount(self) -> None:
         """Initialize screen."""
@@ -282,40 +207,37 @@ class PreviewScreen(Screen):
         elif event.button.id == "save-button":
             self.action_save_exit()
 
-    def action_back(self) -> None:
-        """Go back to config screen."""
-        self.app.pop_screen()
-
     def action_generate(self) -> None:
-        """Generate the plot."""
-        from src.tui.screens.plot_generation import PlotGenerationScreen
-
-        # Add stage_dir and history_dir from app to config
-        config_with_paths = {
-            **self.config,
-            "stage_dir": self.app.stage_dir,
-            "history_dir": self.app.history_dir,
-        }
-
-        self.app.push_screen(PlotGenerationScreen(
-            chip_number=self.chip_number,
-            chip_group=self.chip_group,
-            plot_type=self.plot_type,
-            seq_numbers=self.seq_numbers,
-            config=config_with_paths,
-        ))
+        """Generate the plot using router."""
+        # Navigate to plot generation screen using router
+        self.app.router.go_to_plot_generation()
 
     def action_save_exit(self) -> None:
         """Save configuration and return to main menu."""
-        # TODO: Save config to JSON
-        self.app.notify(
-            "Configuration saved (feature coming soon)",
-            severity="information",
-            timeout=3
-        )
-        # Pop back to main menu
-        while len(self.app.screen_stack) > 1:
-            self.app.pop_screen()
+        # Save config to ConfigManager
+        try:
+            config_to_save = {
+                **self.config,
+                "chip_number": self.chip_number,
+                "chip_group": self.chip_group,
+                "plot_type": self.plot_type,
+                "seq_numbers": self.seq_numbers,
+            }
+            config_id = self.app.config_manager.save_config(config_to_save)
+            self.app.notify(
+                f"✓ Configuration saved (ID: {config_id})",
+                severity="information",
+                timeout=3
+            )
+        except Exception as e:
+            self.app.notify(
+                f"Failed to save configuration: {e}",
+                severity="error",
+                timeout=3
+            )
+
+        # Return to main menu using router
+        self.app.router.return_to_main_menu()
 
     def _build_config_summary(self) -> List[str]:
         """Build configuration summary lines."""
@@ -414,9 +336,6 @@ class PreviewScreen(Screen):
 
         # Standardized format: encap{N}_plottype_tag.png
         if self.plot_type == "ITS":
-            # Check if it's a dark measurement (same detection as plot_generation.py)
-            # For preview, we can't easily check metadata, so assume regular ITS
-
             # Check if raw data mode (add _raw suffix)
             baseline_mode = self.config.get("baseline_mode", "fixed")
             raw_suffix = "_raw" if baseline_mode == "none" else ""

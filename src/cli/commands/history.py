@@ -17,6 +17,11 @@ from src.core.history_builder import (
     save_chip_history,
     generate_all_chip_histories,
 )
+from src.cli.history_utils import (
+    filter_history,
+    summarize_history,
+    HistoryFilterError,
+)
 
 console = Console()
 
@@ -89,58 +94,37 @@ def show_history_command(
         console.print(f"[red]Error:[/red] Failed to read history file: {e}")
         raise typer.Exit(1)
 
-    # Apply filters
-    if proc_filter:
-        history = history.filter(pl.col("proc") == proc_filter)
-        if history.height == 0:
-            console.print(f"[yellow]No experiments found with procedure '{proc_filter}'[/yellow]")
-            raise typer.Exit(0)
-
-    # Apply light filter
-    if light_filter:
-        lf = light_filter.lower()
-        if lf in ("light", "l", "💡"):
-            history = history.filter(pl.col("has_light") == True)
-            filter_desc = "light experiments"
-        elif lf in ("dark", "d", "🌙"):
-            history = history.filter(pl.col("has_light") == False)
-            filter_desc = "dark experiments"
-        elif lf in ("unknown", "u", "?", "❗"):
-            history = history.filter(pl.col("has_light").is_null())
-            filter_desc = "unknown light status"
+    try:
+        history, applied_filters = filter_history(
+            history,
+            proc_filter=proc_filter,
+            light_filter=light_filter,
+            limit=limit,
+            strict=True,
+        )
+    except HistoryFilterError as exc:
+        message = str(exc)
+        if exc.exit_code == 0:
+            console.print(f"[yellow]{message}[/yellow]")
         else:
-            console.print(f"[red]Error:[/red] Invalid light filter '{light_filter}'. Use: light, dark, or unknown")
-            raise typer.Exit(1)
+            console.print(f"[red]Error:[/red] {message}")
+        raise typer.Exit(exc.exit_code)
 
-        if history.height == 0:
-            console.print(f"[yellow]No {filter_desc} found[/yellow]")
-            raise typer.Exit(0)
-
-    if limit:
-        history = history.tail(limit)
+    summary = summarize_history(history)
 
     # Display header
     console.print()
     console.print(Panel.fit(
         f"[bold cyan]{chip_name} Experiment History[/bold cyan]\n"
-        f"Total experiments: [yellow]{history.height}[/yellow]",
+        f"Total experiments: [yellow]{summary['total']}[/yellow]",
         border_style="cyan"
     ))
     console.print()
 
     # Summary statistics
-    dates = [d for d in history["date"].to_list() if d != "unknown"]
-    if dates:
-        date_range = f"{min(dates)} to {max(dates)}"
-        num_days = len(set(dates))
-    else:
-        date_range = "unknown"
-        num_days = 0
-
-    # Count by procedure
-    proc_counts = history.group_by("proc").agg([
-        pl.len().alias("count")
-    ]).sort("proc")
+    date_range = summary["date_range"]
+    num_days = summary["num_days"]
+    proc_counts = summary["proc_counts"]
 
     # Summary cards
     summary_items = []
@@ -157,28 +141,29 @@ def show_history_command(
     proc_table = Table.grid(padding=(0, 2))
     proc_table.add_column(style="magenta", justify="right")
     proc_table.add_column(style="yellow")
-    for row in proc_counts.iter_rows(named=True):
-        proc_table.add_row(f"{row['proc']}:", str(row['count']))
+    for proc, count in proc_counts:
+        proc_table.add_row(f"{proc}:", str(count))
     summary_items.append(Panel(proc_table, title="[magenta]Procedures[/magenta]", border_style="magenta"))
 
     # Light status breakdown card (if has_light column exists)
-    if "has_light" in history.columns:
+    light_counts = summary["light_counts"]
+    if light_counts:
         light_table = Table.grid(padding=(0, 2))
         light_table.add_column(style="green", justify="right")
         light_table.add_column(style="yellow")
+        has_rows = False
+        if light_counts["light"] > 0:
+            light_table.add_row("💡 Light:", str(light_counts["light"]))
+            has_rows = True
+        if light_counts["dark"] > 0:
+            light_table.add_row("🌙 Dark:", str(light_counts["dark"]))
+            has_rows = True
+        if light_counts["unknown"] > 0:
+            light_table.add_row("❗ Unknown:", str(light_counts["unknown"]))
+            has_rows = True
 
-        light_count = history.filter(pl.col("has_light") == True).height
-        dark_count = history.filter(pl.col("has_light") == False).height
-        unknown_count = history.filter(pl.col("has_light").is_null()).height
-
-        if light_count > 0:
-            light_table.add_row("💡 Light:", str(light_count))
-        if dark_count > 0:
-            light_table.add_row("🌙 Dark:", str(dark_count))
-        if unknown_count > 0:
-            light_table.add_row("❗ Unknown:", str(unknown_count))
-
-        summary_items.append(Panel(light_table, title="[green]Light Status[/green]", border_style="green"))
+        if has_rows:
+            summary_items.append(Panel(light_table, title="[green]Light Status[/green]", border_style="green"))
 
     console.print(Columns(summary_items, equal=True, expand=True))
     console.print()
@@ -263,14 +248,9 @@ def show_history_command(
     console.print(f"[dim]Data source: {history_file}[/dim]")
 
     # Show active filters
-    active_filters = []
-    if proc_filter:
-        active_filters.append(f"proc={proc_filter}")
-    if light_filter:
-        active_filters.append(f"light={light_filter}")
-
-    if active_filters:
-        console.print(f"[dim]Filters: {', '.join(active_filters)}[/dim]")
+    applied_filters = [f for f in applied_filters if not f.startswith("limit=")]
+    if applied_filters:
+        console.print(f"[dim]Filters: {', '.join(applied_filters)}[/dim]")
 
     if limit:
         console.print(f"[yellow]Note:[/yellow] Showing only last {limit} experiments. Remove --limit to see all.")

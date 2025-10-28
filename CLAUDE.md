@@ -119,9 +119,10 @@ The pipeline follows a three-stage data processing architecture:
 - Use `read_measurement_parquet()` from `src/core/utils.py` for efficient loading
 
 **CLI** (`src/cli/`)
-- `main.py`: Typer app aggregating all commands
+- `main.py`: Typer app aggregating all commands (actual CLI implementation)
 - `commands/`: Individual command modules (data_pipeline, history, plot_*, stage)
 - `helpers.py`: Shared CLI utilities
+- Note: `process_and_analyze.py` in project root is just a thin wrapper importing `src/cli/main.py`
 
 **TUI** (`src/tui/`)
 - Textual-based terminal interface for lab users

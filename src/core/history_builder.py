@@ -82,8 +82,11 @@ def build_chip_history_from_manifest(
     if stage_root is None:
         stage_root = manifest_path.parent.parent  # Go up from _manifest/ to raw_measurements/
 
-    # Load manifest
-    df = pl.read_parquet(manifest_path)
+    # Load manifest rows (status == "ok" are the successful ingestions)
+    df = (
+        pl.read_parquet(manifest_path)
+        .filter(pl.col("status") == "ok")
+    )
 
     # Filter by chip identifier
     if chip_number is not None:
@@ -104,9 +107,12 @@ def build_chip_history_from_manifest(
         df = df.filter(pl.col("proc") == proc_filter)
 
     # Parse start_time_utc as datetime if it's a string
-    if df["start_time_utc"].dtype == pl.Utf8:
+    if "start_time_utc" in df.columns and df["start_time_utc"].dtype == pl.Utf8:
         df = df.with_columns([
-            pl.col("start_time_utc").str.to_datetime(format="%Y-%m-%d %H:%M:%S%.f%z", time_zone="UTC").alias("start_time_utc")
+            pl.col("start_time_utc").str.to_datetime(
+                format="%Y-%m-%d %H:%M:%S%.f%z",
+                time_zone="UTC"
+            ).alias("start_time_utc")
         ])
 
     # Sort by time
@@ -115,11 +121,44 @@ def build_chip_history_from_manifest(
     # Add sequential experiment numbers
     df = df.with_row_count("seq", offset=1)
 
-    # Extract date and time from start_time_utc
-    df = df.with_columns([
+    # Extract date/time and derived timeline fields
+    date_exprs = [
         pl.col("start_time_utc").dt.date().cast(pl.Utf8).alias("date"),
         pl.col("start_time_utc").dt.strftime("%H:%M:%S").alias("time_hms"),
-    ])
+        (pl.col("start_time_utc").dt.epoch(time_unit="us").cast(pl.Float64) / 1_000_000).alias("start_time"),
+        pl.col("source_file").map_elements(
+            lambda s: s.replace("\\", "/").split("/")[2] if len(s.replace("\\", "/").split("/")) > 2 else None,
+            return_dtype=pl.Utf8
+        ).alias("day_folder"),
+    ]
+
+    if "laser_voltage_V" in df.columns:
+        date_exprs.append(pl.col("laser_voltage_V").cast(pl.Float64).alias("laser_voltage_v"))
+    elif "laser_voltage_v" in df.columns:
+        date_exprs.append(pl.col("laser_voltage_v").cast(pl.Float64).alias("laser_voltage_v"))
+
+    if "wavelength_nm" in df.columns:
+        date_exprs.append(pl.col("wavelength_nm").cast(pl.Float64).alias("wavelength_nm"))
+
+    if "vds_v" in df.columns:
+        date_exprs.append(pl.col("vds_v").cast(pl.Float64).alias("vds_v"))
+
+    if "vg_fixed_v" in df.columns:
+        date_exprs.append(pl.col("vg_fixed_v").cast(pl.Float64).alias("vg_fixed_v"))
+
+    if "vg_start_v" in df.columns:
+        date_exprs.append(pl.col("vg_start_v").cast(pl.Float64).alias("vg_start_v"))
+
+    if "vg_end_v" in df.columns:
+        date_exprs.append(pl.col("vg_end_v").cast(pl.Float64).alias("vg_end_v"))
+
+    if "vg_step_v" in df.columns:
+        date_exprs.append(pl.col("vg_step_v").cast(pl.Float64).alias("vg_step_v"))
+
+    if "laser_period_s" in df.columns:
+        date_exprs.append(pl.col("laser_period_s").cast(pl.Float64).alias("laser_period_s"))
+
+    df = df.with_columns(date_exprs)
 
     # Generate chip_name if it doesn't exist
     if "chip_name" not in df.columns:
@@ -141,35 +180,123 @@ def build_chip_history_from_manifest(
             pl.col("source_file").str.extract(r'_(\d+)\.csv$', 1).cast(pl.Int64, strict=False).alias("file_idx")
         ])
 
-    # Generate summary if it doesn't exist
-    if "summary" not in df.columns:
-        summary_parts = []
+    # Generate rich summary text
+    chip_display = pl.when(
+        pl.col("chip_group").is_not_null() & pl.col("chip_number").is_not_null()
+    ).then(
+        pl.col("chip_group") + pl.col("chip_number").cast(pl.Utf8)
+    ).otherwise(
+        pl.col("chip_name").fill_null("")
+    )
 
-        # Start with chip name and procedure
-        if "chip_name" in df.columns:
-            summary_parts.append(pl.col("chip_name") + " " + pl.col("proc"))
-        else:
-            summary_parts.append(pl.col("proc"))
+    df = df.with_columns([
+        pl.when(pl.col("has_light") == True)
+        .then(pl.lit("💡"))
+        .when(pl.col("has_light") == False)
+        .then(pl.lit("🌙"))
+        .otherwise(pl.lit("❔"))
+        .alias("light_glyph"),
+        chip_display.alias("chip_display"),
+    ])
 
-        # Add light info if available
-        if "has_light" in df.columns and "wavelength_nm" in df.columns:
-            summary_parts.append(
-                pl.when(pl.col("has_light") == True)
-                .then(pl.lit(" (λ=") + pl.col("wavelength_nm").cast(pl.Utf8) + pl.lit("nm)"))
+    snippet_exprs = [
+        pl.when(pl.col("chip_display") != "")
+        .then(pl.lit(" ") + pl.col("chip_display"))
+        .otherwise(pl.lit(""))
+        .alias("chip_snippet"),
+    ]
+
+    if "vds_v" in df.columns:
+        snippet_exprs.append(
+            pl.when(pl.col("vds_v").is_not_null())
+            .then(pl.lit(" VDS=") + pl.col("vds_v").round(3).cast(pl.Utf8) + pl.lit(" V"))
+            .otherwise(pl.lit(""))
+            .alias("vds_snippet")
+        )
+    else:
+        snippet_exprs.append(pl.lit("").alias("vds_snippet"))
+
+    if "vg_start_v" in df.columns and "vg_end_v" in df.columns:
+        if "vg_step_v" in df.columns:
+            vg_step_suffix = (
+                pl.when(pl.col("vg_step_v").is_not_null())
+                .then(pl.lit(" (step ") + pl.col("vg_step_v").round(3).cast(pl.Utf8) + pl.lit(")"))
                 .otherwise(pl.lit(""))
             )
-
-        # Concatenate all parts
-        if len(summary_parts) > 1:
-            summary_expr = summary_parts[0]
-            for part in summary_parts[1:]:
-                summary_expr = summary_expr + part
         else:
-            summary_expr = summary_parts[0]
+            vg_step_suffix = pl.lit("")
 
-        df = df.with_columns([
-            summary_expr.alias("summary")
-        ])
+        snippet_exprs.append(
+            pl.when(pl.col("vg_start_v").is_not_null() & pl.col("vg_end_v").is_not_null())
+            .then(
+                pl.lit(" VG=")
+                + pl.col("vg_start_v").round(2).cast(pl.Utf8)
+                + pl.lit("→")
+                + pl.col("vg_end_v").round(2).cast(pl.Utf8)
+                + vg_step_suffix
+            )
+            .otherwise(pl.lit(""))
+            .alias("vg_range_snippet")
+        )
+    else:
+        snippet_exprs.append(pl.lit("").alias("vg_range_snippet"))
+
+    if "vg_fixed_v" in df.columns:
+        snippet_exprs.append(
+            pl.when(pl.col("vg_fixed_v").is_not_null())
+            .then(pl.lit(" VG=") + pl.col("vg_fixed_v").round(3).cast(pl.Utf8) + pl.lit(" V"))
+            .otherwise(pl.lit(""))
+            .alias("vg_fixed_snippet")
+        )
+    else:
+        snippet_exprs.append(pl.lit("").alias("vg_fixed_snippet"))
+
+    if "laser_voltage_v" in df.columns:
+        snippet_exprs.append(
+            pl.when(pl.col("laser_voltage_v").is_not_null())
+            .then(pl.lit(" VL=") + pl.col("laser_voltage_v").round(3).cast(pl.Utf8) + pl.lit(" V"))
+            .otherwise(pl.lit(""))
+            .alias("laser_snippet")
+        )
+    else:
+        snippet_exprs.append(pl.lit("").alias("laser_snippet"))
+
+    if "wavelength_nm" in df.columns:
+        snippet_exprs.append(
+            pl.when(pl.col("wavelength_nm").is_not_null())
+            .then(pl.lit(" λ=") + pl.col("wavelength_nm").round(1).cast(pl.Utf8) + pl.lit(" nm"))
+            .otherwise(pl.lit(""))
+            .alias("wavelength_snippet")
+        )
+    else:
+        snippet_exprs.append(pl.lit("").alias("wavelength_snippet"))
+
+    snippet_exprs.append(
+        pl.when(pl.col("file_idx").is_not_null())
+        .then(pl.lit(" #") + pl.col("file_idx").cast(pl.Utf8))
+        .otherwise(pl.lit(""))
+        .alias("file_idx_snippet")
+    )
+
+    df = df.with_columns(snippet_exprs)
+
+    df = df.with_columns([
+        pl.concat_str(
+            [
+                pl.col("light_glyph"),
+                pl.lit(" "),
+                pl.col("proc"),
+                pl.col("chip_snippet"),
+                pl.col("vds_snippet"),
+                pl.col("vg_range_snippet"),
+                pl.col("vg_fixed_snippet"),
+                pl.col("laser_snippet"),
+                pl.col("wavelength_snippet"),
+                pl.col("file_idx_snippet"),
+            ],
+            separator=""
+        ).alias("summary")
+    ])
 
     # Add parquet_path column pointing to staged measurement data
     # Use Polars format string to construct the path
@@ -192,20 +319,52 @@ def build_chip_history_from_manifest(
         "proc",
         "summary",
         "has_light",
-        "parquet_path",  # Path to staged Parquet measurement file (NOT source_file!)
+        "laser_voltage_v",
+        "wavelength_nm",
+        "vds_v",
+        "vg_fixed_v",
+        "vg_start_v",
+        "vg_end_v",
+        "vg_step_v",
+        "laser_period_s",
+        "parquet_path",  # Path to staged Parquet measurement file
+        "source_file",
         "chip_number",
         "chip_group",
         "chip_name",
         "run_id",
-        # Note: source_file is intentionally excluded - it points to raw CSVs
-        # We only want parquet_path which points to staged Parquet files
+        "rows",
         "file_idx",
         "date_local",
+        "day_folder",
+        "start_time",
+        "start_time_utc",
+        "ts",
+        "date_origin",
     ]
 
     # Only select columns that exist in the dataframe
     available_cols = [col for col in history_cols if col in df.columns]
     history = df.select(available_cols)
+
+    # Drop helper columns that were only used for summary construction
+    history = history.drop(
+        [
+            col
+            for col in [
+                "light_glyph",
+                "chip_display",
+                "chip_snippet",
+                "vds_snippet",
+                "vg_range_snippet",
+                "vg_fixed_snippet",
+                "laser_snippet",
+                "wavelength_snippet",
+                "file_idx_snippet",
+            ]
+            if col in history.columns
+        ]
+    )
 
     return history
 

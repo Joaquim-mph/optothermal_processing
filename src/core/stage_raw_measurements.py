@@ -717,6 +717,15 @@ def ingest_file_task(
         with_light = False
         wl_f = None
         lv_f = None
+        def _get_float(keys):
+            for key in keys:
+                if key in params and params[key] is not None:
+                    try:
+                        return float(params[key])
+                    except (TypeError, ValueError):
+                        continue
+            return None
+
         try:
             wl_f = float(params.get("Laser wavelength")) if params.get("Laser wavelength") is not None else None
         except Exception:
@@ -725,29 +734,43 @@ def ingest_file_task(
             lv_f = float(params.get("Laser voltage")) if params.get("Laser voltage") is not None else None
         except Exception:
             lv_f = None
+
+        vds_v = _get_float(["VDS", "Vds", "VSD", "Drain voltage"])
+        vg_fixed_v = _get_float(["VG", "Vg", "Gate voltage", "Fixed gate voltage"])
+        vg_start_v = _get_float(["VG start", "Vg start"])
+        vg_end_v = _get_float(["VG end", "Vg end"])
+        vg_step_v = _get_float(["VG step", "Vg step"])
+        laser_period_s = _get_float(["Laser ON+OFF period", "Laser ON+OFF period (s)", "ON+OFF period"])
         with_light = (wl_f is not None) and (lv_f is not None) and (lv_f != 0.0)
 
         out_dir = stage_root / f"proc={proc}" / f"date={date_part}" / f"run_id={rid}"
         out_file = out_dir / "part-000.parquet"
 
+        event_common = {
+            "ts": dt.datetime.now(tz=dt.timezone.utc),
+            "run_id": rid,
+            "proc": proc,
+            "rows": df.height,
+            "path": str(out_file),
+            "source_file": str(src),
+            "date_origin": origin,
+            "chip_number": params.get("Chip number"),
+            "chip_group": params.get("Chip group name"),
+            "start_time_utc": start_dt,
+            "has_light": with_light,
+            "wavelength_nm": wl_f,
+            "laser_voltage_V": lv_f,
+            "laser_period_s": laser_period_s,
+            "vds_v": vds_v,
+            "vg_fixed_v": vg_fixed_v,
+            "vg_start_v": vg_start_v,
+            "vg_end_v": vg_end_v,
+            "vg_step_v": vg_step_v,
+            "date_local": date_part,
+        }
+
         if out_file.exists() and not force:
-            event = {
-                "ts": dt.datetime.now(tz=dt.timezone.utc),
-                "status": "skipped",
-                "run_id": rid,
-                "proc": proc,
-                "rows": df.height,
-                "path": str(out_file),
-                "source_file": str(src),
-                "date_origin": origin,
-                "chip_number": params.get("Chip number"),
-                "chip_group": params.get("Chip group name"),
-                "start_time_utc": start_dt,
-                "has_light": with_light,
-                "wavelength_nm": wl_f,
-                "laser_voltage_V": lv_f,
-                "date_local": date_part,
-            }
+            event = {"status": "skipped", **event_common}
         else:
             extra_cols = {
                 "run_id": rid,
@@ -757,6 +780,12 @@ def ingest_file_task(
                 "with_light": with_light,
                 "wavelength_nm": wl_f,
                 "laser_voltage_V": lv_f,
+                "laser_period_s": laser_period_s,
+                "vds_v": vds_v,
+                "vg_fixed_v": vg_fixed_v,
+                "vg_start_v": vg_start_v,
+                "vg_end_v": vg_end_v,
+                "vg_step_v": vg_step_v,
                 "chip_group": params.get("Chip group name"),
                 "chip_number": params.get("Chip number"),
                 "sample": params.get("Sample"),
@@ -765,23 +794,7 @@ def ingest_file_task(
             df = df.with_columns([pl.lit(v).alias(k) for k, v in extra_cols.items()])
             atomic_write_parquet(df, out_file)
 
-            event = {
-                "ts": dt.datetime.now(tz=dt.timezone.utc),
-                "status": "ok",
-                "run_id": rid,
-                "proc": proc,
-                "rows": df.height,
-                "path": str(out_file),
-                "source_file": str(src),
-                "date_origin": origin,
-                "chip_number": params.get("Chip number"),
-                "chip_group": params.get("Chip group name"),
-                "start_time_utc": start_dt,
-                "has_light": with_light,
-                "wavelength_nm": wl_f,
-                "laser_voltage_V": lv_f,
-                "date_local": date_part,
-            }
+            event = {"status": "ok", **event_common}
 
         ev_path = events_dir / f"event-{rid}.json"
         ensure_dir(ev_path.parent)
@@ -886,7 +899,21 @@ def merge_events_to_manifest(events_dir: Path, manifest_path: Path) -> None:
             continue
     if not rows:
         return
-    df = pl.DataFrame(rows)
+    # Normalize rows to shared schema before creating DataFrame.
+    # Existing event files may have been written by older staging versions
+    # without the newer metadata columns (vds_v, vg_fixed_v, etc.).
+    # Polars requires consistent keys across rows, so fill missing ones.
+    all_keys = set()
+    for row in rows:
+        all_keys.update(row.keys())
+    ordered_keys = sorted(all_keys)
+
+    normalized_rows = []
+    for row in rows:
+        normalized = {k: row.get(k, None) for k in ordered_keys}
+        normalized_rows.append(normalized)
+
+    df = pl.DataFrame(normalized_rows)
     ensure_dir(manifest_path.parent)
     if manifest_path.exists():
         prev = pl.read_parquet(manifest_path)

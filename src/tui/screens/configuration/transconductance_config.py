@@ -2,13 +2,15 @@
 
 from pathlib import Path
 from textual.app import ComposeResult
-from textual.screen import Screen
-from textual.widgets import Button, Static, Input, RadioSet, RadioButton, Select
+from textual.widgets import Button, Static, Input, RadioSet, RadioButton
 from textual.containers import Vertical, Horizontal
+from textual.binding import Binding
 from textual import events
 
+from src.tui.screens.base import FormScreen
 
-class TransconductanceConfigScreen(Screen):
+
+class TransconductanceConfigScreen(FormScreen):
     """Transconductance custom configuration screen.
 
     Allows user to customize:
@@ -19,31 +21,21 @@ class TransconductanceConfigScreen(Screen):
     - Output directory
     """
 
-    CSS = """
-    TransconductanceConfigScreen {
-        background: $surface;
-        padding: 1 2;
-    }
+    SCREEN_TITLE = "Custom Configuration - Transconductance"
+    STEP_NUMBER = 4
 
-    #title {
-        width: 100%;
-        text-align: center;
-        color: $accent;
-        text-style: bold;
+    BINDINGS = FormScreen.BINDINGS + [
+        Binding("ctrl+s", "save_config", "Save Config", show=False),
+    ]
+
+    # Transconductance-specific CSS (extends FormScreen CSS)
+    CSS = FormScreen.CSS + """
+    #manual-indices-container,
+    #window-length-container,
+    #polyorder-container,
+    #min-segment-container {
+        height: auto;
         margin-bottom: 1;
-    }
-
-    .section-title {
-        width: 100%;
-        text-align: center;
-        color: $primary;
-        margin: 1 0;
-    }
-
-    .field-label {
-        width: 30;
-        text-align: right;
-        margin-right: 2;
     }
 
     .field-container {
@@ -51,41 +43,19 @@ class TransconductanceConfigScreen(Screen):
         margin-bottom: 1;
     }
 
-    .nav-button {
-        margin: 0 1;
-    }
-
-    .nav-button:focus {
-        background: $primary;
-        border: tall $accent;
-        color: $primary-background;
-        text-style: bold;
-    }
-
-    #button-container {
-        dock: bottom;
-        height: auto;
-        align: center middle;
-        padding: 1 0;
-    }
-
     .help-text {
         color: $text-muted;
-        margin-left: 32;
+        margin-left: 2;
         margin-bottom: 1;
     }
     """
-
-    BINDINGS = [
-        ("escape", "back", "Back"),
-    ]
 
     def __init__(
         self,
         chip_number: int,
         chip_group: str,
-        plot_type: str,
-        history_dir: Path,
+        plot_type: str = "Transconductance",
+        history_dir: Path = Path("data/03_history"),
     ):
         super().__init__()
         self.chip_number = chip_number
@@ -93,31 +63,39 @@ class TransconductanceConfigScreen(Screen):
         self.plot_type = plot_type
         self.history_dir = history_dir
 
-    def compose(self) -> ComposeResult:
-        """Compose the configuration form."""
-        yield Static("Custom Configuration - Transconductance", id="title")
+    def compose_header(self) -> ComposeResult:
+        """Compose header with title, chip info, and step indicator."""
+        yield Static(self.SCREEN_TITLE, id="title")
+        yield Static(
+            f"[bold]{self.chip_group}{self.chip_number}[/bold] - {self.plot_type}",
+            id="chip-info"
+        )
+        yield Static(f"[Step {self.STEP_NUMBER}/{self.TOTAL_STEPS}]", id="step-indicator")
 
+    def compose_content(self) -> ComposeResult:
+        """Compose the configuration form."""
         # Selection Mode Section
         yield Static("─── Selection Mode ───", classes="section-title")
         with Vertical(classes="field-container"):
-            yield Static("How to select experiments:", classes="field-label")
+            yield Static("How to select experiments:")
             with RadioSet(id="selection-mode-radio"):
                 yield RadioButton("Interactive (recommended)", id="interactive-radio", value=True)
                 yield RadioButton("Auto (all experiments)", id="auto-radio")
                 yield RadioButton("Manual (enter indices)", id="manual-radio")
 
         # Manual indices input (initially hidden)
-        with Horizontal(classes="field-container", id="manual-indices-container"):
-            yield Static("Experiment indices:", classes="field-label")
+        with Horizontal(classes="form-row", id="manual-indices-container"):
+            yield Static("Experiment indices:")
             yield Input(
                 placeholder="e.g., 0,2,5-8",
                 id="manual-indices-input",
+                classes="form-input"
             )
 
         # Calculation Method Section
         yield Static("─── Calculation Method ───", classes="section-title")
         with Vertical(classes="field-container"):
-            yield Static("Method:", classes="field-label")
+            yield Static("Method:")
             with RadioSet(id="method-radio"):
                 yield RadioButton("Gradient (default)", id="gradient-radio", value=True)
                 yield RadioButton("Savitzky-Golay filtering", id="savgol-radio")
@@ -127,67 +105,75 @@ class TransconductanceConfigScreen(Screen):
         # Savgol Parameters Section (initially hidden)
         yield Static("─── Savitzky-Golay Parameters ───", classes="section-title", id="savgol-title")
 
-        with Horizontal(classes="field-container", id="window-length-container"):
-            yield Static("Window length:", classes="field-label")
+        with Horizontal(classes="form-row", id="window-length-container"):
+            yield Static("Window length:", classes="form-label")
             yield Input(
                 placeholder="Default: 9 (must be odd)",
                 value="9",
                 id="window-length-input",
+                classes="form-input"
             )
-        yield Static("Number of data points in the smoothing window (must be odd)", classes="help-text", id="window-help")
+            yield Static("# of data points in smoothing window (odd)", classes="form-help")
 
-        with Horizontal(classes="field-container", id="polyorder-container"):
-            yield Static("Polynomial order:", classes="field-label")
+        with Horizontal(classes="form-row", id="polyorder-container"):
+            yield Static("Polynomial order:", classes="form-label")
             yield Input(
                 placeholder="Default: 3",
                 value="3",
                 id="polyorder-input",
+                classes="form-input"
             )
-        yield Static("Order of polynomial used for fitting (< window_length)", classes="help-text", id="poly-help")
+            yield Static("Order of polynomial (< window_length)", classes="form-help")
 
-        with Horizontal(classes="field-container", id="min-segment-container"):
-            yield Static("Min segment length:", classes="field-label")
+        with Horizontal(classes="form-row", id="min-segment-container"):
+            yield Static("Min segment length:", classes="form-label")
             yield Input(
                 placeholder="Default: 10",
                 value="10",
                 id="min-segment-input",
+                classes="form-input"
             )
-        yield Static("Minimum number of points in a sweep segment", classes="help-text", id="segment-help")
+            yield Static("Minimum points in a sweep segment", classes="form-help")
 
         # Filters Section
         yield Static("─── Filters (Optional) ───", classes="section-title")
 
-        with Horizontal(classes="field-container"):
-            yield Static("VDS filter (V):", classes="field-label")
+        with Horizontal(classes="form-row"):
+            yield Static("VDS filter (V):", classes="form-label")
             yield Input(
                 placeholder="Leave empty for all, or e.g., 0.1",
                 id="vds-filter-input",
+                classes="form-input"
             )
+            yield Static("Filter by drain-source voltage", classes="form-help")
 
-        with Horizontal(classes="field-container"):
-            yield Static("Date filter:", classes="field-label")
+        with Horizontal(classes="form-row"):
+            yield Static("Date filter:", classes="form-label")
             yield Input(
                 placeholder="Leave empty for all, or YYYY-MM-DD",
                 id="date-filter-input",
+                classes="form-input"
             )
+            yield Static("Filter by experiment date", classes="form-help")
 
         # Plot Options Section
         yield Static("─── Plot Options ───", classes="section-title")
 
-        with Horizontal(classes="field-container"):
-            yield Static("Output directory:", classes="field-label")
+        with Horizontal(classes="form-row"):
+            yield Static("Output directory:", classes="form-label")
             yield Input(
                 placeholder="figs",
                 value="figs",
                 id="output-dir-input",
+                classes="form-input"
             )
-            yield Static(f"→ figs/{self.chip_group}{self.chip_number}/", classes="field-label")
+            yield Static(f"→ figs/{self.chip_group}{self.chip_number}/", classes="form-help")
 
         # Buttons
         with Horizontal(id="button-container"):
             yield Button("Save Config", id="save-button", variant="default", classes="nav-button")
             yield Button("← Back", variant="default", id="back-button", classes="nav-button")
-            yield Button("Next →", variant="default", id="next-button", classes="nav-button")
+            yield Button("Next →", variant="primary", id="next-button", classes="nav-button")
 
     def on_mount(self) -> None:
         """Initialize the screen after mounting."""
@@ -205,21 +191,15 @@ class TransconductanceConfigScreen(Screen):
         """Hide Savgol parameter inputs."""
         self.query_one("#savgol-title").display = False
         self.query_one("#window-length-container").display = False
-        self.query_one("#window-help").display = False
         self.query_one("#polyorder-container").display = False
-        self.query_one("#poly-help").display = False
         self.query_one("#min-segment-container").display = False
-        self.query_one("#segment-help").display = False
 
     def _show_savgol_params(self) -> None:
         """Show Savgol parameter inputs."""
         self.query_one("#savgol-title").display = True
         self.query_one("#window-length-container").display = True
-        self.query_one("#window-help").display = True
         self.query_one("#polyorder-container").display = True
-        self.query_one("#poly-help").display = True
         self.query_one("#min-segment-container").display = True
-        self.query_one("#segment-help").display = True
 
     def on_radio_set_changed(self, event: RadioSet.Changed) -> None:
         """Show/hide conditional inputs based on radio selections."""
@@ -241,6 +221,7 @@ class TransconductanceConfigScreen(Screen):
     def on_key(self, event: events.Key) -> None:
         """Handle arrow key navigation between buttons."""
         buttons = [
+            self.query_one("#save-button", Button),
             self.query_one("#back-button", Button),
             self.query_one("#next-button", Button),
         ]
@@ -256,22 +237,6 @@ class TransconductanceConfigScreen(Screen):
                 new_idx = (focused_idx + 1) % len(buttons)
                 buttons[new_idx].focus()
                 event.prevent_default()
-
-    def on_button_focus(self, event) -> None:
-        """Add arrow indicator to focused button."""
-        # Remove arrows from all buttons
-        for button in self.query(".nav-button"):
-            if button.label.startswith("→ ") or button.label.startswith("← "):
-                # Remove first 2 characters (arrow + space)
-                button.label = button.label[2:]
-
-        # Add arrow to focused button
-        if event.button.id == "back-button":
-            if not event.button.label.startswith("← "):
-                event.button.label = f"← {event.button.label}"
-        elif event.button.id == "next-button":
-            if not event.button.label.startswith("→ "):
-                event.button.label = f"→ {event.button.label}"
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle button presses."""
@@ -315,75 +280,62 @@ class TransconductanceConfigScreen(Screen):
                 timeout=5
             )
 
-    def action_back(self) -> None:
-        """Go back to config mode selector."""
-        self.app.pop_screen()
-
     def action_next(self) -> None:
         """Proceed to experiment selection or preview."""
         config = self._collect_config()
 
-        # Validate Savgol parameters if using savgol method
-        if config.get("method") == "savgol":
-            validation_error = self._validate_savgol_params(config)
-            if validation_error:
-                self.notify(validation_error, severity="error", timeout=5)
-                return
+        # Validate configuration
+        validation_error = self._validate_config(config)
+        if validation_error:
+            self.notify(validation_error, severity="error", timeout=5)
+            return
+
+        # Save to session (replaces app.update_config)
+        for key, value in config.items():
+            if hasattr(self.app.session, key):
+                setattr(self.app.session, key, value)
 
         # Determine selection mode
         selection_mode_radio = self.query_one("#selection-mode-radio", RadioSet)
 
         if selection_mode_radio.pressed_button.id == "interactive-radio":
-            # Go to interactive experiment selector
-            from src.tui.screens.experiment_selector import ExperimentSelectorScreen
-            self.app.push_screen(
-                ExperimentSelectorScreen(
-                    chip_number=self.chip_number,
-                    chip_group=self.chip_group,
-                    plot_type=self.plot_type,
-                    history_dir=self.history_dir,
-                )
-            )
+            # Go to interactive experiment selector using router
+            self.app.router.go_to_experiment_selector()
         else:
             # Go directly to preview (Auto or Manual mode)
-            from src.tui.screens.preview_screen import PreviewScreen
-            self.app.push_screen(
-                PreviewScreen(
-                    chip_number=self.chip_number,
-                    chip_group=self.chip_group,
-                    plot_type=self.plot_type,
-                    seq_numbers=[],  # TODO: Auto-select based on filters
-                    config=config,
-                    history_dir=self.history_dir,
-                )
-            )
+            # TODO: Implement auto-select based on filters
+            self.app.notify("Auto/Manual mode not yet implemented", severity="warning")
+            # For now, still go to interactive selector
+            self.app.router.go_to_experiment_selector()
 
-    def _validate_savgol_params(self, config: dict) -> str | None:
-        """Validate Savitzky-Golay parameters.
+    def _validate_config(self, config: dict) -> str | None:
+        """Validate configuration values.
 
         Returns error message if validation fails, None if OK.
         """
-        window_length = config.get("window_length")
-        polyorder = config.get("polyorder")
-        min_segment_length = config.get("min_segment_length")
+        # Validate Savgol parameters if using savgol method
+        if config.get("method") == "savgol":
+            window_length = config.get("window_length")
+            polyorder = config.get("polyorder")
+            min_segment_length = config.get("min_segment_length")
 
-        # Window length must be odd and positive
-        if window_length is not None:
-            if window_length % 2 == 0:
-                return "Window length must be an odd number"
-            if window_length < 3:
-                return "Window length must be at least 3"
+            # Window length must be odd and positive
+            if window_length is not None:
+                if window_length % 2 == 0:
+                    return "Window length must be an odd number"
+                if window_length < 3:
+                    return "Window length must be at least 3"
 
-        # Polyorder must be positive and less than window_length
-        if polyorder is not None:
-            if polyorder < 1:
-                return "Polynomial order must be at least 1"
-            if window_length is not None and polyorder >= window_length:
-                return f"Polynomial order ({polyorder}) must be less than window length ({window_length})"
+            # Polyorder must be positive and less than window_length
+            if polyorder is not None:
+                if polyorder < 1:
+                    return "Polynomial order must be at least 1"
+                if window_length is not None and polyorder >= window_length:
+                    return f"Polynomial order ({polyorder}) must be less than window length ({window_length})"
 
-        # Min segment length must be positive
-        if min_segment_length is not None and min_segment_length < 1:
-            return "Minimum segment length must be at least 1"
+            # Min segment length must be positive
+            if min_segment_length is not None and min_segment_length < 1:
+                return "Minimum segment length must be at least 1"
 
         # Date format validation
         date_filter = config.get("date_filter")

@@ -12,8 +12,10 @@ from typing import Optional, Dict, Any
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 
-from src.tui.screens.main_menu import MainMenuScreen
+from src.tui.screens import MainMenuScreen
 from src.tui.config_manager import ConfigManager
+from src.tui.session import PlotSession
+from src.tui.router import Router
 
 
 class PlotterApp(App):
@@ -42,9 +44,6 @@ class PlotterApp(App):
         Binding("ctrl+h", "help", "Help", show=False),
     ]
 
-    # Shared state for wizard flow
-    plot_config: Dict[str, Any] = {}
-
     def __init__(
         self,
         stage_dir: Path = Path("data/02_stage/raw_measurements"),
@@ -68,22 +67,25 @@ class PlotterApp(App):
         """
         super().__init__()
 
-        # Store configuration paths
+        # Store configuration paths (kept for backward compatibility)
         self.stage_dir = stage_dir
         self.history_dir = history_dir
         self.output_dir = output_dir
         self.chip_group = chip_group
 
-        # Initialize plot configuration
-        self.plot_config = {
-            "stage_dir": stage_dir,
-            "history_dir": history_dir,
-            "output_dir": output_dir,
-            "chip_group": chip_group,
-        }
+        # Initialize type-safe session state (replaces plot_config dict)
+        self.session = PlotSession(
+            stage_dir=stage_dir,
+            history_dir=history_dir,
+            output_dir=output_dir,
+            chip_group=chip_group
+        )
 
         # Initialize configuration manager
         self.config_manager = ConfigManager()
+
+        # Initialize navigation router
+        self.router = Router(self)
 
     def on_mount(self) -> None:
         """Set theme and show main menu on startup."""
@@ -98,29 +100,64 @@ class PlotterApp(App):
         # TODO: Implement help screen in Phase 7
         self.notify("Help: Use arrow keys to navigate, Enter to select, Ctrl+Q to quit")
 
+    # ═══════════════════════════════════════════════════════════════════
+    # Backward Compatibility Methods (for gradual migration)
+    # ═══════════════════════════════════════════════════════════════════
+
+    @property
+    def plot_config(self) -> Dict[str, Any]:
+        """
+        Backward compatibility property for plot_config dict.
+
+        Returns session state as dict. Use self.session instead for new code.
+
+        Returns
+        -------
+        dict
+            Session state as dictionary
+        """
+        return self.session.to_config_dict()
+
     def reset_config(self) -> None:
-        """Reset plot configuration to defaults."""
-        self.plot_config = {
-            "stage_dir": self.stage_dir,
-            "history_dir": self.history_dir,
-            "output_dir": self.output_dir,
-            "chip_group": self.chip_group,
-        }
+        """
+        Reset plot configuration to defaults.
+
+        Resets wizard state while keeping application paths.
+        """
+        self.session.reset_wizard_state()
 
     def update_config(self, **kwargs) -> None:
         """
-        Update plot configuration.
+        Update plot configuration (backward compatibility method).
+
+        For new code, use self.session attributes directly:
+        - Old: self.app.update_config(chip_number=67)
+        - New: self.app.session.chip_number = 67
 
         Parameters
         ----------
         **kwargs
             Configuration key-value pairs to update
         """
-        self.plot_config.update(kwargs)
+        # Update session fields dynamically
+        for key, value in kwargs.items():
+            if hasattr(self.session, key):
+                setattr(self.session, key, value)
+            else:
+                # Warn about unknown fields (helps catch typos during migration)
+                self.notify(
+                    f"Warning: Unknown config field '{key}' (session has no such attribute)",
+                    severity="warning",
+                    timeout=3
+                )
 
     def get_config(self, key: str, default: Any = None) -> Any:
         """
-        Get configuration value.
+        Get configuration value (backward compatibility method).
+
+        For new code, use self.session attributes directly:
+        - Old: chip = self.app.get_config("chip_number")
+        - New: chip = self.app.session.chip_number
 
         Parameters
         ----------
@@ -134,4 +171,4 @@ class PlotterApp(App):
         Any
             Configuration value
         """
-        return self.plot_config.get(key, default)
+        return getattr(self.session, key, default)

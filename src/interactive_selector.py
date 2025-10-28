@@ -41,8 +41,10 @@ class ExperimentSelectorScreen(Screen):
 
     CSS = """
     #main-container {
+        width: 100%;
         height: 100%;
         layout: vertical;
+        padding: 0;
     }
 
     #title {
@@ -71,8 +73,9 @@ class ExperimentSelectorScreen(Screen):
     }
 
     #search-bar {
-        height: 1;
+        height: auto;
         padding: 0 2;
+        margin-bottom: 1;
     }
 
     #search-label {
@@ -86,7 +89,8 @@ class ExperimentSelectorScreen(Screen):
     #light-filter-bar {
         height: auto;
         padding: 0 2;
-        margin-bottom: 1;
+        margin: 0 0 1 0;
+        layout: horizontal;
     }
 
     #light-filter-label {
@@ -94,17 +98,19 @@ class ExperimentSelectorScreen(Screen):
     }
 
     .light-filter-button {
-        margin-right: 1;
         min-width: 14;
+        margin-right: 1;
     }
 
     #table-container {
+        width: 100%;
         height: 1fr;
         border: solid $primary;
-        margin: 0 2;
+        margin: 0;
     }
 
     #experiments-table {
+        width: 100%;
         height: auto;
     }
 
@@ -341,6 +347,12 @@ class ExperimentSelectorScreen(Screen):
 
     def _extract_vds(self, row: dict) -> Optional[float]:
         """Extract VDS value from row."""
+        if "vds_v" in row and row["vds_v"] is not None:
+            try:
+                return float(row["vds_v"])
+            except (TypeError, ValueError):
+                pass
+
         # Try direct VDS/VSD columns
         for key in ["VDS", "VSD", "Vds", "Vsd", "VDS (V)", "VSD (V)"]:
             if key in row:
@@ -364,6 +376,12 @@ class ExperimentSelectorScreen(Screen):
 
     def _extract_vg(self, row: dict) -> Optional[float]:
         """Extract VG value from row."""
+        if "vg_fixed_v" in row and row["vg_fixed_v"] is not None:
+            try:
+                return float(row["vg_fixed_v"])
+            except (TypeError, ValueError):
+                pass
+
         # Try direct VG column
         for key in ["VG", "Vg", "VG (V)", "Gate voltage"]:
             if key in row:
@@ -387,6 +405,12 @@ class ExperimentSelectorScreen(Screen):
 
     def _extract_wavelength(self, row: dict) -> Optional[float]:
         """Extract wavelength from row."""
+        if "wavelength_nm" in row and row["wavelength_nm"] is not None:
+            try:
+                return float(row["wavelength_nm"])
+            except (TypeError, ValueError):
+                pass
+
         # Try summary first (most reliable for this dataset)
         summary = str(row.get("summary", ""))
         import re
@@ -411,6 +435,12 @@ class ExperimentSelectorScreen(Screen):
 
     def _extract_led_voltage(self, row: dict) -> Optional[float]:
         """Extract LED/Laser voltage from row."""
+        if "laser_voltage_v" in row and row["laser_voltage_v"] is not None:
+            try:
+                return float(row["laser_voltage_v"])
+            except (TypeError, ValueError):
+                pass
+
         # Try summary first
         summary = str(row.get("summary", ""))
         import re
@@ -440,6 +470,17 @@ class ExperimentSelectorScreen(Screen):
         The "Laser ON+OFF period" is the sum of ON time + OFF time.
         Duration is calculated as 1.5x this period.
         """
+        if "laser_period_s" in row and row["laser_period_s"] is not None:
+            try:
+                period = float(row["laser_period_s"])
+                if period > 0:
+                    duration = period * 1.5
+                    if duration == int(duration):
+                        return f"{int(duration)}s"
+                    return f"{duration:.1f}s"
+            except (TypeError, ValueError):
+                pass
+
         # Try to get "Laser ON+OFF period" from metadata
         for key in ["Laser ON+OFF period", "Laser ON+OFF period (s)", "ON+OFF period"]:
             if key in row:

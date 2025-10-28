@@ -6,52 +6,36 @@ Shows list of recently saved configurations that can be loaded and reused.
 
 from __future__ import annotations
 from typing import TYPE_CHECKING
+from pathlib import Path
+import glob
 
 from textual.app import ComposeResult
-from textual.containers import Container, Vertical, Horizontal, ScrollableContainer
-from textual.screen import Screen
-from textual.widgets import Header, Footer, Static, Button, DataTable, Label
+from textual.containers import Vertical, Horizontal, ScrollableContainer
+from textual.widgets import Static, Button, DataTable
 from textual.binding import Binding
-from rich.text import Text
+
+from src.tui.screens.base import WizardScreen
 
 if TYPE_CHECKING:
     from src.tui.app import PlotterApp
 
 
-class RecentConfigsScreen(Screen):
-    """Recent configurations screen (Phase 3)."""
+class RecentConfigsScreen(WizardScreen):
+    """Recent configurations screen."""
 
-    BINDINGS = [
-        Binding("escape", "back", "Back", priority=True),
-        Binding("ctrl+b", "back", "Back", show=False),
+    SCREEN_TITLE = "Recent Configurations"
+    STEP_NUMBER = None  # Not part of main wizard flow
+
+    BINDINGS = WizardScreen.BINDINGS + [
         Binding("delete", "delete_config", "Delete", show=False),
+        Binding("enter", "load_selected", "Load", priority=True),
     ]
 
-    CSS = """
-    RecentConfigsScreen {
-        align: center middle;
-    }
-
+    # Recent configs-specific CSS (extends WizardScreen CSS)
+    CSS = WizardScreen.CSS + """
     #main-container {
-        width: 90;
-        height: auto;
+        max-width: 140;
         max-height: 95%;
-        background: $surface;
-        border: thick $primary;
-        padding: 2 4;
-    }
-
-    #header-container {
-        width: 100%;
-        height: auto;
-        margin-bottom: 2;
-    }
-
-    #title {
-        width: 100%;
-        content-align: center middle;
-        text-style: bold;
-        color: $accent;
     }
 
     #subtitle {
@@ -83,13 +67,6 @@ class RecentConfigsScreen(Screen):
         border: thick $accent;
     }
 
-    #button-container {
-        width: 100%;
-        height: auto;
-        layout: horizontal;
-        margin-top: 1;
-    }
-
     .action-button {
         width: 1fr;
         margin: 0 1;
@@ -112,38 +89,34 @@ class RecentConfigsScreen(Screen):
     }
     """
 
-    def compose(self) -> ComposeResult:
-        """Create recent configs widgets."""
-        yield Header()
+    def compose_header(self) -> ComposeResult:
+        """Compose header with title and subtitle."""
+        yield Static(self.SCREEN_TITLE, id="title")
+        yield Static("Load previously saved plot configurations", id="subtitle")
 
-        with Container(id="main-container"):
-            with Vertical(id="header-container"):
-                yield Static("Recent Configurations", id="title")
-                yield Static("Load previously saved plot configurations", id="subtitle")
+    def compose_content(self) -> ComposeResult:
+        """Compose recent configs content."""
+        # Stats display
+        yield Static("", id="stats")
 
-            # Stats display
-            yield Static("", id="stats")
+        # Info box
+        with Vertical(id="info-box"):
+            yield Static("📋 Select a configuration to load")
+            yield Static("🔄 Press Enter to load selected config")
+            yield Static("🗑️  Press Delete to remove config")
+            yield Static("↑↓ Use arrow keys to navigate")
 
-            # Info box
-            with Vertical(id="info-box"):
-                yield Static("📋 Select a configuration to load")
-                yield Static("🔄 Press Enter to load selected config")
-                yield Static("🗑️  Press Delete to remove config")
-                yield Static("↑↓ Use arrow keys to navigate")
+        # Data table
+        with ScrollableContainer(id="table-container"):
+            yield DataTable(id="configs-table", zebra_stripes=True, cursor_type="row")
 
-            # Data table
-            with ScrollableContainer(id="table-container"):
-                yield DataTable(id="configs-table", zebra_stripes=True, cursor_type="row")
-
-            # Action buttons
-            with Horizontal(id="button-container"):
-                yield Button("Load Config", id="load-button", variant="default", classes="action-button")
-                yield Button("Export", id="export-button", variant="default", classes="action-button")
-                yield Button("Import", id="import-button", variant="default", classes="action-button")
-                yield Button("Delete", id="delete-button", variant="default", classes="action-button")
-                yield Button("← Back", id="back-button", variant="default", classes="action-button")
-
-        yield Footer()
+        # Action buttons
+        with Horizontal(id="button-container"):
+            yield Button("Load Config", id="load-button", variant="primary", classes="action-button")
+            yield Button("Export", id="export-button", variant="default", classes="action-button")
+            yield Button("Import", id="import-button", variant="default", classes="action-button")
+            yield Button("Delete", id="delete-button", variant="default", classes="action-button")
+            yield Button("← Back", id="back-button", variant="default", classes="action-button")
 
     def on_mount(self) -> None:
         """Initialize screen and load configurations."""
@@ -225,6 +198,10 @@ class RecentConfigsScreen(Screen):
         """Handle row selection (Enter key on row)."""
         self._load_selected_config()
 
+    def action_load_selected(self) -> None:
+        """Load selected config (Enter key binding)."""
+        self._load_selected_config()
+
     def _load_selected_config(self) -> None:
         """Load the selected configuration and navigate to appropriate screen."""
         table = self.query_one("#configs-table", DataTable)
@@ -253,28 +230,20 @@ class RecentConfigsScreen(Screen):
             self.notify("Failed to load configuration", severity="error")
             return
 
-        # Update app config
-        app.plot_config.update(config)
-
-        # Navigate to preview screen
-        from src.tui.screens.preview_screen import PreviewScreen
+        # Update session with loaded config (replaces app.plot_config.update)
+        for key, value in config.items():
+            if hasattr(app.session, key):
+                setattr(app.session, key, value)
 
         chip_number = config.get("chip_number")
-        chip_group = config.get("chip_group", app.chip_group)
+        chip_group = config.get("chip_group", app.session.chip_group)
         plot_type = config.get("plot_type", "ITS")
         seq_numbers = config.get("seq_numbers", [])
 
-        self.notify(f"Loaded configuration: {config.get('plot_type', 'Unknown')}", timeout=2)
+        self.notify(f"Loaded configuration: {plot_type}", timeout=2)
 
-        # Navigate to preview
-        self.app.push_screen(PreviewScreen(
-            chip_number=chip_number,
-            chip_group=chip_group,
-            plot_type=plot_type,
-            seq_numbers=seq_numbers,
-            config=config,
-            history_dir=app.history_dir,
-        ))
+        # Navigate to preview using router
+        app.router.go_to_preview()
 
     def action_delete_config(self) -> None:
         """Delete the selected configuration."""
@@ -308,8 +277,6 @@ class RecentConfigsScreen(Screen):
 
     def _export_config(self) -> None:
         """Export the selected configuration to a JSON file."""
-        from pathlib import Path
-
         table = self.query_one("#configs-table", DataTable)
         app: PlotterApp = self.app  # type: ignore
 
@@ -322,11 +289,11 @@ class RecentConfigsScreen(Screen):
             self.notify("Please select a configuration to export", severity="warning")
             return
 
-        row_key = table.get_row_key_at(table.cursor_row)
-        if row_key is None:
+        row_key = table.coordinate_to_cell_key(table.cursor_coordinate).row_key
+        if row_key is None or row_key.value is None:
             return
 
-        config_id = str(row_key)
+        config_id = str(row_key.value)
 
         # Export to current directory with descriptive filename
         export_path = Path(f"plot_config_{config_id}.json")
@@ -338,20 +305,9 @@ class RecentConfigsScreen(Screen):
 
     def _import_config(self) -> None:
         """Import a configuration from a JSON file."""
-        # Note: In a real TUI, we'd want a file picker dialog
-        # For now, we'll show instructions to the user
-        self.notify(
-            "To import: Place plot_config_*.json in current directory and restart TUI",
-            severity="information",
-            timeout=5
-        )
-
-        # TODO: Implement file picker or command-line import
-        # For now, check for any plot_config_*.json files in current directory
-        from pathlib import Path
-        import glob
-
         app: PlotterApp = self.app  # type: ignore
+
+        # Check for any plot_config_*.json files in current directory
         config_files = list(Path(".").glob("plot_config_*.json"))
 
         if config_files:
@@ -366,11 +322,11 @@ class RecentConfigsScreen(Screen):
             else:
                 self.notify(f"Failed to import {latest_file.name}", severity="error")
         else:
-            self.notify("No plot_config_*.json files found in current directory", severity="warning", timeout=5)
-
-    def action_back(self) -> None:
-        """Go back to main menu."""
-        self.app.pop_screen()
+            self.notify(
+                "No plot_config_*.json files found in current directory.\nPlace file here and try again.",
+                severity="warning",
+                timeout=5
+            )
 
     def on_button_focus(self, event: Button.Focus) -> None:
         """Update button labels when focused."""

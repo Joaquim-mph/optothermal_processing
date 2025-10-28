@@ -2,13 +2,15 @@
 
 from pathlib import Path
 from textual.app import ComposeResult
-from textual.screen import Screen
-from textual.widgets import Button, Static, Input, RadioSet, RadioButton, Select
+from textual.widgets import Button, Static, Input, RadioSet, RadioButton
 from textual.containers import Vertical, Horizontal
+from textual.binding import Binding
 from textual import events
 
+from src.tui.screens.base import FormScreen
 
-class IVgConfigScreen(Screen):
+
+class IVgConfigScreen(FormScreen):
     """IVg custom configuration screen.
 
     Allows user to customize:
@@ -17,67 +19,32 @@ class IVgConfigScreen(Screen):
     - Output directory
     """
 
-    CSS = """
-    IVgConfigScreen {
-        background: $surface;
-        padding: 1 2;
-    }
+    SCREEN_TITLE = "Custom Configuration - IVg"
+    STEP_NUMBER = 4
 
-    #title {
-        width: 100%;
-        text-align: center;
-        color: $accent;
-        text-style: bold;
+    BINDINGS = FormScreen.BINDINGS + [
+        Binding("ctrl+s", "save_config", "Save Config", show=False),
+    ]
+
+    # IVg-specific CSS (extends FormScreen CSS)
+    CSS = FormScreen.CSS + """
+    #manual-indices-container {
+        height: auto;
         margin-bottom: 1;
-    }
-
-    .section-title {
-        width: 100%;
-        text-align: center;
-        color: $primary;
-        margin: 1 0;
-    }
-
-    .field-label {
-        width: 30;
-        text-align: right;
-        margin-right: 2;
     }
 
     .field-container {
         height: auto;
         margin-bottom: 1;
     }
-
-    .nav-button {
-        margin: 0 1;
-    }
-
-    .nav-button:focus {
-        background: $primary;
-        border: tall $accent;
-        color: $primary-background;
-        text-style: bold;
-    }
-
-    #button-container {
-        dock: bottom;
-        height: auto;
-        align: center middle;
-        padding: 1 0;
-    }
     """
-
-    BINDINGS = [
-        ("escape", "back", "Back"),
-    ]
 
     def __init__(
         self,
         chip_number: int,
         chip_group: str,
-        plot_type: str,
-        history_dir: Path,
+        plot_type: str = "IVg",
+        history_dir: Path = Path("data/03_history"),
     ):
         super().__init__()
         self.chip_number = chip_number
@@ -85,61 +52,74 @@ class IVgConfigScreen(Screen):
         self.plot_type = plot_type
         self.history_dir = history_dir
 
-    def compose(self) -> ComposeResult:
-        """Compose the configuration form."""
-        yield Static("Custom Configuration - IVg", id="title")
+    def compose_header(self) -> ComposeResult:
+        """Compose header with title, chip info, and step indicator."""
+        yield Static(self.SCREEN_TITLE, id="title")
+        yield Static(
+            f"[bold]{self.chip_group}{self.chip_number}[/bold] - {self.plot_type}",
+            id="chip-info"
+        )
+        yield Static(f"[Step {self.STEP_NUMBER}/{self.TOTAL_STEPS}]", id="step-indicator")
 
+    def compose_content(self) -> ComposeResult:
+        """Compose the configuration form."""
         # Selection Mode Section
         yield Static("─── Selection Mode ───", classes="section-title")
         with Vertical(classes="field-container"):
-            yield Static("How to select experiments:", classes="field-label")
+            yield Static("How to select experiments:")
             with RadioSet(id="selection-mode-radio"):
                 yield RadioButton("Interactive (recommended)", id="interactive-radio", value=True)
                 yield RadioButton("Auto (all experiments)", id="auto-radio")
                 yield RadioButton("Manual (enter indices)", id="manual-radio")
 
         # Manual indices input (initially hidden)
-        with Horizontal(classes="field-container", id="manual-indices-container"):
-            yield Static("Experiment indices:", classes="field-label")
+        with Horizontal(classes="form-row", id="manual-indices-container"):
+            yield Static("Experiment indices:")
             yield Input(
                 placeholder="e.g., 0,2,5-8",
                 id="manual-indices-input",
+                classes="form-input"
             )
 
         # Filters Section
         yield Static("─── Filters (Optional) ───", classes="section-title")
 
-        with Horizontal(classes="field-container"):
-            yield Static("VDS filter (V):", classes="field-label")
+        with Horizontal(classes="form-row"):
+            yield Static("VDS filter (V):", classes="form-label")
             yield Input(
                 placeholder="Leave empty for all, or e.g., 0.1",
                 id="vds-filter-input",
+                classes="form-input"
             )
+            yield Static("Filter by drain-source voltage", classes="form-help")
 
-        with Horizontal(classes="field-container"):
-            yield Static("Date filter:", classes="field-label")
+        with Horizontal(classes="form-row"):
+            yield Static("Date filter:", classes="form-label")
             yield Input(
                 placeholder="Leave empty for all, or YYYY-MM-DD",
                 id="date-filter-input",
+                classes="form-input"
             )
+            yield Static("Filter by experiment date", classes="form-help")
 
         # Plot Options Section
         yield Static("─── Plot Options ───", classes="section-title")
 
-        with Horizontal(classes="field-container"):
-            yield Static("Output directory:", classes="field-label")
+        with Horizontal(classes="form-row"):
+            yield Static("Output directory:", classes="form-label")
             yield Input(
                 placeholder="figs",
                 value="figs",
                 id="output-dir-input",
+                classes="form-input"
             )
-            yield Static(f"→ figs/{self.chip_group}{self.chip_number}/", classes="field-label")
+            yield Static(f"→ figs/{self.chip_group}{self.chip_number}/", classes="form-help")
 
         # Buttons
         with Horizontal(id="button-container"):
             yield Button("Save Config", id="save-button", variant="default", classes="nav-button")
             yield Button("← Back", variant="default", id="back-button", classes="nav-button")
-            yield Button("Next →", variant="default", id="next-button", classes="nav-button")
+            yield Button("Next →", variant="primary", id="next-button", classes="nav-button")
 
     def on_mount(self) -> None:
         """Initialize the screen after mounting."""
@@ -162,6 +142,7 @@ class IVgConfigScreen(Screen):
     def on_key(self, event: events.Key) -> None:
         """Handle arrow key navigation between buttons."""
         buttons = [
+            self.query_one("#save-button", Button),
             self.query_one("#back-button", Button),
             self.query_one("#next-button", Button),
         ]
@@ -177,22 +158,6 @@ class IVgConfigScreen(Screen):
                 new_idx = (focused_idx + 1) % len(buttons)
                 buttons[new_idx].focus()
                 event.prevent_default()
-
-    def on_button_focus(self, event) -> None:
-        """Add arrow indicator to focused button."""
-        # Remove arrows from all buttons
-        for button in self.query(".nav-button"):
-            if button.label.startswith("→ ") or button.label.startswith("← "):
-                # Remove first 2 characters (arrow + space)
-                button.label = button.label[2:]
-
-        # Add arrow to focused button
-        if event.button.id == "back-button":
-            if not event.button.label.startswith("← "):
-                event.button.label = f"← {event.button.label}"
-        elif event.button.id == "next-button":
-            if not event.button.label.startswith("→ "):
-                event.button.label = f"→ {event.button.label}"
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle button presses."""
@@ -236,10 +201,6 @@ class IVgConfigScreen(Screen):
                 timeout=5
             )
 
-    def action_back(self) -> None:
-        """Go back to config mode selector."""
-        self.app.pop_screen()
-
     def action_next(self) -> None:
         """Proceed to experiment selection or preview."""
         config = self._collect_config()
@@ -250,33 +211,23 @@ class IVgConfigScreen(Screen):
             self.notify(validation_error, severity="error", timeout=5)
             return
 
+        # Save to session (replaces app.update_config)
+        for key, value in config.items():
+            if hasattr(self.app.session, key):
+                setattr(self.app.session, key, value)
+
         # Determine selection mode
         selection_mode_radio = self.query_one("#selection-mode-radio", RadioSet)
 
         if selection_mode_radio.pressed_button.id == "interactive-radio":
-            # Go to interactive experiment selector
-            from src.tui.screens.experiment_selector import ExperimentSelectorScreen
-            self.app.push_screen(
-                ExperimentSelectorScreen(
-                    chip_number=self.chip_number,
-                    chip_group=self.chip_group,
-                    plot_type=self.plot_type,
-                    history_dir=self.history_dir,
-                )
-            )
+            # Go to interactive experiment selector using router
+            self.app.router.go_to_experiment_selector()
         else:
             # Go directly to preview (Auto or Manual mode)
-            from src.tui.screens.preview_screen import PreviewScreen
-            self.app.push_screen(
-                PreviewScreen(
-                    chip_number=self.chip_number,
-                    chip_group=self.chip_group,
-                    plot_type=self.plot_type,
-                    seq_numbers=[],  # TODO: Auto-select based on filters
-                    config=config,
-                    history_dir=self.history_dir,
-                )
-            )
+            # TODO: Implement auto-select based on filters
+            self.app.notify("Auto/Manual mode not yet implemented", severity="warning")
+            # For now, still go to interactive selector
+            self.app.router.go_to_experiment_selector()
 
     def _validate_config(self, config: dict) -> str | None:
         """Validate configuration values.

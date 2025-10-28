@@ -1,7 +1,7 @@
 """
 Chip Selector Screen.
 
-Step 3 of the wizard: Select which chip to plot from auto-discovered chips.
+Step 1 of the wizard: Select which chip to plot from auto-discovered chips.
 
 Auto-discovers chips from chip_histories/ directory and displays them
 with experiment counts and procedure breakdowns.
@@ -12,19 +12,20 @@ from pathlib import Path
 
 from textual.app import ComposeResult
 from textual.containers import Container, Vertical, Grid
-from textual.screen import Screen
-from textual.widgets import Header, Footer, Static, Button
+from textual.widgets import Static, Button
 from textual.binding import Binding
 
-from src.tui.utils import discover_chips, format_chip_display, ChipInfo
+from src.tui.screens.base import SelectorScreen
+from src.tui.utils import discover_chips, ChipInfo
 
 
-class ChipSelectorScreen(Screen):
-    """Chip selection screen with auto-discovery (Step 3 of wizard)."""
+class ChipSelectorScreen(SelectorScreen):
+    """Chip selection screen with auto-discovery (Step 1 of wizard)."""
 
-    BINDINGS = [
-        Binding("escape", "back", "Back", priority=True),
-        Binding("ctrl+b", "back", "Back", show=False),
+    SCREEN_TITLE = "Select Chip"
+    STEP_NUMBER = 1
+
+    BINDINGS = SelectorScreen.BINDINGS + [
         Binding("enter", "select_chip", "Select", priority=True),
         Binding("up", "navigate_up", "Up", priority=True),
         Binding("down", "navigate_down", "Down", priority=True),
@@ -33,54 +34,8 @@ class ChipSelectorScreen(Screen):
         Binding("r", "refresh", "Refresh", show=False),
     ]
 
-    CSS = """
-    ChipSelectorScreen {
-        align: center middle;
-    }
-
-    #main-container {
-        width: 70;
-        height: auto;
-        background: $surface;
-        border: thick $primary;
-        padding: 2 4;
-    }
-
-    #header-container {
-        width: 100%;
-        height: auto;
-        margin-bottom: 2;
-    }
-
-    #title {
-        width: 100%;
-        content-align: center middle;
-        text-style: bold;
-        color: $accent;
-    }
-
-    #plot-type-info {
-        width: 100%;
-        content-align: center middle;
-        color: $accent;
-        margin-bottom: 1;
-    }
-
-    #step-indicator {
-        width: 100%;
-        content-align: center middle;
-        color: $text-muted;
-        text-style: dim;
-        margin-bottom: 2;
-    }
-
-    #loading-text {
-        width: 100%;
-        content-align: center middle;
-        color: $text-muted;
-        margin: 1 0;
-    }
-
+    # Chip-specific CSS (extends SelectorScreen CSS)
+    CSS = SelectorScreen.CSS + """
     #chip-group-title {
         width: 100%;
         content-align: center middle;
@@ -88,94 +43,34 @@ class ChipSelectorScreen(Screen):
         color: $accent;
         margin-bottom: 1;
     }
-
-    #chip-grid-container {
-        width: 100%;
-        height: auto;
-        border: solid $primary;
-        padding: 2;
-        margin-bottom: 1;
-    }
-
-    #chip-grid {
-        width: 100%;
-        height: auto;
-        grid-size: 5;
-        grid-gutter: 1 2;
-    }
-
-    .chip-button {
-        width: 100%;
-        height: 3;
-        min-width: 10;
-    }
-
-    .chip-button:focus {
-        background: $primary;
-        border: tall $accent;
-        color: $primary-background;
-        text-style: bold;
-    }
-
-    .chip-button:hover {
-        background: $primary;
-        color: $primary-background;
-    }
-
-    #button-container {
-        width: 100%;
-        height: auto;
-        layout: horizontal;
-        margin-top: 1;
-    }
-
-    .nav-button {
-        width: 1fr;
-        margin: 0 1;
-        min-height: 3;
-    }
-
-    #error-text {
-        width: 100%;
-        content-align: center middle;
-        color: $error;
-        margin: 2 0;
-    }
     """
 
     def __init__(
         self,
         history_dir: Path,
         chip_group: str,
+        mode: str = "plot",
     ):
         super().__init__()
         self.history_dir = history_dir
         self.chip_group = chip_group
         self.chips: list[ChipInfo] = []
         self.selected_chip: ChipInfo | None = None
+        self.mode = mode
 
-    def compose(self) -> ComposeResult:
-        """Create chip selector widgets."""
-        yield Header()
+    def compose_content(self) -> ComposeResult:
+        """Compose chip selector content."""
+        yield Static("Discovering chips...", id="loading-text")
+        yield Static("", id="chip-group-title")
 
-        with Container(id="main-container"):
-            with Vertical(id="header-container"):
-                yield Static("Select Chip", id="title")
-                yield Static("[Step 1/6]", id="step-indicator")
+        with Container(id="chip-grid-container"):
+            yield Grid(id="chip-grid")
 
-            yield Static("Discovering chips...", id="loading-text")
-            yield Static("", id="chip-group-title")
+        yield Static("", id="error-text")
 
-            with Container(id="chip-grid-container"):
-                yield Grid(id="chip-grid")
-
-            yield Static("", id="error-text")
-
-            with Vertical(id="button-container"):
-                yield Button("← Back", id="back-button", variant="default", classes="nav-button")
-                yield Button("Refresh", id="refresh-button", variant="default", classes="nav-button")
-
-        yield Footer()
+        with Vertical(id="button-container"):
+            yield Button("← Back", id="back-button", variant="default", classes="nav-button")
+            yield Button("Refresh", id="refresh-button", variant="default", classes="nav-button")
 
     def on_mount(self) -> None:
         """Discover chips when screen loads."""
@@ -244,49 +139,36 @@ class ChipSelectorScreen(Screen):
             chip_number = int(event.button.id.replace("chip-", ""))
             self._select_and_proceed(chip_number)
 
-    def action_back(self) -> None:
-        """Go back to main menu."""
-        self.app.pop_screen()
-
     def action_refresh(self) -> None:
         """Refresh chip grid."""
         self._discover_and_populate()
 
     def action_select_chip(self) -> None:
         """Select the currently focused chip button and proceed."""
-        focused = self.focused
-        if isinstance(focused, Button) and focused.id and focused.id.startswith("chip-"):
-            chip_number = int(focused.id.replace("chip-", ""))
+        chip_number = self._get_focused_chip_number()
+        if chip_number is not None:
             self._select_and_proceed(chip_number)
+        else:
+            self.app.notify("Focus a chip first", severity="warning")
 
     def _select_and_proceed(self, chip_number: int) -> None:
-        """Select a chip by number and proceed to next screen."""
-        # Find the chip
-        selected_chip = None
-        for chip in self.chips:
-            if chip.chip_number == chip_number:
-                selected_chip = chip
-                break
+        """
+        Select a chip by number and proceed to next screen.
 
-        if not selected_chip:
-            self.app.notify(f"Chip {chip_number} not found", severity="error")
-            return
+        Uses session to store chip selection and router for navigation.
+        """
+        if self._store_chip_selection(chip_number):
+            if self.mode == "history":
+                try:
+                    self.app.router.go_to_history_browser()
+                except Exception as exc:
+                    self.app.notify(str(exc), severity="error")
+            else:
+                self.app.router.go_to_plot_type_selector()
 
-        self.selected_chip = selected_chip
-
-        # Save to app config
-        self.app.update_config(
-            chip_number=selected_chip.chip_number,
-            chip_group=selected_chip.chip_group
-        )
-
-        # Navigate to Plot Type Selector (Step 2)
-        from src.tui.screens.plot_type_selector import PlotTypeSelectorScreen
-
-        self.app.push_screen(PlotTypeSelectorScreen(
-            chip_number=selected_chip.chip_number,
-            chip_group=selected_chip.chip_group,
-        ))
+    # ═══════════════════════════════════════════════════════════════════
+    # Grid Navigation Helpers
+    # ═══════════════════════════════════════════════════════════════════
 
     def _get_chip_buttons(self) -> list[Button]:
         """Get all chip buttons in order."""
@@ -303,6 +185,27 @@ class ChipSelectorScreen(Screen):
             if button.id == focused.id:
                 return i
         return -1
+
+    def _get_focused_chip_number(self) -> int | None:
+        focused = self.focused
+        if isinstance(focused, Button) and focused.id and focused.id.startswith("chip-"):
+            try:
+                return int(focused.id.replace("chip-", ""))
+            except ValueError:
+                return None
+        return None
+
+    def _store_chip_selection(self, chip_number: int) -> bool:
+        """Persist selected chip into session state."""
+        selected_chip = next((chip for chip in self.chips if chip.chip_number == chip_number), None)
+        if not selected_chip:
+            self.app.notify(f"Chip {chip_number} not found", severity="error")
+            return False
+
+        self.selected_chip = selected_chip
+        self.app.session.chip_number = selected_chip.chip_number
+        self.app.session.chip_group = selected_chip.chip_group
+        return True
 
     def action_navigate_up(self) -> None:
         """Navigate up in grid (5 columns)."""

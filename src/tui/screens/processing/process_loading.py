@@ -10,44 +10,24 @@ import threading
 from pathlib import Path
 
 from textual.app import ComposeResult
-from textual.containers import Container, Horizontal
-from textual.screen import Screen
-from textual.widgets import Header, Footer, Static, Button, ProgressBar
+from textual.containers import Horizontal
+from textual.widgets import Static, ProgressBar
 from textual.binding import Binding
 
-import polars as pl
-from src.core.parser import parse_iv_metadata
-from src.core.timeline import build_chip_history
+from src.tui.screens.base import WizardScreen
 
 
-class ProcessLoadingScreen(Screen):
+class ProcessLoadingScreen(WizardScreen):
     """Loading screen for data processing."""
 
-    BINDINGS = [
+    SCREEN_TITLE = "Processing Data..."
+    STEP_NUMBER = None  # Not part of main wizard flow
+
+    BINDINGS = WizardScreen.BINDINGS + [
         Binding("escape", "cancel", "Cancel", show=False),
     ]
 
-    CSS = """
-    ProcessLoadingScreen {
-        align: center middle;
-    }
-
-    #main-container {
-        width: 80;
-        height: auto;
-        background: $surface;
-        border: thick $primary;
-        padding: 3 6;
-    }
-
-    #title {
-        width: 100%;
-        content-align: center middle;
-        text-style: bold;
-        color: $accent;
-        margin-bottom: 2;
-    }
-
+    CSS = WizardScreen.CSS + """
     #status {
         width: 100%;
         content-align: center middle;
@@ -88,19 +68,13 @@ class ProcessLoadingScreen(Screen):
         self.processing_thread = None
         self.start_time = None
 
-    def compose(self) -> ComposeResult:
+    def compose_content(self) -> ComposeResult:
         """Create loading screen widgets."""
-        yield Header()
-
-        with Container(id="main-container"):
-            yield Static("Processing Data...", id="title")
-            yield Static("⣾ Initializing...", id="status")
-            with Horizontal(id="progress-container"):
-                yield ProgressBar(total=100, show_eta=False, id="progress-bar")
-            yield Static("Starting data processing", id="current-task")
-            yield Static("", id="stats")
-
-        yield Footer()
+        yield Static("⣾ Initializing...", id="status")
+        with Horizontal(id="progress-container"):
+            yield ProgressBar(total=100, show_eta=False, id="progress-bar")
+        yield Static("Starting data processing", id="current-task")
+        yield Static("", id="stats")
 
     def on_mount(self) -> None:
         """Start processing when screen loads."""
@@ -116,6 +90,11 @@ class ProcessLoadingScreen(Screen):
             # Force non-interactive matplotlib backend for thread-safety (in case any imports trigger it)
             import matplotlib
             matplotlib.use('Agg')
+
+            # Import legacy processing modules (only used in this method)
+            import polars as pl
+            from src.core.parser import parse_iv_metadata
+            from src.core.timeline import build_chip_history
 
             raw_dir = Path("raw_data")
             meta_dir = Path("metadata")
@@ -277,32 +256,26 @@ class ProcessLoadingScreen(Screen):
         histories: int,
         total_chips: int
     ) -> None:
-        """Handle successful processing."""
-        from src.tui.screens.process_success import ProcessSuccessScreen
-
+        """Handle successful processing using router."""
         # Replace current screen with success screen
         self.app.pop_screen()
-
-        self.app.push_screen(ProcessSuccessScreen(
+        self.app.router.go_to_process_success(
             elapsed=elapsed,
             files_processed=files_processed,
             experiments=experiments,
             histories=histories,
-            total_chips=total_chips,
-        ))
+            total_chips=total_chips
+        )
 
     def _on_error(self, error_msg: str, error_type: str, error_details: str) -> None:
-        """Handle processing error."""
-        from src.tui.screens.process_error import ProcessErrorScreen
-
+        """Handle processing error using router."""
         # Replace current screen with error screen
         self.app.pop_screen()
-
-        self.app.push_screen(ProcessErrorScreen(
+        self.app.router.go_to_process_error(
             error_type=error_type,
             error_msg=error_msg,
-            error_details=error_details,
-        ))
+            error_details=error_details
+        )
 
     def action_cancel(self) -> None:
         """Cancel processing."""

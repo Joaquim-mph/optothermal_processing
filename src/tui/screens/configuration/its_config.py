@@ -5,17 +5,20 @@ Step 4b of the wizard: Configure parameters for ITS (Current vs Time) plots.
 """
 
 from __future__ import annotations
-from pathlib import Path
 
 from textual.app import ComposeResult
-from textual.containers import Container, Vertical, Horizontal
-from textual.screen import Screen
-from textual.widgets import Header, Footer, Static, Button, Input, Select, Label, Checkbox
+from textual.containers import Horizontal
+from textual.widgets import Static, Button, Input, Select, Label, Checkbox
 from textual.binding import Binding
 
+from src.tui.screens.base import FormScreen
 
-class ITSConfigScreen(Screen):
+
+class ITSConfigScreen(FormScreen):
     """ITS configuration screen (Step 4b - Custom mode or Step 5 - Preset mode)."""
+
+    SCREEN_TITLE = "Custom Configuration - ITS"
+    STEP_NUMBER = 4
 
     def __init__(self, chip_number: int, chip_group: str, plot_type: str = "ITS", preset_mode: bool = False):
         super().__init__()
@@ -24,229 +27,119 @@ class ITSConfigScreen(Screen):
         self.plot_type = plot_type
         self.preset_mode = preset_mode  # True if using a preset (show read-only summary)
 
-    BINDINGS = [
-        Binding("escape", "back", "Back", priority=True),
-        Binding("ctrl+b", "back", "Back", show=False),
+    BINDINGS = FormScreen.BINDINGS + [
         Binding("ctrl+s", "save_config", "Save Config", show=False),
     ]
 
-    CSS = """
-    ITSConfigScreen {
-        align: center middle;
-    }
+    def compose_header(self) -> ComposeResult:
+        """Compose header with title, chip info, and step indicator."""
+        if self.preset_mode:
+            # Get preset from session
+            preset_name = self.app.session.preset or "custom"
+            from src.plotting.its_presets import get_preset
+            preset = get_preset(preset_name)
 
-    #main-container {
-        width: 80;
-        height: auto;
-        max-height: 90%;
-        background: $surface;
-        border: thick $primary;
-        padding: 2 4;
-        overflow-y: auto;
-    }
+            yield Static(f"Preset Configuration - {preset.name if preset else 'ITS'}", id="title")
+            yield Static(
+                f"[bold]{self.chip_group}{self.chip_number}[/bold] - {self.plot_type}",
+                id="chip-info"
+            )
+            yield Static("[Step 5/8]", id="step-indicator")
 
-    #header-container {
-        width: 100%;
-        height: auto;
-        margin-bottom: 2;
-    }
+            # Show compact preset summary
+            if preset:
+                yield Static(
+                    f"✓ [bold]{preset.name}[/bold] - {preset.description}",
+                    classes="section-title"
+                )
+        else:
+            yield Static(self.SCREEN_TITLE, id="title")
+            yield Static(
+                f"[bold]{self.chip_group}{self.chip_number}[/bold] - {self.plot_type}",
+                id="chip-info"
+            )
+            yield Static(f"[Step {self.STEP_NUMBER}/{self.TOTAL_STEPS}]", id="step-indicator")
 
-    #title {
-        width: 100%;
-        content-align: center middle;
-        text-style: bold;
-        color: $accent;
-    }
+    def compose_content(self) -> ComposeResult:
+        """Compose ITS configuration form content."""
+        # Plot Options Section (show for both preset and custom mode)
+        yield Static("─── Plot Options ──────────────────────", classes="section-title")
 
-    #chip-info {
-        width: 100%;
-        content-align: center middle;
-        color: $accent;
-        margin-bottom: 1;
-    }
-
-    #step-indicator {
-        width: 100%;
-        content-align: center middle;
-        color: $text-muted;
-        text-style: dim;
-        margin-bottom: 1;
-    }
-
-    .section-title {
-        text-style: bold;
-        color: $accent;
-        margin-top: 1;
-        margin-bottom: 1;
-    }
-
-    .form-row {
-        height: 3;
-        margin-bottom: 0;
-    }
-
-    .form-label {
-        width: 20;
-        padding-top: 1;
-        color: $text;
-    }
-
-    .form-input {
-        width: 30;
-    }
-
-    .form-input:disabled {
-        opacity: 0.5;
-        color: $text-muted;
-    }
-
-    .form-help {
-        width: 1fr;
-        padding-top: 1;
-        padding-left: 2;
-        color: $text-muted;
-        text-style: dim;
-    }
-
-    Checkbox {
-        margin-bottom: 0;
-    }
-
-    RadioSet {
-        height: auto;
-        margin-bottom: 1;
-    }
-
-    RadioButton {
-        margin: 0 2 0 0;
-    }
-
-    #button-container {
-        width: 100%;
-        height: auto;
-        layout: horizontal;
-        margin-top: 2;
-    }
-
-    .nav-button {
-        width: 1fr;
-        margin: 0 1;
-    }
-    """
-
-    def compose(self) -> ComposeResult:
-        """Create ITS configuration widgets."""
-        yield Header()
-
-        with Container(id="main-container"):
-            with Vertical(id="header-container"):
-                if self.preset_mode:
-                    # Get preset from app config
-                    preset_name = self.app.plot_config.get("preset", "custom")
-                    from src.plotting.its_presets import get_preset
-                    preset = get_preset(preset_name)
-
-                    yield Static(f"Preset Configuration - {preset.name if preset else 'ITS'}", id="title")
-                    yield Static(
-                        f"[bold]{self.chip_group}{self.chip_number}[/bold] - {self.plot_type}",
-                        id="chip-info"
-                    )
-                    yield Static("[Step 5/8]", id="step-indicator")
-
-                    # Show compact preset summary
-                    if preset:
-                        yield Static(
-                            f"✓ [bold]{preset.name}[/bold] - {preset.description}",
-                            classes="section-title"
-                        )
-                else:
-                    yield Static("Custom Configuration - ITS", id="title")
-                    yield Static(
-                        f"[bold]{self.chip_group}{self.chip_number}[/bold] - {self.plot_type}",
-                        id="chip-info"
-                    )
-                    yield Static("[Step 4/6]", id="step-indicator")
-
-            # Plot Options Section (show for both preset and custom mode)
-            yield Static("─── Plot Options ──────────────────────", classes="section-title")
-
-            # Get preset values if in preset mode to use as defaults
-            if self.preset_mode:
-                preset_name = self.app.plot_config.get("preset", "custom")
-                from src.plotting.its_presets import get_preset
-                preset = get_preset(preset_name)
-                # Use preset values as defaults
-                default_legend = preset.legend_by if preset else "wavelength"
-                # For baseline: if none mode, show 0; if auto, show empty (will be calculated); if fixed, show value
-                if preset:
-                    if preset.baseline_mode == "none":
-                        default_baseline = "0"
-                    elif preset.baseline_mode == "auto":
-                        default_baseline = ""  # Empty means auto-calculate
-                    else:  # fixed
-                        default_baseline = str(preset.baseline_value) if preset.baseline_value else "60.0"
-                else:
-                    default_baseline = "60.0"
-                default_padding = str(preset.padding) if preset else "0.05"
+        # Get preset values if in preset mode to use as defaults
+        if self.preset_mode:
+            preset_name = self.app.session.preset or "custom"
+            from src.plotting.its_presets import get_preset
+            preset = get_preset(preset_name)
+            # Use preset values as defaults
+            default_legend = preset.legend_by if preset else "wavelength"
+            # For baseline: if none mode, show 0; if auto, show empty (will be calculated); if fixed, show value
+            if preset:
+                if preset.baseline_mode == "none":
+                    default_baseline = "0"
+                elif preset.baseline_mode == "auto":
+                    default_baseline = ""  # Empty means auto-calculate
+                else:  # fixed
+                    default_baseline = str(preset.baseline_value) if preset.baseline_value else "60.0"
             else:
-                # Use standard defaults for custom mode
-                default_legend = "vg"
                 default_baseline = "60.0"
-                default_padding = "0.05"
+            default_padding = str(preset.padding) if preset else "0.05"
+        else:
+            # Use standard defaults for custom mode
+            default_legend = "vg"
+            default_baseline = "60.0"
+            default_padding = "0.05"
 
-            with Horizontal(classes="form-row"):
-                yield Label("Legend by:", classes="form-label")
-                yield Select(
-                    [
-                        ("Gate Voltage (Vg)", "vg"),
-                        ("LED Voltage", "led_voltage"),
-                        ("Wavelength", "wavelength"),
-                    ],
-                    value=default_legend,
-                    id="legend-by-select",
-                    classes="form-input"
-                )
-                yield Static("Legend grouping", classes="form-help")
+        with Horizontal(classes="form-row"):
+            yield Label("Legend by:", classes="form-label")
+            yield Select(
+                [
+                    ("Gate Voltage (Vg)", "vg"),
+                    ("LED Voltage", "led_voltage"),
+                    ("Wavelength", "wavelength"),
+                ],
+                value=default_legend,
+                id="legend-by-select",
+                classes="form-input"
+            )
+            yield Static("Legend grouping", classes="form-help")
 
-            # Baseline correction checkbox and input
-            with Horizontal(classes="form-row"):
-                yield Checkbox("Apply baseline correction", id="baseline-enabled", value=True)
+        # Baseline correction checkbox and input
+        with Horizontal(classes="form-row"):
+            yield Checkbox("Apply baseline correction", id="baseline-enabled", value=True)
 
-            with Horizontal(classes="form-row"):
-                yield Label("Baseline (s):", classes="form-label")
-                yield Input(
-                    value=default_baseline,
-                    placeholder="Empty = auto, 0 = none",
-                    id="baseline-input",
-                    classes="form-input"
-                )
-                yield Static("Empty=auto, 0=none, or value in seconds", classes="form-help")
+        with Horizontal(classes="form-row"):
+            yield Label("Baseline (s):", classes="form-label")
+            yield Input(
+                value=default_baseline,
+                placeholder="Empty = auto, 0 = none",
+                id="baseline-input",
+                classes="form-input"
+            )
+            yield Static("Empty=auto, 0=none, or value in seconds", classes="form-help")
 
-            with Horizontal(classes="form-row"):
-                yield Label("Padding:", classes="form-label")
-                yield Input(value=default_padding, id="padding-input", classes="form-input")
-                yield Static("Y-axis padding", classes="form-help")
+        with Horizontal(classes="form-row"):
+            yield Label("Padding:", classes="form-label")
+            yield Input(value=default_padding, id="padding-input", classes="form-input")
+            yield Static("Y-axis padding", classes="form-help")
 
-            with Horizontal(classes="form-row"):
-                yield Label("Output dir:", classes="form-label")
-                yield Input(
-                    value="figs",
-                    placeholder="figs",
-                    id="output-dir-input",
-                    classes="form-input"
-                )
-                yield Static(f"→ figs/{self.chip_group}{self.chip_number}/", classes="form-help")
+        with Horizontal(classes="form-row"):
+            yield Label("Output dir:", classes="form-label")
+            yield Input(
+                value="figs",
+                placeholder="figs",
+                id="output-dir-input",
+                classes="form-input"
+            )
+            yield Static(f"→ figs/{self.chip_group}{self.chip_number}/", classes="form-help")
 
-            # Buttons
-            with Horizontal(id="button-container"):
-                if not self.preset_mode:
-                    yield Button("Save Config", id="save-button", variant="default", classes="nav-button")
-                yield Button("← Back", id="back-button", variant="default", classes="nav-button")
-                if self.preset_mode:
-                    yield Button("Change Preset", id="change-preset-button", variant="default", classes="nav-button")
-                yield Button("Next: Select Experiments →", id="next-button", variant="primary", classes="nav-button")
-
-        yield Footer()
+        # Buttons
+        with Horizontal(id="button-container"):
+            if not self.preset_mode:
+                yield Button("Save Config", id="save-button", variant="default", classes="nav-button")
+            yield Button("← Back", id="back-button", variant="default", classes="nav-button")
+            if self.preset_mode:
+                yield Button("Change Preset", id="change-preset-button", variant="default", classes="nav-button")
+            yield Button("Next: Select Experiments →", id="next-button", variant="primary", classes="nav-button")
 
     def on_mount(self) -> None:
         """Initialize screen."""
@@ -272,10 +165,6 @@ class ITSConfigScreen(Screen):
             # Go back to preset selector
             self.app.pop_screen()
 
-    def action_back(self) -> None:
-        """Go back to config mode selector."""
-        self.app.pop_screen()
-
     def action_next(self) -> None:
         """Collect configuration and proceed to next step."""
         # Collect all form values
@@ -287,18 +176,13 @@ class ITSConfigScreen(Screen):
             self.notify(validation_error, severity="error", timeout=5)
             return
 
-        # Save to app state
-        self.app.update_config(**config)
+        # Save to session (replaces app.update_config)
+        for key, value in config.items():
+            if hasattr(self.app.session, key):
+                setattr(self.app.session, key, value)
 
-        # Always launch interactive experiment selector
-        from src.tui.screens.experiment_selector import ExperimentSelectorScreen
-
-        self.app.push_screen(ExperimentSelectorScreen(
-            chip_number=self.chip_number,
-            chip_group=self.chip_group,
-            plot_type=self.plot_type,
-            history_dir=self.app.history_dir,
-        ))
+        # Navigate to experiment selector using router
+        self.app.router.go_to_experiment_selector()
 
     def action_save_config(self) -> None:
         """Save configuration to JSON file."""
@@ -366,7 +250,7 @@ class ITSConfigScreen(Screen):
             baseline = None
             # Get preset defaults for other parameters
             if self.preset_mode:
-                preset_name = self.app.plot_config.get("preset", "custom")
+                preset_name = self.app.session.preset or "custom"
                 from src.plotting.its_presets import get_preset
                 preset = get_preset(preset_name)
                 if preset:
@@ -386,7 +270,7 @@ class ITSConfigScreen(Screen):
                 duration_tolerance = 0.10
         # Get preset defaults if in preset mode
         elif self.preset_mode:
-            preset_name = self.app.plot_config.get("preset", "custom")
+            preset_name = self.app.session.preset or "custom"
             from src.plotting.its_presets import get_preset
             preset = get_preset(preset_name)
 

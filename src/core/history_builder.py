@@ -2,7 +2,7 @@
 Build chip histories from staged manifest data.
 
 This module creates chip history Parquet files from the manifest.parquet generated
-during the staging process. Histories are saved to data/03_history/ and include
+during the staging process. Histories are saved to data/02_stage/chip_histories/ and include
 sequential experiment numbers, dates, procedures, summaries, and paths to staged
 Parquet measurement files.
 """
@@ -125,6 +125,8 @@ def build_chip_history_from_manifest(
     date_exprs = [
         pl.col("start_time_utc").dt.date().cast(pl.Utf8).alias("date"),
         pl.col("start_time_utc").dt.strftime("%H:%M:%S").alias("time_hms"),
+        # Combined datetime label in local timezone (human-readable)
+        pl.col("start_time_utc").dt.convert_time_zone("America/Santiago").dt.strftime("%Y-%m-%d %H:%M:%S").alias("datetime_local"),
         (pl.col("start_time_utc").dt.epoch(time_unit="us").cast(pl.Float64) / 1_000_000).alias("start_time"),
         pl.col("source_file").map_elements(
             lambda s: s.replace("\\", "/").split("/")[2] if len(s.replace("\\", "/").split("/")) > 2 else None,
@@ -316,6 +318,7 @@ def build_chip_history_from_manifest(
         "seq",
         "date",
         "time_hms",
+        "datetime_local",  # Combined date+time in local timezone
         "proc",
         "summary",
         "has_light",
@@ -416,7 +419,7 @@ def save_chip_history(
     history : pl.DataFrame
         Chip history dataframe
     output_dir : Path
-        Output directory (e.g., data/03_history)
+        Output directory (e.g., data/02_stage/chip_histories)
     chip_name : str
         Chip name for filename
 
@@ -449,7 +452,7 @@ def generate_all_chip_histories(
     manifest_path : Path
         Path to manifest.parquet file
     output_dir : Path
-        Output directory for history files (e.g., data/03_history)
+        Output directory for history files (e.g., data/02_stage/chip_histories)
     stage_root : Path, optional
         Stage root directory for computing parquet paths.
         If None, tries to infer from manifest_path.

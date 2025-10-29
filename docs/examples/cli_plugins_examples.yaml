@@ -1,0 +1,388 @@
+# CLI Plugin Configuration Examples
+# This file demonstrates various plugin configuration scenarios
+
+# =============================================================================
+# Example 1: Default Configuration (Enable Everything)
+# =============================================================================
+
+# Simplest configuration - enable all commands
+enabled_groups:
+  - all
+
+disabled_commands: []
+
+settings:
+  allow_third_party: false
+
+
+# =============================================================================
+# Example 2: Production Configuration
+# =============================================================================
+
+# For production deployments, only enable stable commands
+# enabled_groups:
+#   - pipeline
+#   - history
+#   - staging
+#   - plotting
+#
+# # Disable experimental/beta features
+# disabled_commands:
+#   - plot-its-sequential      # Experimental plot type
+#   - ml-predict               # Machine learning features
+#   - auto-calibrate           # Equipment control (risky)
+#   - experimental-analysis    # Beta analysis tools
+#
+# settings:
+#   allow_third_party: false   # No custom plugins in production
+
+
+# =============================================================================
+# Example 3: Development Configuration
+# =============================================================================
+
+# For development, enable everything including experimental features
+# enabled_groups:
+#   - all
+#
+# disabled_commands: []  # Enable all commands, even experimental
+#
+# settings:
+#   allow_third_party: true
+#   third_party_dirs:
+#     - ./dev_plugins           # Local development plugins
+#     - ~/.optothermal/plugins  # User plugins
+#   third_party_prefix: "dev-"  # Prefix for dev plugins
+
+
+# =============================================================================
+# Example 4: Minimal Lab Configuration
+# =============================================================================
+
+# For lab users who only need basic functionality
+# enabled_groups:
+#   - pipeline    # Full pipeline only
+#   - history     # View experiment histories
+#
+# # Disable everything else (no staging, no plotting)
+# disabled_commands: []
+#
+# settings:
+#   allow_third_party: false
+
+
+# =============================================================================
+# Example 5: Plotting-Only Configuration
+# =============================================================================
+
+# For users who only need plotting (data already staged)
+# enabled_groups:
+#   - plotting
+#   - history     # Need history to select experiments
+#
+# disabled_commands: []
+#
+# settings:
+#   allow_third_party: false
+
+
+# =============================================================================
+# Example 6: Advanced Research Configuration
+# =============================================================================
+
+# For advanced users with custom analysis tools
+# enabled_groups:
+#   - all  # Enable all built-in commands
+#
+# disabled_commands: []
+#
+# settings:
+#   allow_third_party: true
+#   third_party_dirs:
+#     - ~/.optothermal/plugins
+#     - /opt/research/optothermal/plugins
+#     - ./custom_analysis
+#   third_party_prefix: ""  # No prefix for seamless integration
+#
+#   # Advanced features
+#   lazy_loading: true        # Load commands on demand (faster startup)
+#   cache_plugins: true       # Cache plugin metadata
+#   plugin_timeout: 5.0       # Timeout for plugin discovery (seconds)
+
+
+# =============================================================================
+# Example 7: Group-Specific Disabling
+# =============================================================================
+
+# Enable most groups but selectively disable commands within them
+# enabled_groups:
+#   - pipeline
+#   - history
+#   - staging
+#   - plotting
+#   - utilities
+#
+# # Keep groups enabled but disable specific problematic commands
+# disabled_commands:
+#   - staging-stats          # Slow on large datasets
+#   - plot-its-sequential    # Has known bugs
+#   - validate-setup         # Not needed in production
+#
+# settings:
+#   allow_third_party: false
+
+
+# =============================================================================
+# Example 8: Testing Configuration
+# =============================================================================
+
+# For running tests - enable specific test commands
+# enabled_groups:
+#   - utilities
+#   - testing     # Special testing command group
+#
+# disabled_commands:
+#   - full-pipeline  # Don't allow full pipeline in tests
+#
+# settings:
+#   allow_third_party: false
+#   # Test-specific settings
+#   test_mode: true
+#   mock_data: true
+
+
+# =============================================================================
+# Example 9: Feature Flag Configuration
+# =============================================================================
+
+# Use configuration as feature flags for gradual rollout
+# enabled_groups:
+#   - all
+#
+# # Disable new features for gradual rollout
+# disabled_commands:
+#   # Phase 1: Disable all new features
+#   - export-json
+#   - export-excel
+#   - analyze-trends
+#   - compare-chips
+#
+#   # Phase 2: After testing, remove from disabled list
+#   # - export-json
+#   # - export-excel
+#
+#   # Phase 3: After validation, enable analysis
+#   # - analyze-trends
+#   # - compare-chips
+#
+# settings:
+#   allow_third_party: false
+
+
+# =============================================================================
+# Example 10: Multi-Environment Configuration
+# =============================================================================
+
+# Common pattern: Different configs for different environments
+# Use environment variable to select: PLUGIN_CONFIG=config/cli_plugins_dev.yaml
+
+# --- config/cli_plugins_dev.yaml ---
+# enabled_groups:
+#   - all
+# disabled_commands: []
+# settings:
+#   allow_third_party: true
+#   third_party_dirs: [./dev_plugins]
+
+# --- config/cli_plugins_staging.yaml ---
+# enabled_groups:
+#   - pipeline
+#   - history
+#   - staging
+#   - plotting
+# disabled_commands:
+#   - experimental-analysis
+# settings:
+#   allow_third_party: true
+#   third_party_dirs: [/opt/staging/plugins]
+
+# --- config/cli_plugins_prod.yaml ---
+# enabled_groups:
+#   - pipeline
+#   - history
+#   - staging
+#   - plotting
+# disabled_commands:
+#   - experimental-analysis
+#   - ml-predict
+#   - auto-calibrate
+# settings:
+#   allow_third_party: false
+
+
+# =============================================================================
+# Example 11: Site-Specific Configuration
+# =============================================================================
+
+# Different labs may have different requirements
+# enabled_groups:
+#   - all
+#
+# disabled_commands: []
+#
+# settings:
+#   allow_third_party: true
+#   third_party_dirs:
+#     - /lab/stanford/optothermal/plugins
+#     - /lab/stanford/shared/plugins
+#   third_party_prefix: "stanford-"
+#
+#   # Site-specific settings
+#   site:
+#     name: "Stanford Nanofab"
+#     timezone: "America/Los_Angeles"
+#     equipment:
+#       - keithley-2400
+#       - keithley-2636b
+
+
+# =============================================================================
+# Example 12: Performance-Optimized Configuration
+# =============================================================================
+
+# For performance-critical environments (CI/CD, batch processing)
+# enabled_groups:
+#   - pipeline    # Only enable what's needed
+#   - staging
+#
+# # Disable slow commands
+# disabled_commands:
+#   - validate-manifest  # Slow on large datasets
+#   - inspect-manifest   # Interactive, not needed in batch
+#   - staging-stats      # Disk I/O intensive
+#
+# settings:
+#   allow_third_party: false
+#
+#   # Performance settings
+#   lazy_loading: true           # Only load commands when needed
+#   cache_plugins: true          # Cache plugin discovery
+#   parallel_discovery: true     # Discover plugins in parallel
+#   skip_validation: false       # Keep validation for safety
+
+
+# =============================================================================
+# Example 13: Accessibility Configuration
+# =============================================================================
+
+# Configuration for users with accessibility needs
+# enabled_groups:
+#   - all
+#
+# disabled_commands: []
+#
+# settings:
+#   allow_third_party: false
+#
+#   # Accessibility features
+#   accessibility:
+#     high_contrast: true        # Use high-contrast colors
+#     no_emojis: true           # Replace emojis with text (💡 → LIGHT)
+#     screen_reader_mode: true   # Optimize for screen readers
+#     verbose_errors: true       # More detailed error messages
+
+
+# =============================================================================
+# Example 14: Educational/Training Configuration
+# =============================================================================
+
+# For teaching/training environments
+# enabled_groups:
+#   - pipeline
+#   - history
+#   - plotting
+#   - utilities
+#   - tutorial   # Special tutorial command group
+#
+# disabled_commands:
+#   - stage-all         # Don't let students stage raw data
+#   - validate-manifest # Hide complexity
+#
+# settings:
+#   allow_third_party: false
+#
+#   # Educational features
+#   education:
+#     show_hints: true         # Show helpful hints
+#     interactive_mode: true   # More prompts and confirmations
+#     example_data_only: true  # Restrict to example datasets
+#     prevent_deletion: true   # Safety guard
+
+
+# =============================================================================
+# Example 15: Custom Command Aliases
+# =============================================================================
+
+# Configuration with custom aliases for frequently used commands
+# (Note: This requires extending the plugin system to support config-based aliases)
+
+# enabled_groups:
+#   - all
+#
+# disabled_commands: []
+#
+# settings:
+#   allow_third_party: false
+#
+# # Custom command aliases defined in config
+# aliases:
+#   # Short aliases for common workflows
+#   p: full-pipeline
+#   h: show-history
+#   s: stage-all
+#   plot: plot-its
+#
+#   # Workflow aliases (chain multiple commands)
+#   quick-start: full-pipeline --workers 8
+#   update: stage-all --force && build-all-histories
+
+
+# =============================================================================
+# Configuration Schema Documentation
+# =============================================================================
+
+# For reference, here's the complete configuration schema:
+
+# enabled_groups: list[str]
+#   - List of command groups to enable
+#   - Use "all" to enable everything
+#   - Available groups: pipeline, history, staging, plotting, utilities, experimental
+#
+# disabled_commands: list[str]
+#   - List of specific command names to disable (even if group is enabled)
+#   - Command names use kebab-case (e.g., "plot-its", "show-history")
+#
+# settings: dict
+#   allow_third_party: bool (default: false)
+#     - Allow loading third-party plugins
+#
+#   third_party_dirs: list[str] (default: [])
+#     - Directories to search for third-party plugins
+#     - Supports ~ expansion and absolute paths
+#
+#   third_party_prefix: str (default: "ext-")
+#     - Prefix to add to third-party command names
+#     - Set to "" for no prefix
+#
+#   lazy_loading: bool (default: false)
+#     - Load command modules on demand instead of at startup
+#     - Faster startup but slightly slower first use
+#
+#   cache_plugins: bool (default: false)
+#     - Cache plugin discovery results
+#     - Speeds up subsequent runs
+#
+#   plugin_timeout: float (default: 5.0)
+#     - Timeout for plugin discovery in seconds
+#
+# # Additional custom settings can be added for specific use cases

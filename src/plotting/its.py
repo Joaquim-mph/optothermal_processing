@@ -221,11 +221,12 @@ def plot_its_overlay(
         Default: 2.0 (baseline at half the period)
     plot_start_time : float
         Start time for x-axis in seconds. Default: PLOT_START_TIME constant (20.0s)
-    legend_by : {"wavelength","vg","led_voltage"}
+    legend_by : {"wavelength","vg","led_voltage","datetime"}
         Use wavelength labels like "365 nm" (default), gate voltage labels like "3 V",
-        or LED/laser voltage labels like "2.5 V".
+        LED/laser voltage labels like "2.5 V", or datetime labels like "2025-10-14 15:03".
         Aliases accepted: "wl","lambda" -> wavelength; "gate","vg","vgs" -> vg;
-        "led","laser","led_voltage","laser_voltage" -> led_voltage.
+        "led","laser","led_voltage","laser_voltage" -> led_voltage;
+        "datetime","date","time","dt" -> datetime.
     padding : float, optional
         Fraction of data range to add as padding on y-axis (default: 0.02 = 2%).
         Set to 0 for no padding, or increase for more whitespace around data.
@@ -287,6 +288,8 @@ def plot_its_overlay(
         lb = "vg"
     elif lb in {"led", "laser", "led_voltage", "laser_voltage"}:
         lb = "led_voltage"
+    elif lb in {"datetime", "date", "time", "dt"}:
+        lb = "datetime"
     else:
         print(f"[info] legend_by='{legend_by}' not recognized; using wavelength")
         lb = "wavelength"
@@ -473,6 +476,17 @@ def plot_its_overlay(
             else:
                 lbl = f"#{int(row['file_idx'])}"
                 legend_title = "Trace"
+        elif lb == "datetime":
+            # Use datetime_local column if available
+            datetime_str = row.get("datetime_local")
+            if datetime_str:
+                # Format: "2025-10-14 15:03:53" -> "2025-10-14 15:03" (remove seconds)
+                lbl = datetime_str[:16] if len(datetime_str) >= 16 else datetime_str
+                legend_title = "Date & Time"
+            else:
+                # Fallback to seq number if datetime_local not available
+                lbl = f"#{int(row.get('seq', row.get('file_idx', 0)))}"
+                legend_title = "Experiment"
         else:  # lb == "led_voltage"
             led_v = _get_led_voltage_V(row)
             if led_v is not None:
@@ -624,8 +638,9 @@ def plot_its_dark(
         Divisor for auto baseline calculation (default: 2.0)
     plot_start_time : float
         Start time for x-axis (default: PLOT_START_TIME)
-    legend_by : {"vg", "wavelength", "led_voltage"}
+    legend_by : {"vg", "wavelength", "led_voltage", "datetime"}
         Legend grouping. Default is "vg" (gate voltage) for dark measurements.
+        Can also use "datetime" to label by experiment date/time.
     padding : float
         Fraction of data range to add as y-axis padding (default: 0.02 = 2%)
     check_duration_mismatch : bool
@@ -680,6 +695,8 @@ def plot_its_dark(
         lb = "vg"
     elif lb in {"led", "laser", "led_voltage", "laser_voltage"}:
         lb = "led_voltage"
+    elif lb in {"datetime", "date", "time", "dt"}:
+        lb = "datetime"
     else:
         print(f"[info] legend_by='{legend_by}' not recognized; using vg")
         lb = "vg"
@@ -832,6 +849,17 @@ def plot_its_dark(
             else:
                 lbl = f"#{int(row['file_idx'])}"
                 legend_title = "Trace"
+        elif lb == "datetime":
+            # Use datetime_local column if available
+            datetime_str = row.get("datetime_local")
+            if datetime_str:
+                # Format: "2025-10-14 15:03:53" -> "2025-10-14 15:03" (remove seconds)
+                lbl = datetime_str[:16] if len(datetime_str) >= 16 else datetime_str
+                legend_title = "Date & Time"
+            else:
+                # Fallback to seq number if datetime_local not available
+                lbl = f"#{int(row.get('seq', row.get('file_idx', 0)))}"
+                legend_title = "Experiment"
         else:  # lb == "led_voltage"
             led_v = _get_led_voltage_V(row)
             if led_v is not None:
@@ -909,3 +937,283 @@ def plot_its_dark(
     out = FIG_DIR / f"encap{chipnum}_ITS_dark_{tag}{raw_suffix}.png"
     plt.savefig(out)
     print(f"saved {out}")
+
+
+def plot_its_sequential(
+    df: pl.DataFrame,
+    base_dir: Path,
+    tag: str,
+    *,
+    plot_start_time: float = PLOT_START_TIME,
+    show_boundaries: bool = True,
+    legend_by: str = "datetime",
+    padding: float = 0.02,
+):
+    """
+    Plot ITS experiments sequentially on a continuous time axis (concatenated, not overlaid).
+
+    Each experiment's data is placed consecutively in time, with different colors for
+    each experiment. No baseline correction is applied (raw data).
+
+    Parameters
+    ----------
+    df : pl.DataFrame
+        Metadata DataFrame with ITS experiments (sorted chronologically)
+    base_dir : Path
+        Base directory containing measurement files
+    tag : str
+        Tag for output filename
+    plot_start_time : float
+        Start time to trim from each individual experiment. Default: PLOT_START_TIME (20.0s)
+    show_boundaries : bool
+        If True, show vertical dashed lines marking experiment boundaries. Default: True
+    legend_by : {"datetime","wavelength","vg","led_voltage"}
+        Legend grouping: datetime (default), wavelength, gate voltage, or LED voltage.
+        Aliases accepted: "wl","lambda" -> wavelength; "gate","vgs" -> vg;
+        "led","laser","laser_voltage" -> led_voltage; "date","time","dt" -> datetime.
+    padding : float
+        Fraction of data range to add as padding on y-axis (default: 0.02 = 2%)
+
+    Examples
+    --------
+    >>> # Plot experiments sequentially with datetime labels
+    >>> plot_its_sequential(history, Path("."), "seq_93_95", legend_by="datetime")
+
+    >>> # Use wavelength labels
+    >>> plot_its_sequential(history, Path("."), "power_sweep", legend_by="wavelength")
+
+    Notes
+    -----
+    - Raw data only (no baseline subtraction)
+    - Time axis is continuous (experiment 2 starts where experiment 1 ends)
+    - Each experiment gets a different color from the palette
+    - Best for visualizing temporal evolution across multiple experiments
+    """
+    # Apply plot style
+    from src.plotting.styles import set_plot_style, PRISM_RAIN_PALETTE
+    set_plot_style("prism_rain")
+
+    # --- normalize legend_by to a canonical value ---
+    lb = legend_by.strip().lower()
+    if lb in {"wavelength", "wl", "lambda"}:
+        lb = "wavelength"
+    elif lb in {"vg", "gate", "vgs"}:
+        lb = "vg"
+    elif lb in {"led", "laser", "led_voltage", "laser_voltage"}:
+        lb = "led_voltage"
+    elif lb in {"datetime", "date", "time", "dt"}:
+        lb = "datetime"
+    else:
+        print(f"[info] legend_by='{legend_by}' not recognized; using datetime")
+        lb = "datetime"
+
+    # --- Helper functions for label extraction (reused from plot_its_overlay) ---
+    def _get_wavelength_nm(row: dict) -> float | None:
+        candidates = [
+            row.get("Wavelength (nm)"),
+            row.get("wavelength_nm"),
+            row.get("Wavelength"),
+        ]
+        for c in candidates:
+            if c is not None:
+                try:
+                    return float(c)
+                except (ValueError, TypeError):
+                    pass
+        return None
+
+    def _get_vg_V(row: dict, d: pl.DataFrame) -> float | None:
+        # Try metadata columns first
+        vg_meta = row.get("VGS (V)") or row.get("vg_fixed_v")
+        if vg_meta is not None:
+            try:
+                return float(vg_meta)
+            except (ValueError, TypeError):
+                pass
+        # Try data column if available
+        if d is not None and "VG" in d.columns:
+            try:
+                vg_data = d["VG"].to_numpy()
+                return float(np.median(vg_data[np.isfinite(vg_data)]))
+            except Exception:
+                pass
+        return None
+
+    def _get_led_voltage_V(row: dict) -> float | None:
+        candidates = [
+            row.get("Laser voltage"),
+            row.get("laser_voltage_V"),
+            row.get("VL_meta"),
+        ]
+        for c in candidates:
+            if c is not None:
+                try:
+                    return float(c)
+                except (ValueError, TypeError):
+                    pass
+        return None
+
+    # Storage for plotting
+    all_y_values = []  # For auto y-scaling
+    experiment_segments = []  # Store (time_array, current_array, label, color) for each experiment
+    experiment_boundaries = []  # Time points where each new experiment starts
+
+    time_offset = 0.0  # Running time offset for concatenation
+    legend_title = "Experiment"  # Will be updated based on legend_by
+
+    # Color palette
+    colors = PRISM_RAIN_PALETTE
+    num_colors = len(colors)
+
+    print(f"[info] Plotting {len(df)} ITS experiments sequentially (raw data, no baseline)")
+
+    for i, row in enumerate(df.iter_rows(named=True)):
+        source_file = row.get("source_file")
+        if not source_file:
+            print(f"[warn] Skipping row {i}: no source_file")
+            continue
+
+        fp = Path(source_file)
+        if not fp.is_absolute():
+            fp = base_dir / fp
+
+        if not fp.exists():
+            print(f"[warn] File not found: {fp}")
+            continue
+
+        # Load measurement data
+        try:
+            d = read_measurement_parquet(fp)
+        except Exception as e:
+            print(f"[warn] Could not read {fp}: {e}")
+            continue
+
+        # Normalize column names (handle both "t" and "t (s)" formats)
+        col_map = {}
+        if "t (s)" in d.columns:
+            col_map["t (s)"] = "t"
+        if "I (A)" in d.columns:
+            col_map["I (A)"] = "I"
+        if col_map:
+            d = d.rename(col_map)
+
+        # Extract time and current
+        if "t" not in d.columns or "I" not in d.columns:
+            print(f"[warn] Missing t or I columns in {fp}")
+            continue
+
+        tt = np.asarray(d["t"])
+        yy = np.asarray(d["I"])
+
+        # Trim to plot_start_time
+        mask = tt >= plot_start_time
+        tt_trimmed = tt[mask]
+        yy_trimmed = yy[mask]
+
+        if len(tt_trimmed) == 0:
+            print(f"[warn] No data after trimming to t>={plot_start_time}s for experiment {i}")
+            continue
+
+        # Reset time to start at 0 for this experiment
+        tt_trimmed = tt_trimmed - tt_trimmed[0]
+
+        # Record boundary for this experiment
+        experiment_boundaries.append(time_offset)
+
+        # --- Generate label based on legend_by ---
+        if lb == "wavelength":
+            wl = _get_wavelength_nm(row)
+            if wl is not None:
+                lbl = f"{wl:g} nm"
+                legend_title = "Wavelength"
+            else:
+                lbl = f"#{int(row.get('seq', i))}"
+                legend_title = "Experiment"
+        elif lb == "vg":
+            vg = _get_vg_V(row, d)
+            if vg is not None:
+                lbl = f"{vg:g} V"
+                legend_title = "Vg"
+            else:
+                lbl = f"#{int(row.get('seq', i))}"
+                legend_title = "Experiment"
+        elif lb == "datetime":
+            datetime_str = row.get("datetime_local")
+            if datetime_str:
+                lbl = datetime_str[:16] if len(datetime_str) >= 16 else datetime_str
+                legend_title = "Date & Time"
+            else:
+                lbl = f"#{int(row.get('seq', i))}"
+                legend_title = "Experiment"
+        else:  # lb == "led_voltage"
+            led_v = _get_led_voltage_V(row)
+            if led_v is not None:
+                lbl = f"{led_v:g} V"
+                legend_title = "LED Voltage"
+            else:
+                lbl = f"#{int(row.get('seq', i))}"
+                legend_title = "Experiment"
+
+        # Apply time offset for concatenation
+        tt_offset = tt_trimmed + time_offset
+        yy_ua = yy_trimmed * 1e6  # Convert to µA
+
+        # Choose color from palette (cycle through colors)
+        color = colors[i % num_colors]
+
+        # Store segment data
+        experiment_segments.append((tt_offset, yy_ua, lbl, color))
+
+        # Store for y-axis scaling
+        all_y_values.extend(yy_ua)
+
+        # Update offset for next experiment
+        time_offset += tt_trimmed[-1]
+
+    if not experiment_segments:
+        print("[error] No data to plot")
+        return
+
+    # Create figure
+    plt.figure(figsize=FIGSIZE)
+
+    # Plot each experiment segment with its own color
+    for tt_seg, yy_seg, label, color in experiment_segments:
+        plt.plot(tt_seg, yy_seg, linewidth=4, color=color, label=label)
+
+    # Mark experiment boundaries (optional)
+    if show_boundaries and len(experiment_boundaries) > 1:
+        for boundary in experiment_boundaries[1:]:
+            plt.axvline(boundary, color='gray', linestyle='--', linewidth=1.5, alpha=0.4)
+
+    # Labels and title
+    plt.xlabel("Time (s)")
+    plt.ylabel(r"$I_{ds}\ (\mu\mathrm{A})$")
+    chipnum = int(df["chip_number"][0])
+
+    # Add legend
+    plt.legend(title=legend_title, loc='best')
+
+    # Auto-adjust y-axis with padding
+    if padding >= 0 and all_y_values:
+        y_vals = np.array(all_y_values)
+        y_vals = y_vals[np.isfinite(y_vals)]
+        if y_vals.size > 0:
+            y_min = float(np.min(y_vals))
+            y_max = float(np.max(y_vals))
+            if y_max > y_min:
+                y_range = y_max - y_min
+                y_pad = padding * y_range
+                plt.ylim(y_min - y_pad, y_max + y_pad)
+
+    plt.tight_layout()
+
+    # Save figure
+    out = FIG_DIR / f"encap{chipnum}_ITS_sequential_{tag}.png"
+    plt.savefig(out)
+    print(f"saved {out}")
+
+    # Calculate total time from last segment
+    if experiment_segments:
+        last_time = experiment_segments[-1][0][-1]  # Last time point of last segment
+        print(f"[info] Sequential plot: {len(experiment_segments)} experiments, total time: {last_time:.1f}s")

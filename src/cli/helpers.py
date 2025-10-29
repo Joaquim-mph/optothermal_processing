@@ -19,22 +19,23 @@ console = Console()
 
 def parse_seq_list(seq_str: str) -> list[int]:
     """
-    Parse comma-separated seq numbers from string.
+    Parse comma-separated seq numbers from string, with range support.
 
     Parameters
     ----------
     seq_str : str
         Comma-separated seq numbers (e.g., "52,57,58" or "52, 57, 58")
+        Supports ranges with dash notation (e.g., "89-117" or "89-92,95,100-105")
 
     Returns
     -------
     list[int]
-        List of seq numbers
+        List of seq numbers (sorted, duplicates removed)
 
     Raises
     ------
     ValueError
-        If any seq number is not a valid integer
+        If any seq number is not a valid integer or range format is invalid
 
     Examples
     --------
@@ -42,11 +43,41 @@ def parse_seq_list(seq_str: str) -> list[int]:
     [52, 57, 58]
     >>> parse_seq_list("1, 2, 3")
     [1, 2, 3]
+    >>> parse_seq_list("89-92")
+    [89, 90, 91, 92]
+    >>> parse_seq_list("89-92,95,100-102")
+    [89, 90, 91, 92, 95, 100, 101, 102]
     """
+    result = []
     try:
-        return [int(s.strip()) for s in seq_str.split(",")]
+        # Split by comma first
+        parts = seq_str.split(",")
+        for part in parts:
+            part = part.strip()
+            if "-" in part:
+                # Range notation (e.g., "89-117")
+                range_parts = part.split("-")
+                if len(range_parts) != 2:
+                    raise ValueError(f"Invalid range format: '{part}'. Expected format: 'start-end'")
+                start = int(range_parts[0].strip())
+                end = int(range_parts[1].strip())
+                if start > end:
+                    raise ValueError(f"Invalid range: {start}-{end}. Start must be <= end.")
+                result.extend(range(start, end + 1))
+            else:
+                # Single number
+                result.append(int(part))
+
+        # Remove duplicates and sort
+        return sorted(set(result))
+
     except ValueError as e:
-        raise ValueError(f"Invalid seq number format: {seq_str}. Expected comma-separated integers.") from e
+        if "Invalid range" in str(e) or "Invalid range format" in str(e):
+            raise  # Re-raise our custom error messages
+        raise ValueError(
+            f"Invalid seq number format: '{seq_str}'. "
+            f"Expected comma-separated integers or ranges (e.g., '52,57,58' or '89-117' or '89-92,95,100-105')."
+        ) from e
 
 
 def generate_timestamp_tag() -> str:

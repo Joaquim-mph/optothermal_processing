@@ -213,7 +213,7 @@ class HistoryBrowserScreen(Screen):
         """Load the chip history parquet into memory and populate the table."""
         chip_number = getattr(self.app.session, "chip_number", None)
         chip_group = getattr(self.app.session, "chip_group", None)
-        history_dir: Path = getattr(self.app.session, "history_dir", Path("data/03_history"))
+        history_dir: Path = getattr(self.app.session, "history_dir", Path("data/02_stage/chip_histories"))
 
         if chip_number is None or not chip_group:
             self.notify("Chip information missing; cannot load history", severity="error", timeout=4)

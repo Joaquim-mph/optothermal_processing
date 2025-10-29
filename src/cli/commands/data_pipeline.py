@@ -1,6 +1,7 @@
 """Data processing pipeline commands: full-pipeline (modern staging-based pipeline)."""
 
 import typer
+from src.cli.plugin_system import cli_command
 from pathlib import Path
 from typing import Optional
 from rich.console import Console
@@ -16,6 +17,11 @@ console = Console()
 #   - quick-stats → inspect-manifest or staging-stats
 
 
+@cli_command(
+    name="full-pipeline",
+    group="pipeline",
+    description="Run complete data processing pipeline"
+)
 def full_pipeline_command(
     raw_root: Path = typer.Option(
         Path("data/01_raw"),
@@ -30,10 +36,10 @@ def full_pipeline_command(
         help="Output directory for staged Parquet files"
     ),
     history_dir: Path = typer.Option(
-        Path("data/03_history"),
+        Path("data/02_stage/chip_histories"),
         "--history-dir",
         "-o",
-        help="Output directory for chip history CSV files"
+        help="Output directory for chip history Parquet files"
     ),
     procedures_yaml: Path = typer.Option(
         Path("config/procedures.yml"),

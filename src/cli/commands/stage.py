@@ -1,6 +1,7 @@
 """Staging pipeline commands: stage-all, stage-incremental, validate-manifest, inspect-manifest."""
 
 import typer
+from src.cli.plugin_system import cli_command
 from pathlib import Path
 from typing import Optional
 from rich.console import Console
@@ -14,6 +15,11 @@ import time
 console = Console()
 
 
+@cli_command(
+    name="stage-all",
+    group="staging",
+    description="Stage all raw CSV files to Parquet format"
+)
 def stage_all_command(
     raw_root: Path = typer.Option(
         Path("data/01_raw"),
@@ -303,6 +309,11 @@ def stage_all_command(
         raise typer.Exit(1)
 
 
+@cli_command(
+    name="validate-manifest",
+    group="staging",
+    description="Validate manifest schema and data quality"
+)
 def validate_manifest_command(
     manifest: Path = typer.Option(
         Path("data/02_stage/_manifest/manifest.parquet"),
@@ -501,6 +512,11 @@ def validate_manifest_command(
         raise typer.Exit(1)
 
 
+@cli_command(
+    name="inspect-manifest",
+    group="staging",
+    description="Inspect manifest contents with filtering"
+)
 def inspect_manifest_command(
     manifest: Path = typer.Option(
         Path("data/02_stage/_manifest/manifest.parquet"),
@@ -628,6 +644,11 @@ def inspect_manifest_command(
         raise typer.Exit(1)
 
 
+@cli_command(
+    name="staging-stats",
+    group="staging",
+    description="Show staging statistics and disk usage"
+)
 def staging_stats_command(
     stage_root: Path = typer.Option(
         Path("data/02_stage"),

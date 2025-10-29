@@ -38,7 +38,7 @@ python process_and_analyze.py validate-manifest --manifest data/02_stage/raw_mea
 python process_and_analyze.py inspect-manifest --manifest data/02_stage/raw_measurements/_manifest/manifest.parquet --chip 67
 
 # View chip history
-python process_and_analyze.py show-history 67 --history-dir data/03_history
+python process_and_analyze.py show-history 67 --history-dir data/02_stage/chip_histories
 ```
 
 ### Plotting Commands
@@ -83,11 +83,12 @@ The pipeline follows a three-stage data processing architecture:
 - Parallel processing using multiprocessing pool (configurable workers)
 - Run IDs: deterministic SHA-1 hash of `(path|timestamp_utc)` for idempotency
 
-**Stage 3: History Files** (`data/03_history/`)
+**Stage 3: Chip Histories** (`data/02_stage/chip_histories/`)
 - Per-chip Parquet histories with sequential experiment numbers
 - Built from manifest.parquet, filtered by chip_number/chip_group
 - **Includes `parquet_path` column** pointing to staged measurement data
 - Used by plotting functions to select experiments and load data efficiently
+- Located under staging directory as metadata summaries of staged data
 
 ### Module Organization
 

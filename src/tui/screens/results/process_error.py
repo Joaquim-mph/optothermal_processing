@@ -31,16 +31,16 @@ class ProcessErrorScreen(ErrorScreen):
     def compose_content(self) -> ComposeResult:
         """Compose error screen content."""
         yield Static("Error Type:", classes="section-title")
-        yield Static(self.error_type, classes="error-text")
+        yield Static(self.error_type, classes="error-text", markup=False)
 
         yield Static("Message:", classes="section-title")
-        yield Static(self.error_msg, classes="error-text")
+        yield Static(self.error_msg, classes="error-text", markup=False)
 
         # Generate suggestion based on error
         suggestion = self._generate_suggestion()
         if suggestion:
             yield Static("Suggestion:", classes="section-title")
-            yield Static(suggestion, classes="suggestion-text")
+            yield Static(suggestion, classes="suggestion-text", markup=False)
 
         with Horizontal(id="button-container"):
             yield Button("View Details", id="details-button", variant="default", classes="nav-button")

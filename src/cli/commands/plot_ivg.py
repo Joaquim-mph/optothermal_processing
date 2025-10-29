@@ -1,6 +1,7 @@
 """IVg plotting command: plot-ivg."""
 
 import typer
+from src.cli.plugin_system import cli_command
 from pathlib import Path
 from typing import Optional
 from rich.console import Console
@@ -23,6 +24,11 @@ from src.cli.helpers import (
 console = Console()
 
 
+@cli_command(
+    name="plot-ivg",
+    group="plotting",
+    description="Generate IVg sequence plots"
+)
 def plot_ivg_command(
     chip_number: int = typer.Argument(
         ...,
@@ -32,7 +38,7 @@ def plot_ivg_command(
         None,
         "--seq",
         "-s",
-        help="Comma-separated seq numbers (e.g., '2,8,14'). Required unless --auto is used."
+        help="Seq numbers: comma-separated or ranges (e.g., '2,8,14' or '10-20' or '10-15,20,25-30'). Required unless --auto is used."
     ),
     auto: bool = typer.Option(
         False,
@@ -74,7 +80,7 @@ def plot_ivg_command(
         help="Filter by date (YYYY-MM-DD)"
     ),
     history_dir: Path = typer.Option(
-        Path("data/03_history"),
+        Path("data/02_stage/chip_histories"),
         "--history-dir",
         help="Chip history directory (Parquet files)"
     ),
@@ -220,11 +226,14 @@ def plot_ivg_command(
         console.print("[red]Error:[/red] No experiments loaded")
         raise typer.Exit(1)
 
-    # For backward compatibility, rename parquet_path to source_file
-    # (plotting functions expect source_file column)
-    if "parquet_path" in history.columns and "source_file" not in history.columns:
+    # Use parquet_path (staged Parquet) if available, otherwise fall back to source_file (raw CSV)
+    # Plotting functions expect source_file column
+    if "parquet_path" in history.columns:
+        # Prefer parquet_path - overwrite source_file if it exists, or create it
+        history = history.drop("source_file") if "source_file" in history.columns else history
         history = history.rename({"parquet_path": "source_file"})
-    elif "parquet_path" not in history.columns and "source_file" not in history.columns:
+    elif "source_file" not in history.columns:
+        # Neither column exists - error
         console.print("[red]Error:[/red] History file missing both 'parquet_path' and 'source_file' columns")
         console.print("[yellow]Hint:[/yellow] Regenerate history files with: [cyan]build-all-histories[/cyan]")
         raise typer.Exit(1)

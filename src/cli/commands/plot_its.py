@@ -1,6 +1,7 @@
 """ITS plotting command: plot-its."""
 
 import typer
+from src.cli.plugin_system import cli_command
 from pathlib import Path
 from typing import Optional
 from rich.console import Console
@@ -25,6 +26,12 @@ import polars as pl
 console = Console()
 
 
+@cli_command(
+    name="plot-its-presets",
+    group="plotting",
+    description="List available ITS plot presets",
+    aliases=["list-its-presets"]
+)
 def list_presets_command():
     """List all available ITS plot presets with descriptions."""
     console.print()
@@ -110,6 +117,11 @@ def _all_its_are_dark(meta: pl.DataFrame) -> bool:
     return False
 
 
+@cli_command(
+    name="plot-its",
+    group="plotting",
+    description="Generate ITS overlay plots"
+)
 def plot_its_command(
     chip_number: int = typer.Argument(
         ...,
@@ -119,7 +131,7 @@ def plot_its_command(
         None,
         "--seq",
         "-s",
-        help="Comma-separated seq numbers (e.g., '52,57,58'). Required unless --auto is used."
+        help="Seq numbers: comma-separated or ranges (e.g., '52,57,58' or '89-117' or '89-92,95,100-105'). Required unless --auto is used."
     ),
     auto: bool = typer.Option(
         False,
@@ -188,7 +200,7 @@ def plot_its_command(
         help="Filter by date (YYYY-MM-DD)"
     ),
     history_dir: Path = typer.Option(
-        Path("data/03_history"),
+        Path("data/02_stage/chip_histories"),
         "--history-dir",
         help="Chip history directory (Parquet files)"
     ),
@@ -337,11 +349,14 @@ def plot_its_command(
         console.print("[red]Error:[/red] No experiments loaded")
         raise typer.Exit(1)
 
-    # For backward compatibility, rename parquet_path to source_file
-    # (plotting functions expect source_file column)
-    if "parquet_path" in history.columns and "source_file" not in history.columns:
+    # Use parquet_path (staged Parquet) if available, otherwise fall back to source_file (raw CSV)
+    # Plotting functions expect source_file column
+    if "parquet_path" in history.columns:
+        # Prefer parquet_path - overwrite source_file if it exists, or create it
+        history = history.drop("source_file") if "source_file" in history.columns else history
         history = history.rename({"parquet_path": "source_file"})
-    elif "parquet_path" not in history.columns and "source_file" not in history.columns:
+    elif "source_file" not in history.columns:
+        # Neither column exists - error
         console.print("[red]Error:[/red] History file missing both 'parquet_path' and 'source_file' columns")
         console.print("[yellow]Hint:[/yellow] Regenerate history files with: [cyan]build-all-histories[/cyan]")
         raise typer.Exit(1)
@@ -510,6 +525,253 @@ def plot_its_command(
         raise typer.Exit(1)
 
     # Step 10: Display success with output file path
+    console.print()
+    display_plot_success(output_file)
+    console.print()
+
+
+@cli_command(
+    name="plot-its-sequential",
+    group="plotting",
+    description="Generate sequential ITS plots"
+)
+def plot_its_sequential_command(
+    chip_number: int = typer.Argument(
+        ...,
+        help="Chip number (e.g., 67 for Alisson67)"
+    ),
+    seq: Optional[str] = typer.Option(
+        None,
+        "--seq",
+        "-s",
+        help="Seq numbers: comma-separated or ranges (e.g., '93,94,95,96' or '89-117' or '89-92,95,100-105'). Required unless --auto is used."
+    ),
+    auto: bool = typer.Option(
+        False,
+        "--auto",
+        help="Automatically select all ITS experiments"
+    ),
+    tag: Optional[str] = typer.Option(
+        None,
+        "--tag",
+        "-t",
+        help="Custom tag for output filename (default: auto-generated from seq numbers)"
+    ),
+    output_dir: Path = typer.Option(
+        Path("figs"),
+        "--output",
+        "-o",
+        help="Output directory for plots"
+    ),
+    chip_group: str = typer.Option(
+        "Alisson",
+        "--group",
+        "-g",
+        help="Chip group name"
+    ),
+    plot_start_time: float = typer.Option(
+        20.0,
+        "--plot-start",
+        help="Start time for x-axis in seconds (trimmed from each experiment)"
+    ),
+    show_boundaries: bool = typer.Option(
+        True,
+        "--boundaries/--no-boundaries",
+        help="Show vertical lines marking experiment boundaries"
+    ),
+    legend_by: str = typer.Option(
+        "datetime",
+        "--legend",
+        "-l",
+        help="Legend grouping: 'datetime' (default), 'wavelength', 'vg', or 'led_voltage'"
+    ),
+    padding: float = typer.Option(
+        0.02,
+        "--padding",
+        help="Y-axis padding (fraction of data range, e.g., 0.02 = 2%)"
+    ),
+    date: Optional[str] = typer.Option(
+        None,
+        "--date",
+        help="Filter by date (YYYY-MM-DD)"
+    ),
+    history_dir: Path = typer.Option(
+        Path("data/02_stage/chip_histories"),
+        "--history-dir",
+        help="Chip history directory (Parquet files)"
+    ),
+    preview: bool = typer.Option(
+        False,
+        "--preview",
+        help="Preview mode: show what will be plotted without generating files"
+    ),
+):
+    """
+    Generate sequential ITS plots (concatenated in time, not overlaid).
+
+    Plots multiple ITS experiments as a continuous trace where each experiment
+    follows the previous one in time, with different colors for each experiment.
+    No baseline correction is applied (raw data). Useful for visualizing temporal
+    evolution across multiple consecutive experiments.
+
+    Examples:
+        # Plot experiments 93-96 sequentially with datetime labels
+        python process_and_analyze.py plot-its-sequential 81 --seq 93,94,95,96
+
+        # Use wavelength labels
+        python process_and_analyze.py plot-its-sequential 81 --seq 93,94,95,96 -l wavelength
+
+        # Auto-select all ITS experiments with LED voltage labels
+        python process_and_analyze.py plot-its-sequential 81 --auto --legend led_voltage
+
+        # With custom settings (no boundaries)
+        python process_and_analyze.py plot-its-sequential 81 --seq 93,94,95,96 \\
+            --plot-start 10.0 --no-boundaries --legend vg
+    """
+    console.print()
+    console.print(Panel.fit(
+        f"[bold cyan]ITS Sequential Plot: {chip_group}{chip_number}[/bold cyan]",
+        border_style="cyan"
+    ))
+    console.print()
+
+    # Step 1: Get seq numbers (manual or auto)
+    mode_count = sum([bool(seq), auto])
+    if mode_count > 1:
+        console.print("[red]Error:[/red] Can only use one of: --seq or --auto")
+        raise typer.Exit(1)
+
+    if mode_count == 0:
+        console.print("[red]Error:[/red] Must specify one of: --seq or --auto")
+        console.print("[yellow]Hint:[/yellow] Use --seq 93,94,95 or --auto")
+        raise typer.Exit(1)
+
+    try:
+        if auto:
+            console.print("[cyan]Auto-selecting ITS experiments...[/cyan]")
+            filters = {}
+            if date is not None:
+                filters["date"] = date
+
+            from src.cli.helpers import auto_select_experiments
+            seq_numbers = auto_select_experiments(
+                chip_number,
+                "It",  # ITS experiments
+                history_dir,
+                chip_group,
+                filters
+            )
+            console.print(f"[green]✓[/green] Auto-selected {len(seq_numbers)} ITS experiment(s)")
+        else:
+            seq_numbers = parse_seq_list(seq)
+            console.print(f"[cyan]Using specified seq numbers:[/cyan] {seq_numbers}")
+
+    except (ValueError, FileNotFoundError) as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+
+    # Step 2: Validate seq numbers exist
+    console.print("\n[cyan]Validating experiments...[/cyan]")
+    from src.cli.helpers import validate_experiments_exist
+    valid, errors = validate_experiments_exist(
+        seq_numbers,
+        chip_number,
+        history_dir,
+        chip_group
+    )
+
+    if not valid:
+        console.print("[red]Validation failed:[/red]")
+        for error in errors:
+            console.print(f"  • {error}")
+        raise typer.Exit(1)
+
+    console.print(f"[green]✓[/green] All seq numbers valid")
+
+    # Step 3: Load history data
+    console.print("\n[cyan]Loading experiment history...[/cyan]")
+    try:
+        from src.cli.helpers import load_history_for_plotting
+        history = load_history_for_plotting(
+            seq_numbers,
+            chip_number,
+            history_dir,
+            chip_group
+        )
+    except Exception as e:
+        console.print(f"[red]Error loading history:[/red] {e}")
+        raise typer.Exit(1)
+
+    if history.height == 0:
+        console.print("[red]Error:[/red] No experiments loaded")
+        raise typer.Exit(1)
+
+    # Use parquet_path (staged Parquet) if available
+    if "parquet_path" in history.columns:
+        history = history.drop("source_file") if "source_file" in history.columns else history
+        history = history.rename({"parquet_path": "source_file"})
+    elif "source_file" not in history.columns:
+        console.print("[red]Error:[/red] History file missing both 'parquet_path' and 'source_file' columns")
+        raise typer.Exit(1)
+
+    # Step 4: Display selected experiments
+    console.print()
+    display_experiment_list(history, title="ITS Experiments (Sequential)")
+
+    # Step 5: Display plot settings
+    console.print()
+    display_plot_settings({
+        "Plot type": "ITS sequential (raw, concatenated in time)",
+        "Experiments": f"{history.height} measurement(s)",
+        "Plot start time": f"{plot_start_time}s (per experiment)",
+        "Legend by": legend_by,
+        "Boundaries": "Shown" if show_boundaries else "Hidden",
+        "Output directory": str(output_dir)
+    })
+
+    # Step 6: Setup output directory and generate plot tag
+    output_dir = setup_output_dir(output_dir, chip_number, chip_group)
+    plot_tag = generate_plot_tag(seq_numbers, custom_tag=tag)
+
+    # Preview output filename
+    output_file = output_dir / f"encap{chip_number}_ITS_sequential_{plot_tag}.png"
+
+    console.print()
+    console.print(Panel(
+        f"[cyan]Output file:[/cyan]\n{output_file}",
+        title="[bold]Output File[/bold]",
+        border_style="cyan"
+    ))
+
+    # Exit in preview mode
+    if preview:
+        console.print()
+        console.print("[bold green]✓ Preview complete - no files generated[/bold green]")
+        console.print("[dim]  Run without --preview to generate plot[/dim]")
+        raise typer.Exit(0)
+
+    # Step 7: Generate plot
+    console.print("\n[cyan]Generating sequential plot...[/cyan]")
+    its.FIG_DIR = output_dir
+    base_dir = Path(".")  # Not used (parquet_path has absolute paths)
+
+    try:
+        its.plot_its_sequential(
+            history,
+            base_dir,
+            plot_tag,
+            plot_start_time=plot_start_time,
+            show_boundaries=show_boundaries,
+            legend_by=legend_by,
+            padding=padding
+        )
+    except Exception as e:
+        console.print(f"[red]Error generating plot:[/red] {e}")
+        import traceback
+        console.print(f"[dim]{traceback.format_exc()}[/dim]")
+        raise typer.Exit(1)
+
+    # Step 8: Display success
     console.print()
     display_plot_success(output_file)
     console.print()

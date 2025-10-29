@@ -701,7 +701,7 @@ class PlotterApp(App):
         # Initialize session with validated parameters
         self.session = PlotSession(
             stage_dir=Path("data/02_stage/raw_measurements"),
-            history_dir=Path("data/03_history"),
+            history_dir=Path("data/02_stage/chip_histories"),
             output_dir=Path("figs"),
             chip_group="Alisson"
         )
@@ -768,7 +768,7 @@ class PlotterApp(App):
            ▼
 ┌──────────────────────┐
 │  Chip Histories      │
-│  data/03_history/    │
+│  data/02_stage/chip_histories/    │
 │  ├── Alisson67_      │
 │  │   history.parquet │
 │  └── ...             │

@@ -1,31 +1,14 @@
 #!/usr/bin/env python3
 """
-Main CLI application entry point.
+Main CLI application entry point with plugin system.
 
-Aggregates all commands from the different command modules and
-provides a single unified Typer app for the data processing pipeline.
+Commands are auto-discovered from the commands/ directory using
+the @cli_command decorator. No manual registration required.
 """
 
 import typer
-
-# Import command functions from command modules
-from src.cli.commands.data_pipeline import (
-    full_pipeline_command,
-)
-from src.cli.commands.history import (
-    show_history_command,
-    build_history_command,
-    build_all_histories_command,
-)
-from src.cli.commands.plot_its import plot_its_command, list_presets_command
-from src.cli.commands.plot_ivg import plot_ivg_command
-from src.cli.commands.plot_transconductance import plot_transconductance_command
-from src.cli.commands.stage import (
-    stage_all_command,
-    validate_manifest_command,
-    inspect_manifest_command,
-    staging_stats_command,
-)
+from pathlib import Path
+from src.cli.plugin_system import discover_commands
 
 # Create the main Typer app
 app = typer.Typer(
@@ -34,25 +17,13 @@ app = typer.Typer(
     add_completion=False
 )
 
-# Register data pipeline commands
-app.command(name="full-pipeline")(full_pipeline_command)
-
-# Register history commands
-app.command(name="show-history")(show_history_command)
-app.command(name="build-history")(build_history_command)
-app.command(name="build-all-histories")(build_all_histories_command)
-
-# Register plotting commands
-app.command(name="plot-its")(plot_its_command)
-app.command(name="plot-its-presets")(list_presets_command)
-app.command(name="plot-ivg")(plot_ivg_command)
-app.command(name="plot-transconductance")(plot_transconductance_command)
-
-# Register staging commands
-app.command(name="stage-all")(stage_all_command)
-app.command(name="validate-manifest")(validate_manifest_command)
-app.command(name="inspect-manifest")(inspect_manifest_command)
-app.command(name="staging-stats")(staging_stats_command)
+# Auto-discover and register all command plugins
+discover_commands(
+    app,
+    commands_dir=Path("src/cli/commands"),
+    config_path=Path("config/cli_plugins.yaml"),
+    verbose=False  # Set to True for debugging
+)
 
 
 def main():

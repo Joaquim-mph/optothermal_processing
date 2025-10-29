@@ -17,7 +17,7 @@ def main():
     """Launch the TUI application."""
     # Default configuration paths (Parquet-based pipeline)
     stage_dir = Path("data/02_stage/raw_measurements")
-    history_dir = Path("data/03_history")
+    history_dir = Path("data/02_stage/chip_histories")
     output_dir = Path("figs")
     chip_group = "Alisson"
 

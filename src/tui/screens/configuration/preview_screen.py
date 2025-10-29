@@ -43,7 +43,7 @@ class PreviewScreen(WizardScreen):
         self.plot_type = plot_type
         self.seq_numbers = seq_numbers
         self.config = config
-        self.history_dir = history_dir or Path("data/03_history")
+        self.history_dir = history_dir or Path("data/02_stage/chip_histories")
 
     BINDINGS = WizardScreen.BINDINGS + []
 

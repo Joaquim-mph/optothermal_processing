@@ -1,1 +1,380 @@
-# optothermal_processing
+# Optothermal Processing
+
+A Python-based data processing and visualization pipeline for optothermal semiconductor device characterization.
+
+## Overview
+
+This pipeline processes raw measurement CSV files from lab equipment (Keithley sourcemeter, laser control, temperature sensors), stages them into optimized Parquet format, builds experiment histories, and generates publication-quality scientific plots.
+
+## Features
+
+- **Modern Data Pipeline**: CSV → Parquet staging with schema validation
+- **Experiment History Management**: Track and organize experiments by chip
+- **Publication-Quality Plotting**: ITS, IVg, and transconductance plots with scienceplots styling
+- **Parallel Processing**: Multi-core data staging for faster processing
+- **Terminal UI**: User-friendly TUI for non-technical lab users
+- **Plugin Architecture**: Extensible CLI with auto-discovery of commands
+
+## Quick Start
+
+### Installation
+
+```bash
+# Create virtual environment
+python3 -m venv .venv
+source .venv/bin/activate
+
+# Install dependencies
+pip install -r requirements.txt
+```
+
+### Basic Usage
+
+```bash
+# Run the complete pipeline (staging + history generation)
+python process_and_analyze.py full-pipeline
+
+# View experiment history for a chip
+python process_and_analyze.py show-history 67
+
+# Generate plots
+python process_and_analyze.py plot-its 67 --seq 52,57,58
+python process_and_analyze.py plot-ivg 67 --auto
+
+# Launch terminal UI for lab users
+python tui_app.py
+```
+
+### List Available Commands
+
+```bash
+# See all available commands
+python process_and_analyze.py --help
+
+# List plugins with metadata
+python process_and_analyze.py list-plugins
+
+# List commands by group
+python process_and_analyze.py list-plugins --group plotting
+```
+
+## Data Flow
+
+```
+1. Raw Data (data/01_raw/)
+   ├─ CSV files from lab equipment
+   └─ Naming: {ChipGroup}{ChipNumber}_{FileIndex}.csv
+
+2. Staged Data (data/02_stage/)
+   ├─ Parquet files (fast, schema-validated)
+   ├─ manifest.parquet (metadata index)
+   └─ chip_histories/ (per-chip timelines)
+
+3. Plots (figs/)
+   └─ Publication-quality PNG figures
+```
+
+## Key Commands
+
+### Data Processing
+
+- `full-pipeline` - Run complete pipeline (staging + histories)
+- `stage-all` - Stage raw CSVs to Parquet with validation
+- `build-all-histories` - Generate chip histories from manifest
+
+### History Management
+
+- `show-history` - Display chip experiment timeline
+- `build-history` - Build history for specific chip
+
+### Plotting
+
+- `plot-its` - Current vs time overlay plots
+- `plot-its-sequential` - Sequential ITS plots
+- `plot-ivg` - Gate voltage sweep plots
+- `plot-transconductance` - Transconductance (gm = dI/dVg) plots
+
+### Data Validation
+
+- `validate-manifest` - Schema and quality checks
+- `inspect-manifest` - Browse manifest contents
+- `staging-stats` - Disk usage and statistics
+
+## Plugin System
+
+The CLI uses an extensible plugin architecture that makes adding new commands simple.
+
+### Adding New Commands
+
+1. Create your command in `src/cli/commands/`
+2. Add the `@cli_command()` decorator
+3. Done! No need to modify `main.py`
+
+**Example:**
+
+```python
+# src/cli/commands/my_module.py
+from src.cli.plugin_system import cli_command
+import typer
+
+@cli_command(
+    name="export-csv",
+    group="export",
+    description="Export chip history to CSV"
+)
+def export_csv_command(
+    chip_number: int = typer.Argument(...),
+    output: Path = typer.Option(Path("export.csv"), "--output", "-o"),
+):
+    """Export chip history to CSV format."""
+    # Your implementation here
+    pass
+```
+
+The command will be automatically discovered and registered! ✨
+
+### Command Groups
+
+Commands are organized into groups:
+
+- `pipeline` - Full pipeline orchestration
+- `history` - History viewing and generation
+- `staging` - Data staging and validation
+- `plotting` - All plotting commands
+- `utilities` - Helper commands
+
+### Configuration
+
+Control which commands are available via `config/cli_plugins.yaml`:
+
+```yaml
+# Enable all commands
+enabled_groups:
+  - all
+
+# Or enable specific groups
+enabled_groups:
+  - pipeline
+  - history
+  - staging
+  - plotting
+
+# Disable specific commands
+disabled_commands:
+  - experimental-feature
+  - beta-command
+```
+
+See [`docs/CLI_PLUGIN_SYSTEM.md`](docs/CLI_PLUGIN_SYSTEM.md) for complete documentation.
+
+## Architecture
+
+### Module Organization
+
+```
+src/
+├── cli/                    # Command-line interface
+│   ├── plugin_system.py   # Plugin discovery and registration
+│   ├── commands/          # Command implementations
+│   └── helpers.py         # Shared utilities
+├── core/                  # Core processing logic
+│   ├── stage_raw_measurements.py
+│   ├── history_builder.py
+│   └── utils.py
+├── plotting/              # Plotting functions
+│   ├── its.py
+│   ├── ivg.py
+│   └── transconductance.py
+├── models/                # Data models (Pydantic)
+│   ├── manifest.py
+│   └── parameters.py
+└── tui/                   # Terminal user interface
+```
+
+### Key Technologies
+
+- **Typer** - Modern CLI framework
+- **Rich** - Beautiful terminal output
+- **Polars** - Fast dataframe operations
+- **Pydantic** - Data validation
+- **Matplotlib + scienceplots** - Publication-quality plots
+- **Textual** - Terminal UI framework
+
+## Configuration
+
+### Procedure Schemas
+
+Define measurement schemas in `config/procedures.yml`:
+
+```yaml
+IVg:
+  Parameters:
+    VG: float64
+    VDS: float64
+  Metadata:
+    Laser wavelength: float64
+  Data:
+    VG: float64
+    ID: float64
+```
+
+### Chip Parameters
+
+Chip-specific settings in `config/chip_params.yaml`:
+
+```yaml
+chips:
+  67:
+    chip_group: Alisson
+    expected_procs: [IVg, It]
+    wavelengths: [365, 405, 530, 660]
+```
+
+### CLI Plugins
+
+Control command availability in `config/cli_plugins.yaml`:
+
+```yaml
+enabled_groups:
+  - all
+
+disabled_commands: []
+```
+
+## Documentation
+
+- **[CLAUDE.md](CLAUDE.md)** - Project overview and commands
+- **[CLI_MODULE_ARCHITECTURE.md](docs/CLI_MODULE_ARCHITECTURE.md)** - CLI architecture
+- **[CLI_PLUGIN_SYSTEM.md](docs/CLI_PLUGIN_SYSTEM.md)** - Plugin system guide
+- **[PLUGIN_SYSTEM_MIGRATION.md](docs/PLUGIN_SYSTEM_MIGRATION.md)** - Migration guide
+- **[PYDANTIC_ARCHITECTURE.md](docs/PYDANTIC_ARCHITECTURE.md)** - Data models
+
+## Examples
+
+### Process New Data
+
+```bash
+# Stage raw CSVs to Parquet
+python process_and_analyze.py stage-all
+
+# Generate chip histories
+python process_and_analyze.py build-all-histories
+
+# Or do both in one step
+python process_and_analyze.py full-pipeline
+```
+
+### Generate Plots
+
+```bash
+# ITS overlay with specific experiments
+python process_and_analyze.py plot-its 67 --seq 52,57,58
+
+# ITS with range notation
+python process_and_analyze.py plot-its 81 --seq 89-117
+
+# Auto-select all ITS experiments
+python process_and_analyze.py plot-its 67 --auto
+
+# ITS with filters
+python process_and_analyze.py plot-its 67 --auto --vg -0.4
+
+# IVg sequence plots
+python process_and_analyze.py plot-ivg 67 --seq 2,8,14
+
+# Transconductance
+python process_and_analyze.py plot-transconductance 67 --seq 2,8,14
+```
+
+### View History
+
+```bash
+# Show complete history
+python process_and_analyze.py show-history 67
+
+# Filter by procedure
+python process_and_analyze.py show-history 67 --proc IVg
+
+# Filter by light status
+python process_and_analyze.py show-history 67 --light dark
+
+# Show last 20 experiments
+python process_and_analyze.py show-history 67 --limit 20
+```
+
+## Development
+
+### Project Structure
+
+See [CLAUDE.md](CLAUDE.md) for detailed development guide including:
+- Data flow architecture
+- Module organization
+- Adding new procedures
+- Testing guidelines
+
+### Adding a Plotting Command
+
+```python
+# 1. Create plotting function in src/plotting/
+def plot_my_analysis(history, base_dir, plot_tag):
+    # Implementation
+    pass
+
+# 2. Create CLI command in src/cli/commands/
+@cli_command(name="plot-my-analysis", group="plotting")
+def plot_my_analysis_command(chip_number: int, ...):
+    """Generate my custom analysis plots."""
+    # Load history, call plotting function
+    pass
+
+# 3. Done! Command auto-discovered
+```
+
+### Running Tests
+
+```bash
+# Activate virtual environment
+source .venv/bin/activate
+
+# Test CLI imports
+python -c "from src.cli.main import app; print('OK')"
+
+# Test command discovery
+python process_and_analyze.py --help
+
+# Validate manifest
+python process_and_analyze.py validate-manifest
+```
+
+## Contributing
+
+Contributions welcome! The plugin system makes it easy to add new commands without modifying core files.
+
+1. Fork the repository
+2. Create your feature branch
+3. Add your command using `@cli_command()` decorator
+4. Test with `python process_and_analyze.py --help`
+5. Submit a pull request
+
+See [CLI_PLUGIN_SYSTEM.md](docs/CLI_PLUGIN_SYSTEM.md) for plugin development guide.
+
+## License
+
+See LICENSE file for details.
+
+## Citation
+
+If you use this software in your research, please cite:
+
+```bibtex
+@software{optothermal_processing,
+  title = {Optothermal Processing Pipeline},
+  author = {Your Lab},
+  year = {2025},
+  url = {https://github.com/yourusername/optothermal_processing}
+}
+```
+
+## Contact
+
+For questions or support, please open an issue on GitHub.

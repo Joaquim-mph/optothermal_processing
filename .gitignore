@@ -84,6 +84,7 @@ ipython_config.py
 
 # ignore everything in the following folders
 data/**
+figs/**
 notebooks/figures/**
 plots/
 # except their sub-folders

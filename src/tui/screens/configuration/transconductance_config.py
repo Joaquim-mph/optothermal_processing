@@ -55,7 +55,7 @@ class TransconductanceConfigScreen(FormScreen):
         chip_number: int,
         chip_group: str,
         plot_type: str = "Transconductance",
-        history_dir: Path = Path("data/03_history"),
+        history_dir: Path = Path("data/02_stage/chip_histories"),
     ):
         super().__init__()
         self.chip_number = chip_number

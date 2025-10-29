@@ -126,7 +126,7 @@ class PlotGenerationScreen(WizardScreen):
             # Step 1: Load history
             self.app.call_from_thread(self._update_progress, 10, "⣾ Loading experiment history...")
 
-            history_dir = PathLib(self.config.get("history_dir", "data/03_history"))
+            history_dir = PathLib(self.config.get("history_dir", "data/02_stage/chip_histories"))
             stage_dir = PathLib(self.config.get("stage_dir", "data/02_stage/raw_measurements"))
 
             logger.info(f"History directory: {history_dir} (exists: {history_dir.exists()})")

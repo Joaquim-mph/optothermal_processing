@@ -1,6 +1,7 @@
 """History display and generation commands: show-history, build-history, build-all-histories."""
 
 import typer
+from src.cli.plugin_system import cli_command
 from pathlib import Path
 from typing import Optional
 from rich.console import Console
@@ -26,6 +27,11 @@ from src.cli.history_utils import (
 console = Console()
 
 
+@cli_command(
+    name="show-history",
+    group="history",
+    description="Display chip experiment history"
+)
 def show_history_command(
     chip_number: int = typer.Argument(
         ...,
@@ -38,7 +44,7 @@ def show_history_command(
         help="Chip group name prefix"
     ),
     history_dir: Path = typer.Option(
-        Path("data/03_history"),
+        Path("data/02_stage/chip_histories"),
         "--history-dir",
         "-d",
         help="Directory containing chip history CSV files"
@@ -256,6 +262,11 @@ def show_history_command(
         console.print(f"[yellow]Note:[/yellow] Showing only last {limit} experiments. Remove --limit to see all.")
 
 
+@cli_command(
+    name="build-history",
+    group="history",
+    description="Build chip history from staged data"
+)
 def build_history_command(
     chip_number: int = typer.Argument(
         ...,
@@ -274,7 +285,7 @@ def build_history_command(
         help="Path to manifest.parquet file"
     ),
     output_dir: Path = typer.Option(
-        Path("data/03_history"),
+        Path("data/02_stage/chip_histories"),
         "--output",
         "-o",
         help="Output directory for history files"
@@ -377,6 +388,11 @@ def build_history_command(
         raise typer.Exit(1)
 
 
+@cli_command(
+    name="build-all-histories",
+    group="history",
+    description="Build histories for all chips from staged data"
+)
 def build_all_histories_command(
     manifest_path: Path = typer.Option(
         Path("data/02_stage/raw_measurements/_manifest/manifest.parquet"),
@@ -385,7 +401,7 @@ def build_all_histories_command(
         help="Path to manifest.parquet file"
     ),
     output_dir: Path = typer.Option(
-        Path("data/03_history"),
+        Path("data/02_stage/chip_histories"),
         "--output",
         "-o",
         help="Output directory for history files"

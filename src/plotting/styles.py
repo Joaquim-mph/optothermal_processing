@@ -1,4 +1,5 @@
 import matplotlib.pyplot as plt
+import scienceplots  # Register scienceplots styles with matplotlib
 
 # ============================================================================
 # Common settings across all themes

@@ -6,7 +6,7 @@ This project stages optothermal CSV measurements into validated Parquet datasets
 - `src/core/` holds ingestion, staging, and history builders (`stage_raw_measurements.py`, `history_builder.py`, `utils.py`). Treat it as the canonical data layer consumed everywhere else.
 - `src/cli/` exposes Typer commands aggregated in `main.py`; `process_and_analyze.py` re-exports that entry point for compatibility.
 - `src/plotting/` contains ITS/IVg/transconductance plotters that read staged Parquet via `src/core.utils`. `src/models/` stores Pydantic schemas; `src/tui/` and `tui_app.py` deliver the interactive PlotterApp.
-- Configuration and reference assets live in `config/` (YAML schemas), `data/01_raw → 03_history` (pipeline artifacts), and `figs/` (rendered outputs).
+- Configuration and reference assets live in `config/` (YAML schemas), `data/01_raw → 02_stage` (pipeline artifacts), and `figs/` (rendered outputs).
 
 ## Build, Test, and Development Commands
 - Create a virtualenv and install dependencies: `python -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt`.

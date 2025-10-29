@@ -40,19 +40,22 @@ class ProcessSuccessScreen(SuccessScreen):
 
     def compose_content(self) -> ComposeResult:
         """Compose success screen content."""
-        yield Static("Results:", classes="section-title")
-        yield Static(f"Files processed: {self.files_processed}", classes="info-row")
-        yield Static(f"Experiments found: {self.experiments}", classes="info-row")
-        yield Static(f"Chip histories created: {self.histories}/{self.total_chips}", classes="info-row")
-        yield Static(f"Processing time: {self.elapsed:.1f}s", classes="info-row")
+        yield Static("Pipeline Results:", classes="section-title")
+        yield Static(f"CSV files staged: {self.files_processed}", classes="info-row")
+        yield Static(f"Experiments in manifest: {self.experiments}", classes="info-row")
+        yield Static(f"Chip histories generated: {self.histories}/{self.total_chips} chips", classes="info-row")
+        yield Static(f"Total processing time: {self.elapsed:.1f}s", classes="info-row")
 
         yield Static("", classes="info-row")
-        yield Static("Output directories:", classes="section-title")
-        yield Static("• metadata/ — Experiment metadata CSV files", classes="info-row")
-        yield Static("• chip_histories/ — Chip history files", classes="info-row")
+        yield Static("Output Locations:", classes="section-title")
+        yield Static("• data/02_stage/raw_measurements/ — Staged Parquet files", classes="info-row")
+        yield Static("• data/02_stage/raw_measurements/_manifest/ — Manifest & events", classes="info-row")
+        yield Static("• data/02_stage/chip_histories/ — Chip history Parquet files", classes="info-row")
 
         yield Static("", classes="info-row")
-        yield Static("You can now use the plotting tools to visualize your data.", classes="info-row")
+        yield Static("Next Steps:", classes="section-title")
+        yield Static("• Use 'New Plot' to generate ITS, IVg, or transconductance plots", classes="info-row")
+        yield Static("• Use 'View Chip Histories' to browse experiment timelines", classes="info-row")
 
         with Horizontal(id="button-container"):
             yield Button("Main Menu", id="menu-button", variant="primary", classes="nav-button")

@@ -49,7 +49,7 @@ class PlotterApp(App):
     def __init__(
         self,
         stage_dir: Path = Path("data/02_stage/raw_measurements"),
-        history_dir: Path = Path("data/03_history"),
+        history_dir: Path = Path("data/02_stage/chip_histories"),
         output_dir: Path = Path("figs"),
         chip_group: str = "Alisson",
     ):

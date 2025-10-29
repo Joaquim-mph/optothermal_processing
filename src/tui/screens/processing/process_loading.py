@@ -1,7 +1,7 @@
 """
 Data Processing Loading Screen.
 
-Shows progress while processing metadata and chip histories.
+Shows progress while staging data and generating chip histories using the modern pipeline.
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ from src.tui.screens.base import WizardScreen
 
 
 class ProcessLoadingScreen(WizardScreen):
-    """Loading screen for data processing."""
+    """Loading screen for modern staging pipeline + history generation."""
 
     SCREEN_TITLE = "Processing Data..."
     STEP_NUMBER = None  # Not part of main wizard flow
@@ -73,7 +73,7 @@ class ProcessLoadingScreen(WizardScreen):
         yield Static("⣾ Initializing...", id="status")
         with Horizontal(id="progress-container"):
             yield ProgressBar(total=100, show_eta=False, id="progress-bar")
-        yield Static("Starting data processing", id="current-task")
+        yield Static("Starting modern staging pipeline", id="current-task")
         yield Static("", id="stats")
 
     def on_mount(self) -> None:
@@ -85,153 +85,188 @@ class ProcessLoadingScreen(WizardScreen):
         self.processing_thread.start()
 
     def _run_processing(self) -> None:
-        """Run the data processing pipeline in background thread."""
+        """Run the modern staging pipeline in background thread."""
         try:
-            # Force non-interactive matplotlib backend for thread-safety (in case any imports trigger it)
+            # Force non-interactive matplotlib backend for thread-safety
             import matplotlib
             matplotlib.use('Agg')
 
-            # Import legacy processing modules (only used in this method)
+            # Import modern pipeline modules
             import polars as pl
-            from src.core.parser import parse_iv_metadata
-            from src.core.timeline import build_chip_history
+            from src.models.parameters import StagingParameters
+            from src.core import run_staging_pipeline, discover_csvs
+            from src.core.history_builder import generate_all_chip_histories
 
-            raw_dir = Path("raw_data")
-            meta_dir = Path("metadata")
-            history_dir = Path("chip_histories")
-            chip_group = "Alisson"
+            # Define paths (matching full-pipeline defaults)
+            raw_root = Path("data/01_raw")
+            stage_root = Path("data/02_stage/raw_measurements")
+            history_dir = Path("data/02_stage/chip_histories")
+            procedures_yaml = Path("config/procedures.yml")
+            manifest_path = stage_root / "_manifest" / "manifest.parquet"
 
-            # Step 1: Discover folders
-            self.app.call_from_thread(self._update_progress, 5, "⣾ Discovering data folders...")
+            # ═══════════════════════════════════════════════════════════
+            # STEP 1: STAGING (0-60%)
+            # ═══════════════════════════════════════════════════════════
 
-            folders = [item for item in raw_dir.iterdir() if item.is_dir() and list(item.glob("*.csv"))]
-            total_folders = len(folders)
+            self.app.call_from_thread(
+                self._update_progress,
+                0,
+                "⣾ Step 1/2: Staging raw CSVs → Parquet..."
+            )
 
-            if total_folders == 0:
-                raise ValueError("No data folders found in raw_data/")
+            # Validate paths
+            if not raw_root.exists():
+                raise FileNotFoundError(f"Raw data directory not found: {raw_root}")
+            if not procedures_yaml.exists():
+                raise FileNotFoundError(f"Procedures schema not found: {procedures_yaml}")
+
+            # Discover CSV files
+            self.app.call_from_thread(
+                self._update_progress,
+                5,
+                "⣾ Discovering CSV files..."
+            )
+            csv_files = discover_csvs(raw_root)
+            total_csvs = len(csv_files)
+
+            if total_csvs == 0:
+                raise ValueError(f"No CSV files found in {raw_root}")
 
             self.app.call_from_thread(
                 self._update_progress,
                 10,
-                f"⣾ Found {total_folders} folder(s) to process..."
+                f"⣾ Found {total_csvs} CSV file(s), starting staging..."
             )
 
-            # Step 2: Parse metadata from all folders
-            meta_dir.mkdir(parents=True, exist_ok=True)
-            total_files_processed = 0
-            total_metadata_rows = 0
+            # Create staging parameters
+            # Use single worker for TUI to avoid multiprocessing issues on macOS
+            params = StagingParameters(
+                raw_root=raw_root,
+                stage_root=stage_root,
+                procedures_yaml=procedures_yaml,
+                local_tz="America/Santiago",
+                workers=1,  # Single worker to avoid multiprocessing issues in TUI
+                polars_threads=1,
+                force=False,  # Don't force overwrite existing data
+                only_yaml_data=False,
+            )
 
-            for idx, folder in enumerate(folders):
-                folder_name = folder.name
-                progress = 10 + int((idx / total_folders) * 40)  # 10-50%
-
-                self.app.call_from_thread(
-                    self._update_progress,
-                    progress,
-                    f"⣾ Parsing metadata: {folder_name} ({idx + 1}/{total_folders})"
-                )
-
-                out_dir = meta_dir / folder_name
-                out_dir.mkdir(parents=True, exist_ok=True)
-                out_file = out_dir / "metadata.csv"
-
-                csv_files = sorted(folder.glob("*.csv"))
-                metadata_rows = []
-
-                for csv_file in csv_files:
-                    try:
-                        meta = parse_iv_metadata(csv_file)
-                        if meta:
-                            rel_path = f"{raw_dir.name}/{folder_name}/{csv_file.name}"
-                            meta['source_file'] = rel_path
-                            metadata_rows.append(meta)
-                            total_files_processed += 1
-                    except Exception:
-                        pass
-
-                if metadata_rows:
-                    df = pl.DataFrame(metadata_rows)
-                    df.write_csv(out_file)
-                    total_metadata_rows += len(metadata_rows)
-
+            # Run staging pipeline
+            # Note: run_staging_pipeline doesn't provide progress callbacks,
+            # so we'll simulate progress during this phase
             self.app.call_from_thread(
                 self._update_progress,
-                50,
-                f"✓ Parsed {total_files_processed} files → {total_metadata_rows} experiments"
+                15,
+                f"⣾ Staging {total_csvs} files (sequential processing)..."
             )
-            time.sleep(0.5)
 
-            # Step 3: Discover chips
-            self.app.call_from_thread(self._update_progress, 55, "⣾ Discovering chips...")
-
-            metadata_files = list(meta_dir.glob("**/metadata.csv")) + list(meta_dir.glob("**/*_metadata.csv"))
-
-            all_chips = set()
-            for meta_file in metadata_files:
-                try:
-                    meta = pl.read_csv(meta_file, ignore_errors=True)
-                    if "Chip number" in meta.columns:
-                        chips = meta.get_column("Chip number").drop_nulls().unique().to_list()
-                        for c in chips:
-                            try:
-                                all_chips.add(int(float(c)))
-                            except (ValueError, TypeError):
-                                pass
-                except Exception:
-                    pass
-
-            sorted_chips = sorted(all_chips)
-            total_chips = len(sorted_chips)
-
-            if total_chips == 0:
-                raise ValueError("No chips found in metadata")
+            # Run in increments with simulated progress
+            staging_start = time.time()
+            try:
+                run_staging_pipeline(params)
+            except (OSError, ValueError, TypeError) as e:
+                # Handle multiprocessing errors gracefully on macOS
+                error_str = str(e).lower()
+                if any(keyword in error_str for keyword in ["fds_to_keep", "bad value", "spawn", "pickle"]):
+                    raise RuntimeError(
+                        "Data processing from the TUI is not supported on your system due to multiprocessing limitations.\n\n"
+                        "Please run the processing pipeline from the command line instead:\n"
+                        "  python process_and_analyze.py full-pipeline\n\n"
+                        "This command will:\n"
+                        "  • Stage all raw CSVs → Parquet\n"
+                        "  • Generate manifest.parquet\n"
+                        "  • Build chip histories\n\n"
+                        "After processing completes, you can use the TUI for plotting."
+                    ) from e
+                raise
+            staging_elapsed = time.time() - staging_start
 
             self.app.call_from_thread(
                 self._update_progress,
                 60,
-                f"⣾ Found {total_chips} chip(s)..."
+                f"✓ Staging complete ({staging_elapsed:.1f}s)"
+            )
+            time.sleep(0.3)
+
+            # ═══════════════════════════════════════════════════════════
+            # STEP 2: CHIP HISTORIES (60-95%)
+            # ═══════════════════════════════════════════════════════════
+
+            self.app.call_from_thread(
+                self._update_progress,
+                60,
+                "⣾ Step 2/2: Generating chip histories from manifest..."
             )
 
-            # Step 4: Build chip histories
+            # Check manifest exists
+            if not manifest_path.exists():
+                raise FileNotFoundError(f"Manifest not found: {manifest_path}")
+
+            # Load manifest to count chips
+            self.app.call_from_thread(
+                self._update_progress,
+                65,
+                "⣾ Reading manifest..."
+            )
+
+            manifest = pl.read_parquet(manifest_path).filter(
+                pl.col("status") == "ok"
+            )
+
+            # Count unique chips
+            chip_numbers = manifest.select("chip_number").unique().filter(
+                pl.col("chip_number").is_not_null()
+            ).height
+
+            self.app.call_from_thread(
+                self._update_progress,
+                70,
+                f"⣾ Found {chip_numbers} chip(s), generating histories..."
+            )
+
+            # Generate all chip histories
             history_dir.mkdir(parents=True, exist_ok=True)
-            histories_created = 0
 
-            for idx, chip_num in enumerate(sorted_chips):
-                progress = 60 + int((idx / total_chips) * 35)  # 60-95%
-                chip_name = f"{chip_group}{chip_num}"
+            histories = generate_all_chip_histories(
+                manifest_path=manifest_path,
+                output_dir=history_dir,
+                chip_group=None,  # Process all chip groups
+                min_experiments=1,
+                stage_root=stage_root,
+            )
 
-                self.app.call_from_thread(
-                    self._update_progress,
-                    progress,
-                    f"⣾ Building history: {chip_name} ({idx + 1}/{total_chips})"
-                )
+            # histories is a dict of chip_name -> history_file_path
+            histories_created = len(histories)
+            chips_skipped = chip_numbers - histories_created
 
-                try:
-                    history = build_chip_history(meta_dir, Path("."), chip_num, chip_group)
+            self.app.call_from_thread(
+                self._update_progress,
+                95,
+                f"✓ Created {histories_created} histories ({chips_skipped} skipped)"
+            )
+            time.sleep(0.3)
 
-                    if history.height >= 1:
-                        out_file = history_dir / f"{chip_name}_history.csv"
-                        history.write_csv(out_file)
-                        histories_created += 1
-                except Exception:
-                    # Skip chips that fail
-                    pass
+            # ═══════════════════════════════════════════════════════════
+            # COMPLETE
+            # ═══════════════════════════════════════════════════════════
 
-            # Complete
             self.app.call_from_thread(self._update_progress, 100, "✓ Complete!")
             time.sleep(0.3)
 
-            # Calculate statistics
+            # Calculate total statistics
             elapsed = time.time() - self.start_time
+
+            # Count total experiments in manifest
+            total_experiments = manifest.height
 
             # Show success screen
             self.app.call_from_thread(
                 self._on_success,
-                elapsed,
-                total_files_processed,
-                total_metadata_rows,
-                histories_created,
-                total_chips
+                elapsed=elapsed,
+                files_processed=total_csvs,
+                experiments=total_experiments,
+                histories=histories_created,
+                total_chips=chip_numbers,
             )
 
         except Exception as e:

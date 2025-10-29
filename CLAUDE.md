@@ -6,62 +6,112 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is a Python-based data processing and visualization pipeline for optothermal semiconductor device characterization. The codebase processes raw measurement CSV files from lab equipment (Keithley sourcemeter, laser control, temperature sensors), stages them into optimized Parquet format, builds experiment histories, and generates publication-quality scientific plots.
 
-## Key Commands
+**Key Technologies:**
+- Python 3.11+ (uses zoneinfo for timezone handling)
+- Polars (primary dataframe library, NOT pandas)
+- Pydantic v2+ (data validation)
+- Typer + Rich (modern CLI with beautiful terminal output)
+- Matplotlib + scienceplots (publication-quality figures)
+- Textual (terminal UI framework)
 
-### Environment Setup
+## Environment Setup
+
 ```bash
-# Activate virtual environment
+# Activate virtual environment (ALWAYS do this first)
 source .venv/bin/activate
 
 # Install dependencies
 pip install -r requirements.txt
+
+# Verify installation
+python3 process_and_analyze.py --help
+```
+
+## Key Commands
+
+### Quick Start
+
+```bash
+# Complete pipeline (staging + history generation)
+python3 process_and_analyze.py full-pipeline
+
+# View chip history
+python3 process_and_analyze.py show-history 67
+
+# Generate plots
+python3 process_and_analyze.py plot-its 67 --seq 52,57,58
+python3 process_and_analyze.py plot-ivg 67 --auto
 ```
 
 ### Data Processing Pipeline
 
 ```bash
-# Full pipeline (RECOMMENDED: stage + histories in one command)
-python process_and_analyze.py full-pipeline
-
-# OR run steps individually:
-
 # Stage raw CSVs to Parquet (with parallel processing)
-python process_and_analyze.py stage-all --raw-root data/01_raw --stage-root data/02_stage/raw_measurements
+python3 process_and_analyze.py stage-all
 
-# Build experiment histories for all chips from manifest
-python process_and_analyze.py build-all-histories --manifest data/02_stage/raw_measurements/_manifest/manifest.parquet
+# Build experiment histories for all chips
+python3 process_and_analyze.py build-all-histories
 
 # Validate manifest schema and data quality
-python process_and_analyze.py validate-manifest --manifest data/02_stage/raw_measurements/_manifest/manifest.parquet
+python3 process_and_analyze.py validate-manifest
 
 # Inspect manifest with filtering
-python process_and_analyze.py inspect-manifest --manifest data/02_stage/raw_measurements/_manifest/manifest.parquet --chip 67
+python3 process_and_analyze.py inspect-manifest --chip 67
 
-# View chip history
-python process_and_analyze.py show-history 67 --history-dir data/02_stage/chip_histories
+# View chip experiment history
+python3 process_and_analyze.py show-history 67 --proc IVg --light dark --limit 20
 ```
 
 ### Plotting Commands
 
 ```bash
-# Generate ITS (current vs time) overlay plots
-python process_and_analyze.py plot-its --metadata-csv <path> --chip-number 67
+# ITS (current vs time) plots
+python3 process_and_analyze.py plot-its 67 --seq 52,57,58
+python3 process_and_analyze.py plot-its 67 --auto --vg -0.4  # Auto-select with filters
+python3 process_and_analyze.py plot-its-presets  # List available presets
 
-# List available ITS presets
-python process_and_analyze.py plot-its-presets
+# IVg (gate voltage sweep) plots
+python3 process_and_analyze.py plot-ivg 67 --seq 2,8,14
+python3 process_and_analyze.py plot-ivg 67 --auto
 
-# Generate IVg (gate voltage sweep) plots
-python process_and_analyze.py plot-ivg --chip-number 67
+# Transconductance (gm = dI/dVg) plots
+python3 process_and_analyze.py plot-transconductance 67 --seq 2,8,14
+```
 
-# Generate transconductance plots (dI/dVg from IVg data)
-python process_and_analyze.py plot-transconductance --chip-number 67
+### Configuration Management
+
+```bash
+# View current configuration
+python3 process_and_analyze.py config-show
+
+# Initialize config file
+python3 process_and_analyze.py config-init
+
+# Validate configuration
+python3 process_and_analyze.py config-validate
+
+# Use with overrides
+python3 process_and_analyze.py --verbose --output-dir /tmp/test plot-its 67 --auto
 ```
 
 ### Terminal UI (For Lab Users)
 
 ```bash
 # Launch interactive TUI for non-technical users
-python tui_app.py
+python3 tui_app.py
+```
+
+### Command Discovery
+
+```bash
+# List all available commands
+python3 process_and_analyze.py --help
+
+# List plugins with metadata
+python3 process_and_analyze.py list-plugins
+
+# List commands by group
+python3 process_and_analyze.py list-plugins --group plotting
 ```
 
 ## Architecture
@@ -93,41 +143,50 @@ The pipeline follows a three-stage data processing architecture:
 ### Module Organization
 
 **Core Processing** (`src/core/`)
-- `parser.py`: CSV header parsing, procedure detection (legacy)
-- `utils.py`: Common utilities, numeric coercion, light detection, Parquet reading
-- `timeline.py`: Day timeline builder for TUI experiment selection (legacy)
-- `history_builder.py`: Chip history generation from manifest
 - `stage_raw_measurements.py`: Main staging pipeline (CSV → Parquet + manifest)
+- `history_builder.py`: Chip history generation from manifest
+- `utils.py`: Common utilities, numeric coercion, light detection, Parquet reading with `read_measurement_parquet()`
 - `stage_utils.py`: Validation helpers, type coercion for staging
-- Uses `config/procedures.yml` for schema validation
-- Uses `config/chip_params.yaml` for chip-specific settings
+- `parser.py`: CSV header parsing (legacy, still used for compatibility)
+- `timeline.py`: Day timeline builder for TUI (legacy)
 
 **Data Models** (`src/models/`)
-- `manifest.py`: Pydantic schema for manifest.parquet rows
+- `manifest.py`: Pydantic schema for manifest.parquet rows (authoritative metadata schema)
 - `parameters.py`: Staging configuration parameters
 - `config.py`: TUI configuration state
 
 **Plotting** (`src/plotting/`)
-- `its.py`: Current vs time plots (photoresponse)
+- `its.py`: Current vs time plots (photoresponse) - **reads from staged Parquet via `parquet_path`**
 - `ivg.py`: Gate voltage sweep plots
 - `transconductance.py`: dI/dVg calculations (Savitzky-Golay filtering)
-- `styles.py`: scienceplots styling configuration
+- `its_presets.py`: Predefined ITS plot configurations
 - `plot_utils.py`: Baseline interpolation, shared utilities
 - `overlays.py`: Multi-experiment overlay logic
-- **Now reads from staged Parquet files** via `parquet_path` in chip histories
-- Use `read_measurement_parquet()` from `src/core/utils.py` for efficient loading
+- `styles.py`: scienceplots styling configuration
+- **IMPORTANT**: All plotting uses `read_measurement_parquet()` from `src/core/utils.py`
 
 **CLI** (`src/cli/`)
-- `main.py`: Typer app aggregating all commands (actual CLI implementation)
-- `commands/`: Individual command modules (data_pipeline, history, plot_*, stage)
-- `helpers.py`: Shared CLI utilities
-- Note: `process_and_analyze.py` in project root is just a thin wrapper importing `src/cli/main.py`
+- `main.py`: Typer app with plugin discovery system
+- `plugin_system.py`: **Auto-discovery and registration of commands via `@cli_command` decorator**
+- `config.py`: **Configuration management layer (Pydantic-based)**
+- `commands/`: Individual command modules (auto-discovered by plugin system)
+  - `data_pipeline.py`: Full pipeline orchestration
+  - `history.py`: History viewing and generation
+  - `stage.py`: Staging commands and validation
+  - `plot_its.py`: ITS plotting with presets
+  - `plot_ivg.py`: IVg plotting
+  - `plot_transconductance.py`: Transconductance plotting
+  - `config.py`: Configuration management commands
+  - `utilities.py`: Utility commands (list-plugins, etc.)
+- `helpers.py`: Shared CLI utilities (seq parsing, output setup, Rich displays)
+- `history_utils.py`: History filtering logic shared by CLI and TUI
+- **Note**: `process_and_analyze.py` in project root is a thin wrapper
 
 **TUI** (`src/tui/`)
-- Textual-based terminal interface for lab users
-- `app.py`: Main PlotterApp
-- `screens/`: Wizard-style navigation (chip selector, config forms, preview)
-- `config_manager.py`: Recent configurations persistence
+- Textual-based terminal interface for non-technical lab users
+- `app.py`: Main PlotterApp with wizard-style workflow
+- `screens/`: Navigation screens (chip selector, config forms, preview)
+- `config_manager.py`: Recent configurations persistence (JSON-based)
 
 ### Configuration Files
 
@@ -135,11 +194,17 @@ The pipeline follows a three-stage data processing architecture:
 - Schema definitions for all measurement procedures (IVg, IV, IVgT, It, ITt, LaserCalibration, Tt)
 - Specifies expected Parameters, Metadata, and Data columns with types
 - Used by staging pipeline for validation and type casting
+- **Modify this file to add new procedure types**
 
 **`config/chip_params.yaml`**
 - Chip-specific metadata (chip_group, expected_procs, voltage ranges, wavelengths)
 - Global defaults: timezone (`America/Santiago`), parallel workers (6), polars threads (1)
 - Staging behavior: force_overwrite, only_yaml_data flags
+
+**`config/cli_plugins.yaml`**
+- Controls which CLI command groups are enabled/disabled
+- Supports `enabled_groups` (e.g., `[pipeline, history, staging, plotting]` or `[all]`)
+- Supports `disabled_commands` for specific commands
 
 ### Key Concepts
 
@@ -172,29 +237,160 @@ The pipeline follows a three-stage data processing architecture:
 
 ## Development Workflow
 
-1. **Adding New Procedure Types**: Update `config/procedures.yml` with schema, then staging pipeline auto-validates
-2. **Adding Plots**: Create new module in `src/plotting/`, add command in `src/cli/commands/`, register in `src/cli/main.py`
-3. **Testing Staging**: Use `stage-all --dry-run` (if implemented) or test on small dataset, then `validate-manifest`
-4. **Modifying Schema**: Update `src/models/manifest.py` (Pydantic), bump `schema_version`, handle migrations
+### Adding New CLI Commands (Recommended Approach)
 
-## Notes
+The codebase uses a **plugin system** for automatic command discovery. No need to modify `main.py`!
 
-- Python 3.11+ required (uses zoneinfo for timezone handling)
-- Polars is primary dataframe library (not pandas)
-- matplotlib with scienceplots for publication-quality figures
-- Git describe used for extraction_version tracking (`v{major}.{minor}.{patch}+g{commit_hash}[-dirty]`)
+1. **Create command file** in `src/cli/commands/my_feature.py`
+2. **Use the `@cli_command` decorator**:
+   ```python
+   from src.cli.plugin_system import cli_command
+   import typer
+
+   @cli_command(
+       name="my-command",
+       group="utilities",  # Options: pipeline, history, staging, plotting, utilities
+       description="Brief description of what it does"
+   )
+   def my_command_function(
+       chip_number: int = typer.Argument(..., help="Chip number"),
+       option: str = typer.Option("default", "--option", "-o")
+   ):
+       """Detailed docstring for the command."""
+       # Implementation here
+       pass
+   ```
+3. **Done!** Command is auto-discovered and registered
+4. **Test it**: `python3 process_and_analyze.py my-command --help`
+
+### Adding New Procedure Types
+
+1. **Update `config/procedures.yml`** with schema definition:
+   ```yaml
+   MyNewProcedure:
+     Parameters:
+       V1: float64
+       V2: float64
+     Metadata:
+       wavelength: float64
+     Data:
+       time: float64
+       current: float64
+   ```
+2. **Run staging**: Pipeline auto-validates against new schema
+3. **Test**: `python3 process_and_analyze.py validate-manifest`
+
+### Adding New Plotting Commands
+
+**See `docs/PLOTTING_IMPLEMENTATION_GUIDE.md` for comprehensive step-by-step instructions with templates for all procedure types!**
+
+Quick overview:
+
+1. **Create plotting function** in `src/plotting/my_procedure.py`:
+   ```python
+   from src.core.utils import read_measurement_parquet
+
+   def plot_my_procedure(df: pl.DataFrame, base_dir: Path, tag: str) -> Path:
+       """Generate plots for MyProcedure measurements."""
+       # Load data from staged Parquet via parquet_path column
+       for row in df.iter_rows(named=True):
+           parquet_path = Path(row["parquet_path"])
+           measurement = read_measurement_parquet(parquet_path)
+           # ... plotting logic
+       return output_file
+   ```
+
+2. **Create CLI command** in `src/cli/commands/plot_my_procedure.py`:
+   ```python
+   from src.cli.plugin_system import cli_command
+   from src.plotting.my_procedure import plot_my_procedure
+
+   @cli_command(name="plot-my-procedure", group="plotting")
+   def plot_my_procedure_command(chip_number: int, ...):
+       """Generate MyProcedure plots."""
+       # Load history, filter by procedure, call plotting function
+       pass
+   ```
+
+3. **Auto-discovered!** No registration needed - just run `python3 process_and_analyze.py plot-my-procedure --help`
+
+**Reference implementations:**
+- Time-series (I vs t): `src/plotting/its.py`
+- Voltage sweeps (I vs Vg): `src/plotting/ivg.py`
+- Derivatives: `src/plotting/transconductance.py`
+
+### Modifying Data Schema
+
+1. **Update `src/models/manifest.py`** (Pydantic model)
+2. **Bump `schema_version`** field
+3. **Handle migrations** if changing existing fields
+4. **Validate**: `python3 process_and_analyze.py validate-manifest`
+
+### Testing
+
+```bash
+# Activate environment first
+source .venv/bin/activate
+
+# Run config tests
+python3 -m pytest tests/test_config.py -v
+
+# Test staging on small dataset
+python3 process_and_analyze.py stage-all --dry-run  # Preview mode (if implemented)
+
+# Validate after staging
+python3 process_and_analyze.py validate-manifest
+
+# Test command imports
+python3 -c "from src.cli.main import app; print('✓ CLI imports OK')"
+
+# Test command discovery
+python3 process_and_analyze.py list-plugins
+```
+
+## Important Notes
+
+### Use Python 3.11+
+- Required for zoneinfo timezone handling
+- Verify: `python3 --version`
+
+### Always Use Polars (NOT pandas)
+- Faster and more memory-efficient
+- Different API: use `.filter()` not `.query()`, `.select()` not `[]`
+- Refer to `src/core/utils.py` for examples
+
+### Parquet is the Source of Truth
+- **NEVER read from CSV files directly** in new code
+- Use `read_measurement_parquet()` from `src/core/utils.py`
+- History Parquet files contain `parquet_path` pointing to staged data
+
+### Git Version Tracking
+- Uses `git describe` for extraction_version tracking
+- Format: `v{major}.{minor}.{patch}+g{commit_hash}[-dirty]`
+- Embedded in manifest.parquet during staging
+
+### Configuration System
+- Uses Pydantic for validation
+- Supports environment variables (`CLI_*` prefix), config files, and CLI overrides
+- Priority: CLI flags > config file > env vars > defaults
+- See `src/cli/config.py` for implementation
+
+### Plugin System
+- Commands auto-discovered via `@cli_command` decorator
+- Controlled by `config/cli_plugins.yaml`
+- No need to modify `main.py` when adding commands
+- See `docs/CLI_PLUGIN_SYSTEM.md` for details
 
 ## Legacy vs Modern Pipeline
 
-**Modern Pipeline (CURRENT - Use this):**
+**Modern Pipeline (CURRENT - ALWAYS use this):**
 - `full-pipeline`: Runs staging → history generation
 - `stage-all`: CSV → Parquet with Pydantic validation
 - `build-all-histories`: Generate histories from `manifest.parquet`
 - Uses `data/02_stage/raw_measurements/_manifest/manifest.parquet` as source of truth
 
-**Legacy Pipeline (DEPRECATED):**
-- `parse-all`: CSV headers → metadata CSV files
-- `chip-histories`: Generate histories from metadata folder
-- Functions in `src/core/parser.py` and `src/core/timeline.py`
-- Still present in codebase but superseded by staging system
-- Legacy code in `src/legacy/` is fully deprecated
+**Legacy Pipeline (DEPRECATED - DO NOT USE):**
+- `parse-all`: CSV headers → metadata CSV files (obsolete)
+- `chip-histories`: Generate histories from metadata folder (obsolete)
+- Functions in `src/core/parser.py` and `src/core/timeline.py` (kept for compatibility)
+- Some legacy functions still used by TUI, but being phased out

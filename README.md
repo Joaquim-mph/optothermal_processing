@@ -21,16 +21,17 @@ This pipeline processes raw measurement CSV files from lab equipment (Keithley s
 
 ```bash
 # Create virtual environment
-python3 -m venv .venv
+uv venv
 source .venv/bin/activate
 
 # Install dependencies
-pip install -r requirements.txt
+uv install -r requirements.txt
 ```
 
 ### Basic Usage
 
 ```bash
+# drop lab data in data/01_raw/
 # Run the complete pipeline (staging + history generation)
 python process_and_analyze.py full-pipeline
 
@@ -304,14 +305,6 @@ python process_and_analyze.py show-history 67 --limit 20
 
 ## Development
 
-### Project Structure
-
-See [CLAUDE.md](CLAUDE.md) for detailed development guide including:
-- Data flow architecture
-- Module organization
-- Adding new procedures
-- Testing guidelines
-
 ### Adding a Plotting Command
 
 ```python
@@ -361,19 +354,6 @@ See [CLI_PLUGIN_SYSTEM.md](docs/CLI_PLUGIN_SYSTEM.md) for plugin development gui
 ## License
 
 See LICENSE file for details.
-
-## Citation
-
-If you use this software in your research, please cite:
-
-```bibtex
-@software{optothermal_processing,
-  title = {Optothermal Processing Pipeline},
-  author = {Your Lab},
-  year = {2025},
-  url = {https://github.com/yourusername/optothermal_processing}
-}
-```
 
 ## Contact
 

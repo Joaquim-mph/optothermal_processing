@@ -177,3 +177,193 @@ procedures:
     Data:
       Vsd (V): float
       I (A): float
+
+  It2:
+    Parameters:
+      Irange: float
+      NPLC: int
+      Chained execution: bool
+      Chip group name: str
+      Chip number: int
+      Information: str
+      Initial (current) T: float
+      Phase 1 duration (laser OFF): float
+      Phase 2 duration (laser ON): float
+      Phase 3 duration (laser OFF): float
+      Procedure version: str
+      Sample: str
+      Sampling time (excluding Keithley): float
+      Show more: bool
+      Target T: float
+      T step start time: float
+      Use temperature sensor: bool
+      VDS: float
+      VG: float
+      Laser voltage: float
+      Laser wavelength: float
+      Laser toggle: bool
+    Metadata:
+      Start time: datetime
+    Data:
+      t (s): float
+      I (A): float
+      VL (V): float
+      Plate T (degC): float
+      Ambient T (degC): float
+      Clock (ms): float
+
+  ItVg:
+    Parameters:
+      Irange: float
+      NPLC: int
+      Burn-in time: float
+      Chained execution: bool
+      Chip group name: str
+      Chip number: int
+      Information: str
+      Laser toggle: bool
+      Laser voltage: float
+      Laser wavelength: float
+      Procedure version: str
+      Sample: str
+      Sampling time (excluding Keithley): float
+      Show more: bool
+      Step time: float
+      VDS: float
+      VG end: float
+      VG start: float
+      VG step: float
+    Metadata:
+      Start time: datetime
+    Data:
+      t (s): float
+      I (A): float
+      Vg (V): float
+
+  ItWl:
+    Parameters:
+      Irange: float
+      NPLC: int
+      Burn-in time: float
+      Chained execution: bool
+      Chip group name: str
+      Chip number: int
+      Information: str
+      Procedure version: str
+      Sample: str
+      Sampling time (excluding Keithley): float
+      Show more: bool
+      Step time: float
+      VDS: float
+      VG: float
+      VG toggle: bool
+      Wavelength: float
+    Metadata:
+      Start time: datetime
+    Data:
+      t (s): float
+      I (A): float
+      wl (nm): float
+
+  Vt:
+    Parameters:
+      Vrange: float
+      NPLC: int
+      Chained execution: bool
+      Chip group name: str
+      Chip number: int
+      Information: str
+      Laser ON+OFF period: float
+      Laser toggle: bool
+      Laser voltage: float
+      Laser wavelength: float
+      Procedure version: str
+      Sample: str
+      Sampling time (excluding Keithley): float
+      Show more: bool
+      Drain-Source current: float
+      VG: float
+      Initial (current) T: float
+      Target T: float
+      T step start time: float
+      Use temperature sensor: bool
+    Metadata:
+      Start time: datetime
+    Data:
+      t (s): float
+      VDS (V): float
+      VL (V): float
+      Plate T (degC): float
+      Ambient T (degC): float
+      Clock (ms): float
+
+  VVg:
+    Parameters:
+      Vrange: float
+      NPLC: int
+      Burn-in time: float
+      Chained execution: bool
+      Chip group name: str
+      Chip number: int
+      Information: str
+      Laser toggle: bool
+      Laser voltage: float
+      Laser wavelength: float
+      Procedure version: str
+      Sample: str
+      Show more: bool
+      Step time: float
+      VG end: float
+      VG start: float
+      VG step: float
+      Drain-Source current: float
+      Use temperature sensor: bool
+    Metadata:
+      Start time: datetime
+    Data:
+      Vg (V): float
+      VDS (V): float
+      t (s): float
+      Plate T (degC): float
+      Ambient T (degC): float
+      Clock (ms): float
+
+  Pt:
+    Parameters:
+      Irange: float
+      N_avg: int
+      Chained execution: bool
+      Information: str
+      Laser ON+OFF period: float
+      Laser voltage: float
+      Laser wavelength: float
+      Optical fiber: str
+      Procedure version: str
+      Sampling time (excluding Keithley): float
+      Show more: bool
+    Metadata:
+      Start time: datetime
+      Sensor model: str
+    Data:
+      t (s): float
+      P (W): float
+      VL (V): float
+
+  Pwl:
+    Parameters:
+      N_avg: int
+      Chained execution: bool
+      Information: str
+      Procedure version: str
+      Sampling time (excluding Keithley): float
+      Show more: bool
+      Wavelength Step: float
+      Start Wavelength: float
+      End Wavelength: float
+    Metadata:
+      Start time: datetime
+      Sensor model: str
+    Data:
+      Wavelength (nm): float
+      Power (W): float
+      Time (s): float

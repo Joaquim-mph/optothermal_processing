@@ -14,7 +14,28 @@ from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 
+# Global console (use get_verbose_console() for config-aware console)
 console = Console()
+
+
+def get_verbose_console() -> Console:
+    """
+    Get console with verbosity settings from config.
+
+    Returns
+    -------
+    Console
+        Rich Console instance with quiet mode based on config.verbose
+
+    Examples
+    --------
+    >>> console = get_verbose_console()
+    >>> console.print("This respects config.verbose setting")
+    """
+    from src.cli.main import get_config
+
+    config = get_config()
+    return Console(quiet=not config.verbose)
 
 
 def parse_seq_list(seq_str: str) -> list[int]:
@@ -146,20 +167,20 @@ def generate_plot_tag(seq_numbers: list[int], custom_tag: str | None = None) -> 
     return tag
 
 
-def setup_output_dir(output_dir: Path, chip: int, chip_group: str) -> Path:
+def setup_output_dir(chip: int, chip_group: str, output_dir: Path | None = None) -> Path:
     """
-    Create and return chip-specific output directory.
+    Create and return chip-specific output directory using config.
 
     Creates: output_dir/{chip_group}{chip}/
 
     Parameters
     ----------
-    output_dir : Path
-        Base output directory (e.g., Path("figs"))
     chip : int
         Chip number
     chip_group : str
         Chip group name (e.g., "Alisson")
+    output_dir : Path, optional
+        Override output directory. If None, uses config.output_dir
 
     Returns
     -------
@@ -168,9 +189,20 @@ def setup_output_dir(output_dir: Path, chip: int, chip_group: str) -> Path:
 
     Examples
     --------
-    >>> setup_output_dir(Path("figs"), 67, "Alisson")
+    >>> setup_output_dir(67, "Alisson")
     PosixPath('figs/Alisson67')
+    >>> setup_output_dir(67, "Alisson", Path("/tmp/plots"))
+    PosixPath('/tmp/plots/Alisson67')
     """
+    from src.cli.main import get_config
+
+    if output_dir is None:
+        config = get_config()
+        output_dir = config.output_dir
+
+        if config.verbose:
+            console.print(f"[dim]Using output directory: {output_dir}[/dim]")
+
     chip_subdir = output_dir / f"{chip_group}{chip}"
     chip_subdir.mkdir(parents=True, exist_ok=True)
     return chip_subdir
@@ -179,12 +211,12 @@ def setup_output_dir(output_dir: Path, chip: int, chip_group: str) -> Path:
 def auto_select_experiments(
     chip: int,
     proc: str,
-    history_dir: Path,
     chip_group: str,
+    history_dir: Path | None = None,
     filters: dict | None = None
 ) -> list[int]:
     """
-    Auto-select experiments based on procedure type and optional filters.
+    Auto-select experiments based on procedure type and optional filters using config.
 
     Parameters
     ----------
@@ -192,10 +224,10 @@ def auto_select_experiments(
         Chip number
     proc : str
         Procedure type to filter ("ITS", "IVg", "IV")
-    history_dir : Path
-        Directory containing chip history files
     chip_group : str
         Chip group name prefix
+    history_dir : Path, optional
+        Directory containing chip history files. If None, uses config.history_dir
     filters : dict, optional
         Additional filters:
         - "vg": Filter by gate voltage (float)
@@ -217,13 +249,21 @@ def auto_select_experiments(
 
     Examples
     --------
-    >>> auto_select_experiments(67, "ITS", Path("chip_histories"), "Alisson")
+    >>> auto_select_experiments(67, "ITS", "Alisson")
     [52, 57, 58, 61, 63]
 
-    >>> auto_select_experiments(67, "ITS", Path("chip_histories"), "Alisson",
-    ...                         filters={"vg": -0.4})
+    >>> auto_select_experiments(67, "ITS", "Alisson", filters={"vg": -0.4})
     [52, 57, 58]
     """
+    from src.cli.main import get_config
+
+    if history_dir is None:
+        config = get_config()
+        history_dir = config.history_dir
+
+        if config.verbose:
+            console.print(f"[dim]Using history directory: {history_dir}[/dim]")
+
     chip_name = f"{chip_group}{chip}"
     history_file = history_dir / f"{chip_name}_history.parquet"
 
@@ -277,11 +317,11 @@ def auto_select_experiments(
 def validate_experiments_exist(
     seq_numbers: list[int],
     chip: int,
-    history_dir: Path,
-    chip_group: str
+    chip_group: str,
+    history_dir: Path | None = None
 ) -> tuple[bool, list[str]]:
     """
-    Check that seq numbers exist in chip history and return details.
+    Check that seq numbers exist in chip history and return details using config.
 
     Parameters
     ----------
@@ -289,10 +329,10 @@ def validate_experiments_exist(
         Seq numbers to validate
     chip : int
         Chip number
-    history_dir : Path
-        Directory containing chip history files
     chip_group : str
         Chip group name prefix
+    history_dir : Path, optional
+        Directory containing chip history files. If None, uses config.history_dir
 
     Returns
     -------
@@ -303,9 +343,15 @@ def validate_experiments_exist(
 
     Examples
     --------
-    >>> validate_experiments_exist([52, 57, 999], 67, Path("chip_histories"), "Alisson")
+    >>> validate_experiments_exist([52, 57, 999], 67, "Alisson")
     (False, ['Seq number 999 not found in Alisson67 history'])
     """
+    from src.cli.main import get_config
+
+    if history_dir is None:
+        config = get_config()
+        history_dir = config.history_dir
+
     chip_name = f"{chip_group}{chip}"
     history_file = history_dir / f"{chip_name}_history.parquet"
 
@@ -328,11 +374,11 @@ def validate_experiments_exist(
 def load_history_for_plotting(
     seq_numbers: list[int],
     chip: int,
-    history_dir: Path,
-    chip_group: str
+    chip_group: str,
+    history_dir: Path | None = None
 ) -> pl.DataFrame:
     """
-    Load chip history data for plotting, filtered by seq numbers.
+    Load chip history data for plotting, filtered by seq numbers using config.
 
     This function loads the chip history Parquet file and returns rows
     for the specified seq numbers. The returned DataFrame includes the
@@ -344,10 +390,10 @@ def load_history_for_plotting(
         Seq numbers to load
     chip : int
         Chip number
-    history_dir : Path
-        Directory containing chip history Parquet files
     chip_group : str
         Chip group name prefix
+    history_dir : Path, optional
+        Directory containing chip history Parquet files. If None, uses config.history_dir
 
     Returns
     -------
@@ -364,10 +410,19 @@ def load_history_for_plotting(
 
     Examples
     --------
-    >>> history = load_history_for_plotting([52, 57, 58], 67, Path("data/03_history"), "Alisson")
+    >>> history = load_history_for_plotting([52, 57, 58], 67, "Alisson")
     >>> print(history.columns)
     ['seq', 'date', 'proc', 'parquet_path', ...]
     """
+    from src.cli.main import get_config
+
+    if history_dir is None:
+        config = get_config()
+        history_dir = config.history_dir
+
+        if config.verbose:
+            console.print(f"[dim]Loading history from: {history_dir}[/dim]")
+
     chip_name = f"{chip_group}{chip}"
     history_file = history_dir / f"{chip_name}_history.parquet"
 

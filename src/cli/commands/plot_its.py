@@ -156,11 +156,11 @@ def plot_its_command(
         "-t",
         help="Custom tag for output filename (default: auto-generated from seq numbers)"
     ),
-    output_dir: Path = typer.Option(
-        Path("figs"),
+    output_dir: Optional[Path] = typer.Option(
+        None,
         "--output",
         "-o",
-        help="Output directory for plots"
+        help="Output directory for plots (default: from config)"
     ),
     chip_group: str = typer.Option(
         "Alisson",
@@ -199,10 +199,10 @@ def plot_its_command(
         "--date",
         help="Filter by date (YYYY-MM-DD)"
     ),
-    history_dir: Path = typer.Option(
-        Path("data/02_stage/chip_histories"),
+    history_dir: Optional[Path] = typer.Option(
+        None,
         "--history-dir",
-        help="Chip history directory (Parquet files)"
+        help="Chip history directory (default: from config)"
     ),
     preview: bool = typer.Option(
         False,
@@ -245,6 +245,20 @@ def plot_its_command(
     ))
     console.print()
 
+    # Load config for defaults
+    from src.cli.main import get_config
+    config = get_config()
+
+    if output_dir is None:
+        output_dir = config.output_dir
+        if config.verbose:
+            console.print(f"[dim]Using output directory from config: {output_dir}[/dim]")
+
+    if history_dir is None:
+        history_dir = config.history_dir
+        if config.verbose:
+            console.print(f"[dim]Using history directory from config: {history_dir}[/dim]")
+
     # Step 1: Get seq numbers (manual, auto, or interactive)
     mode_count = sum([bool(seq), auto, interactive])
     if mode_count > 1:
@@ -270,8 +284,8 @@ def plot_its_command(
             seq_numbers = auto_select_experiments(
                 chip_number,
                 "It",
-                history_dir,
                 chip_group,
+                history_dir,
                 filters
             )
             console.print(f"[green]✓[/green] Auto-selected {len(seq_numbers)} ITS experiment(s)")
@@ -295,8 +309,8 @@ def plot_its_command(
     valid, errors = validate_experiments_exist(
         seq_numbers,
         chip_number,
-        history_dir,
-        chip_group
+        chip_group,
+        history_dir
     )
 
     if not valid:
@@ -310,7 +324,7 @@ def plot_its_command(
     # Dry-run mode: exit after validation, before loading metadata
     if dry_run:
         # Calculate output filename (using standardized naming)
-        output_dir_calc = setup_output_dir(output_dir, chip_number, chip_group)
+        output_dir_calc = setup_output_dir(chip_number, chip_group, output_dir)
         plot_tag = generate_plot_tag(seq_numbers, custom_tag=tag)
         # Note: Can't detect dark/light in dry-run, assume regular ITS
         output_file = output_dir_calc / f"encap{chip_number}_ITS_{plot_tag}.png"
@@ -338,8 +352,8 @@ def plot_its_command(
         history = load_history_for_plotting(
             seq_numbers,
             chip_number,
-            history_dir,
-            chip_group
+            chip_group,
+            history_dir
         )
     except Exception as e:
         console.print(f"[red]Error loading history:[/red] {e}")
@@ -446,7 +460,7 @@ def plot_its_command(
     display_plot_settings(settings)
 
     # Step 7: Setup output directory and generate plot tag
-    output_dir = setup_output_dir(output_dir, chip_number, chip_group)
+    output_dir = setup_output_dir(chip_number, chip_group, output_dir)
 
     # Generate unique tag based on seq numbers
     plot_tag = generate_plot_tag(seq_numbers, custom_tag=tag)
@@ -557,11 +571,11 @@ def plot_its_sequential_command(
         "-t",
         help="Custom tag for output filename (default: auto-generated from seq numbers)"
     ),
-    output_dir: Path = typer.Option(
-        Path("figs"),
+    output_dir: Optional[Path] = typer.Option(
+        None,
         "--output",
         "-o",
-        help="Output directory for plots"
+        help="Output directory for plots (default: from config)"
     ),
     chip_group: str = typer.Option(
         "Alisson",
@@ -595,10 +609,10 @@ def plot_its_sequential_command(
         "--date",
         help="Filter by date (YYYY-MM-DD)"
     ),
-    history_dir: Path = typer.Option(
-        Path("data/02_stage/chip_histories"),
+    history_dir: Optional[Path] = typer.Option(
+        None,
         "--history-dir",
-        help="Chip history directory (Parquet files)"
+        help="Chip history directory (default: from config)"
     ),
     preview: bool = typer.Option(
         False,
@@ -635,6 +649,20 @@ def plot_its_sequential_command(
     ))
     console.print()
 
+    # Load config for defaults
+    from src.cli.main import get_config
+    config = get_config()
+
+    if output_dir is None:
+        output_dir = config.output_dir
+        if config.verbose:
+            console.print(f"[dim]Using output directory from config: {output_dir}[/dim]")
+
+    if history_dir is None:
+        history_dir = config.history_dir
+        if config.verbose:
+            console.print(f"[dim]Using history directory from config: {history_dir}[/dim]")
+
     # Step 1: Get seq numbers (manual or auto)
     mode_count = sum([bool(seq), auto])
     if mode_count > 1:
@@ -657,8 +685,8 @@ def plot_its_sequential_command(
             seq_numbers = auto_select_experiments(
                 chip_number,
                 "It",  # ITS experiments
-                history_dir,
                 chip_group,
+                history_dir,
                 filters
             )
             console.print(f"[green]✓[/green] Auto-selected {len(seq_numbers)} ITS experiment(s)")
@@ -676,8 +704,8 @@ def plot_its_sequential_command(
     valid, errors = validate_experiments_exist(
         seq_numbers,
         chip_number,
-        history_dir,
-        chip_group
+        chip_group,
+        history_dir
     )
 
     if not valid:
@@ -695,8 +723,8 @@ def plot_its_sequential_command(
         history = load_history_for_plotting(
             seq_numbers,
             chip_number,
-            history_dir,
-            chip_group
+            chip_group,
+            history_dir
         )
     except Exception as e:
         console.print(f"[red]Error loading history:[/red] {e}")
@@ -730,7 +758,7 @@ def plot_its_sequential_command(
     })
 
     # Step 6: Setup output directory and generate plot tag
-    output_dir = setup_output_dir(output_dir, chip_number, chip_group)
+    output_dir = setup_output_dir(chip_number, chip_group, output_dir)
     plot_tag = generate_plot_tag(seq_numbers, custom_tag=tag)
 
     # Preview output filename

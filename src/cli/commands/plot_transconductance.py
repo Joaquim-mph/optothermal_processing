@@ -73,11 +73,11 @@ def plot_transconductance_command(
         "-t",
         help="Custom tag for output filename (default: auto-generated from seq numbers)"
     ),
-    output_dir: Path = typer.Option(
-        Path("figs"),
+    output_dir: Optional[Path] = typer.Option(
+        None,
         "--output",
         "-o",
-        help="Output directory for plots"
+        help="Output directory for plots (default: from config)"
     ),
     chip_group: str = typer.Option(
         "Alisson",
@@ -95,10 +95,10 @@ def plot_transconductance_command(
         "--date",
         help="Filter by date (YYYY-MM-DD)"
     ),
-    history_dir: Path = typer.Option(
-        Path("data/02_stage/chip_histories"),
+    history_dir: Optional[Path] = typer.Option(
+        None,
         "--history-dir",
-        help="Chip history directory (Parquet files)"
+        help="Chip history directory (default: from config)"
     ),
     preview: bool = typer.Option(
         False,
@@ -144,6 +144,20 @@ def plot_transconductance_command(
     ))
     console.print()
 
+    # Load config for defaults
+    from src.cli.main import get_config
+    config = get_config()
+
+    if output_dir is None:
+        output_dir = config.output_dir
+        if config.verbose:
+            console.print(f"[dim]Using output directory from config: {output_dir}[/dim]")
+
+    if history_dir is None:
+        history_dir = config.history_dir
+        if config.verbose:
+            console.print(f"[dim]Using history directory from config: {history_dir}[/dim]")
+
     # Validate method
     method = method.lower()
     if method not in ["gradient", "savgol"]:
@@ -175,8 +189,8 @@ def plot_transconductance_command(
             seq_numbers = auto_select_experiments(
                 chip_number,
                 "IVg",  # Only select IVg experiments
-                history_dir,
                 chip_group,
+                history_dir,
                 filters
             )
             console.print(f"[green]✓[/green] Auto-selected {len(seq_numbers)} IVg experiment(s)")
@@ -200,8 +214,8 @@ def plot_transconductance_command(
     valid, errors = validate_experiments_exist(
         seq_numbers,
         chip_number,
-        history_dir,
-        chip_group
+        chip_group,
+        history_dir
     )
 
     if not valid:
@@ -215,7 +229,7 @@ def plot_transconductance_command(
     # Dry-run mode: exit after validation, before loading metadata
     if dry_run:
         # Calculate output filename (using standardized naming)
-        output_dir_calc = setup_output_dir(output_dir, chip_number, chip_group)
+        output_dir_calc = setup_output_dir(chip_number, chip_group, output_dir)
         plot_tag = generate_plot_tag(seq_numbers, custom_tag=tag)
 
         if method == "gradient":
@@ -246,8 +260,8 @@ def plot_transconductance_command(
         history = load_history_for_plotting(
             seq_numbers,
             chip_number,
-            history_dir,
-            chip_group
+            chip_group,
+            history_dir
         )
     except Exception as e:
         console.print(f"[red]Error loading history:[/red] {e}")
@@ -319,7 +333,7 @@ def plot_transconductance_command(
     })
 
     # Step 8: Setup output directory and generate plot tag
-    output_dir = setup_output_dir(output_dir, chip_number, chip_group)
+    output_dir = setup_output_dir(chip_number, chip_group, output_dir)
 
     # Generate unique tag based on seq numbers and method
     plot_tag = generate_plot_tag(seq_numbers, custom_tag=tag)

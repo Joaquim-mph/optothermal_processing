@@ -21,17 +21,17 @@ console = Console()
     description="Stage all raw CSV files to Parquet format"
 )
 def stage_all_command(
-    raw_root: Path = typer.Option(
-        Path("data/01_raw"),
+    raw_root: Optional[Path] = typer.Option(
+        None,
         "--raw-root",
         "-r",
-        help="Root directory containing raw CSV files"
+        help="Root directory containing raw CSV files (default: from config)"
     ),
-    stage_root: Path = typer.Option(
-        Path("data/02_stage/raw_measurements"),
+    stage_root: Optional[Path] = typer.Option(
+        None,
         "--stage-root",
         "-s",
-        help="Output directory for staged Parquet files"
+        help="Output directory for staged Parquet files (default: from config)"
     ),
     procedures_yaml: Path = typer.Option(
         Path("config/procedures.yml"),
@@ -114,6 +114,20 @@ def stage_all_command(
         # Strict schema mode
         process_and_analyze stage-all --only-yaml-data
     """
+    # Load config for defaults
+    from src.cli.main import get_config
+    config = get_config()
+
+    if raw_root is None:
+        raw_root = config.raw_data_dir
+        if config.verbose or verbose:
+            console.print(f"[dim]Using raw data directory from config: {raw_root}[/dim]")
+
+    if stage_root is None:
+        stage_root = config.stage_dir / "raw_measurements"
+        if config.verbose or verbose:
+            console.print(f"[dim]Using stage directory from config: {stage_root}[/dim]")
+
     from src.models.parameters import StagingParameters
     from src.core import run_staging_pipeline, discover_csvs
 
@@ -315,8 +329,8 @@ def stage_all_command(
     description="Validate manifest schema and data quality"
 )
 def validate_manifest_command(
-    manifest: Path = typer.Option(
-        Path("data/02_stage/_manifest/manifest.parquet"),
+    manifest: Optional[Path] = typer.Option(
+        None,
         "--manifest",
         "-m",
         help="Path to manifest Parquet file"
@@ -349,6 +363,15 @@ def validate_manifest_command(
         # Validate custom manifest
         process_and_analyze validate-manifest -m path/to/manifest.parquet
     """
+    # Load config for defaults
+    from src.cli.main import get_config
+    config = get_config()
+
+    if manifest is None:
+        manifest = config.stage_dir / "raw_measurements" / "_manifest" / "manifest.parquet"
+        if config.verbose:
+            console.print(f"[dim]Using manifest path from config: {manifest}[/dim]")
+
     import polars as pl
     from pydantic import TypeAdapter
     from src.models.manifest import ManifestRow
@@ -518,8 +541,8 @@ def validate_manifest_command(
     description="Inspect manifest contents with filtering"
 )
 def inspect_manifest_command(
-    manifest: Path = typer.Option(
-        Path("data/02_stage/_manifest/manifest.parquet"),
+    manifest: Optional[Path] = typer.Option(
+        None,
         "--manifest",
         "-m",
         help="Path to manifest Parquet file"
@@ -563,6 +586,15 @@ def inspect_manifest_command(
         # Combine filters
         process_and_analyze inspect-manifest -p It -c 67 -n 10
     """
+    # Load config for defaults
+    from src.cli.main import get_config
+    config = get_config()
+
+    if manifest is None:
+        manifest = config.stage_dir / "raw_measurements" / "_manifest" / "manifest.parquet"
+        if config.verbose:
+            console.print(f"[dim]Using manifest path from config: {manifest}[/dim]")
+
     import polars as pl
 
     console.print()

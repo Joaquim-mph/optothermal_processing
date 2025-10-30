@@ -59,6 +59,46 @@ python process_and_analyze.py list-plugins
 python process_and_analyze.py list-plugins --group plotting
 ```
 
+### Configuration Management
+
+The CLI supports persistent configuration via JSON config files, eliminating the need to specify paths and options repeatedly.
+
+```bash
+# Create a new configuration file
+python process_and_analyze.py config-init
+
+# View current configuration
+python process_and_analyze.py config-show
+
+# Use global options across all commands
+python process_and_analyze.py --verbose full-pipeline
+python process_and_analyze.py --output-dir /custom/path plot-its 67 --auto
+python process_and_analyze.py --config my-config.json stage-all
+```
+
+**Configuration Sources (priority order):**
+1. Command-line arguments
+2. Specified config file (`--config`)
+3. Project config (`./.optothermal_cli_config.json`)
+4. User config (`~/.optothermal_cli_config.json`)
+5. Environment variables (`CLI_*`)
+6. Built-in defaults
+
+**Quick Start with Profiles:**
+
+```bash
+# Initialize with preset configuration
+python process_and_analyze.py config-init --profile production
+
+# Available profiles:
+#   - development: Fast iteration with low quality plots
+#   - production: High quality plots for publication
+#   - testing: Dry run mode for validation
+#   - high_quality: Maximum quality settings
+```
+
+See [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md) for complete configuration documentation.
+
 ## Data Flow
 
 ```
@@ -246,6 +286,7 @@ disabled_commands: []
 
 - **[CLAUDE.md](CLAUDE.md)** - Project overview and commands
 - **[CLI_MODULE_ARCHITECTURE.md](docs/CLI_MODULE_ARCHITECTURE.md)** - CLI architecture
+- **[CONFIGURATION.md](docs/CONFIGURATION.md)** - Configuration management guide
 - **[CLI_PLUGIN_SYSTEM.md](docs/CLI_PLUGIN_SYSTEM.md)** - Plugin system guide
 - **[PLUGIN_SYSTEM_MIGRATION.md](docs/PLUGIN_SYSTEM_MIGRATION.md)** - Migration guide
 - **[PYDANTIC_ARCHITECTURE.md](docs/PYDANTIC_ARCHITECTURE.md)** - Data models

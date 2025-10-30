@@ -6,12 +6,13 @@
 2. [Module Structure](#module-structure)
 3. [Architecture Design](#architecture-design)
 4. [Entry Point: main.py](#entry-point-mainpy)
-5. [Helper Modules](#helper-modules)
-6. [Command Groups](#command-groups)
-7. [Design Patterns](#design-patterns)
-8. [User Experience Features](#user-experience-features)
-9. [Error Handling](#error-handling)
-10. [Extension Guide](#extension-guide)
+5. [Configuration Management](#configuration-management)
+6. [Helper Modules](#helper-modules)
+7. [Command Groups](#command-groups)
+8. [Design Patterns](#design-patterns)
+9. [User Experience Features](#user-experience-features)
+10. [Error Handling](#error-handling)
+11. [Extension Guide](#extension-guide)
 
 ---
 
@@ -180,6 +181,259 @@ def main():
 - Command functions retain **snake_case** names for Python convention
 - `add_completion=False` disables automatic shell completion generation
 - The `main()` function is called from `process_and_analyze.py` wrapper
+
+---
+
+## Configuration Management
+
+The CLI module includes a comprehensive configuration management system that provides flexible, validated settings with multiple configuration sources and proper precedence handling.
+
+### Overview
+
+**Location**: `src/cli/config.py`
+
+**Purpose**: Centralized configuration with support for:
+- Environment variables (`CLI_*` prefix)
+- JSON configuration files (user and project-level)
+- Command-line overrides
+- Validated defaults with Pydantic
+
+### Configuration Priority
+
+Configuration values are resolved in the following order (highest to lowest priority):
+
+1. **Command-line overrides** - Explicit flags like `--output-dir`, `--verbose`
+2. **Specified config file** - Via `--config path/to/config.json`
+3. **Project config** - `./.optothermal_cli_config.json` in current directory
+4. **User config** - `~/.optothermal_cli_config.json` in home directory
+5. **Environment variables** - `CLI_VERBOSE`, `CLI_OUTPUT_DIR`, etc.
+6. **Defaults** - Hardcoded sensible defaults
+
+### Configuration Fields
+
+The `CLIConfig` Pydantic model includes:
+
+**Directory Paths:**
+- `raw_data_dir`: Raw CSV files (default: `data/01_raw`)
+- `stage_dir`: Staged Parquet files (default: `data/02_stage`)
+- `history_dir`: Chip history files (default: `data/02_stage/chip_histories`)
+- `output_dir`: Plot outputs (default: `figs`)
+
+**Behavior Settings:**
+- `verbose`: Enable verbose logging (default: `False`)
+- `dry_run`: Preview mode without execution (default: `False`)
+
+**Processing Settings:**
+- `parallel_workers`: Number of worker processes (default: `4`, range: 1-16)
+- `cache_enabled`: Enable caching (default: `True`)
+- `cache_ttl`: Cache time-to-live in seconds (default: `300`)
+
+**Plot Settings:**
+- `default_plot_format`: Output format (default: `"png"`, choices: png, pdf, svg, jpg)
+- `plot_dpi`: Plot resolution (default: `300`, range: 72-600)
+
+### Global Config Access
+
+Commands access the global configuration using the singleton pattern:
+
+```python
+from src.cli.main import get_config
+
+def my_command(output_dir: Optional[Path] = None):
+    config = get_config()
+
+    # Use config default if not specified
+    if output_dir is None:
+        output_dir = config.output_dir
+        if config.verbose:
+            console.print(f"[dim]Using output_dir from config: {output_dir}[/dim]")
+```
+
+**Key Functions:**
+- `get_config()`: Returns cached global configuration instance
+- `set_config(config)`: Sets global configuration (useful for testing)
+- `load_config_with_precedence()`: Loads config with proper priority handling
+
+### Configuration Commands
+
+**`config-show`** - Display current configuration
+```bash
+# Show configuration with sources
+python process_and_analyze.py config-show
+
+# Hide source information
+python process_and_analyze.py config-show --no-sources
+```
+
+**`config-init`** - Initialize configuration file
+```bash
+# Create default config in home directory
+python process_and_analyze.py config-init
+
+# Create config with specific output location
+python process_and_analyze.py config-init --output my_config.json
+
+# Use a preset profile
+python process_and_analyze.py config-init --profile development
+python process_and_analyze.py config-init --profile production
+```
+
+**`config-validate`** - Validate configuration
+```bash
+# Validate current configuration
+python process_and_analyze.py config-validate
+
+# Validate and attempt to fix issues
+python process_and_analyze.py config-validate --fix
+```
+
+**`config-reset`** - Reset to defaults
+```bash
+# Reset with confirmation and backup
+python process_and_analyze.py config-reset
+
+# Skip confirmation
+python process_and_analyze.py config-reset --yes
+
+# Reset without creating backup
+python process_and_analyze.py config-reset --yes --no-backup
+```
+
+### Configuration Profiles
+
+Predefined profiles for common use cases:
+
+**Development Profile**
+```python
+ConfigProfile.development()
+# verbose=True, dry_run=True, parallel_workers=2, cache_enabled=False
+```
+
+**Production Profile**
+```python
+ConfigProfile.production()
+# parallel_workers=8, cache_enabled=True, cache_ttl=600
+```
+
+**Testing Profile**
+```python
+ConfigProfile.testing()
+# Uses temporary directories, verbose=True, parallel_workers=1
+```
+
+**High Quality Profile**
+```python
+ConfigProfile.high_quality()
+# default_plot_format="pdf", plot_dpi=600
+```
+
+### Global Options
+
+The CLI provides global options that apply to all commands via the Typer callback:
+
+```bash
+# Enable verbose output for any command
+python process_and_analyze.py --verbose plot-its 67 --auto
+
+# Override output directory globally
+python process_and_analyze.py --output-dir /tmp/plots plot-its 67 --seq 52,57,58
+
+# Use custom config file
+python process_and_analyze.py --config my_config.json full-pipeline
+
+# Dry-run mode (show what would happen)
+python process_and_analyze.py --dry-run full-pipeline
+```
+
+### Environment Variables
+
+All configuration fields can be set via environment variables:
+
+```bash
+# Set environment variables (CLI_ prefix)
+export CLI_VERBOSE=true
+export CLI_OUTPUT_DIR=/data/plots
+export CLI_PARALLEL_WORKERS=8
+export CLI_DEFAULT_PLOT_FORMAT=pdf
+
+# Run commands (automatically use environment config)
+python process_and_analyze.py plot-its 67 --auto
+```
+
+### Configuration File Format
+
+Example `~/.optothermal_cli_config.json`:
+
+```json
+{
+  "raw_data_dir": "data/01_raw",
+  "stage_dir": "data/02_stage",
+  "history_dir": "data/02_stage/chip_histories",
+  "output_dir": "figs",
+  "verbose": false,
+  "dry_run": false,
+  "parallel_workers": 8,
+  "cache_enabled": true,
+  "cache_ttl": 600,
+  "default_plot_format": "png",
+  "plot_dpi": 300,
+  "config_version": "1.0.0"
+}
+```
+
+### Validation Features
+
+The configuration system includes comprehensive validation:
+
+**Path Validation:**
+- Relative paths automatically resolved to absolute paths
+- Directories auto-created if missing during validation
+- Write permission checks for output directories
+
+**Field Validation:**
+- `plot_format`: Must be one of: png, pdf, svg, jpg
+- `parallel_workers`: Range 1-16
+- `plot_dpi`: Range 72-600
+- `cache_ttl`: Non-negative integer
+
+**Runtime Validation:**
+- Pydantic enforces types at runtime (prevents invalid assignments)
+- Helpful error messages for validation failures
+
+### Integration with Commands
+
+All commands have been updated to support configuration:
+
+**Before (Hardcoded):**
+```python
+def plot_its_command(
+    output_dir: Path = typer.Option(Path("figs"), ...),
+    history_dir: Path = typer.Option(Path("data/02_stage/chip_histories"), ...),
+):
+    # Fixed paths
+```
+
+**After (Config-aware):**
+```python
+def plot_its_command(
+    output_dir: Optional[Path] = typer.Option(None, help="... (default: from config)"),
+    history_dir: Optional[Path] = typer.Option(None, help="... (default: from config)"),
+):
+    config = get_config()
+    if output_dir is None:
+        output_dir = config.output_dir
+    if history_dir is None:
+        history_dir = config.history_dir
+```
+
+### Benefits
+
+1. **Flexibility**: Users can configure once, use everywhere
+2. **Consistency**: Same settings across all commands by default
+3. **Overridable**: Can override any setting per-command when needed
+4. **Type-Safe**: Pydantic validation prevents invalid configurations
+5. **Discoverable**: `config-show` displays all settings with sources
+6. **Portable**: Project-specific configs for different environments
 
 ---
 

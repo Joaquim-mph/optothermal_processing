@@ -43,11 +43,11 @@ def show_history_command(
         "-g",
         help="Chip group name prefix"
     ),
-    history_dir: Path = typer.Option(
-        Path("data/02_stage/chip_histories"),
+    history_dir: Optional[Path] = typer.Option(
+        None,
         "--history-dir",
         "-d",
-        help="Directory containing chip history CSV files"
+        help="Directory containing chip history CSV files (default: from config)"
     ),
     proc_filter: Optional[str] = typer.Option(
         None,
@@ -78,6 +78,15 @@ def show_history_command(
         python process_and_analyze.py show-history 67
         python process_and_analyze.py show-history 72 --proc ITS --limit 20
     """
+    # Load config for defaults
+    from src.cli.main import get_config
+    config = get_config()
+
+    if history_dir is None:
+        history_dir = config.history_dir
+        if config.verbose:
+            console.print(f"[dim]Using history directory from config: {history_dir}[/dim]")
+
     chip_name = f"{chip_group}{chip_number}"
     history_file = history_dir / f"{chip_name}_history.parquet"
 
@@ -278,17 +287,17 @@ def build_history_command(
         "-g",
         help="Chip group name prefix"
     ),
-    manifest_path: Path = typer.Option(
-        Path("data/02_stage/_manifest/manifest.parquet"),
+    manifest_path: Optional[Path] = typer.Option(
+        None,
         "--manifest",
         "-m",
-        help="Path to manifest.parquet file"
+        help="Path to manifest.parquet file (default: from config)"
     ),
-    output_dir: Path = typer.Option(
-        Path("data/02_stage/chip_histories"),
+    output_dir: Optional[Path] = typer.Option(
+        None,
         "--output",
         "-o",
-        help="Output directory for history files"
+        help="Output directory for history files (default: from config)"
     ),
 ):
     """
@@ -304,6 +313,20 @@ def build_history_command(
         # Build history for chip 72 with custom manifest
         process_and_analyze build-history 72 -m /path/to/manifest.parquet
     """
+    # Load config for defaults
+    from src.cli.main import get_config
+    config = get_config()
+
+    if manifest_path is None:
+        manifest_path = config.stage_dir / "raw_measurements" / "_manifest" / "manifest.parquet"
+        if config.verbose:
+            console.print(f"[dim]Using manifest path from config: {manifest_path}[/dim]")
+
+    if output_dir is None:
+        output_dir = config.history_dir
+        if config.verbose:
+            console.print(f"[dim]Using output directory from config: {output_dir}[/dim]")
+
     console.print()
     console.print(Panel.fit(
         "[bold cyan]Build Chip History from Staged Data[/bold cyan]",
@@ -432,6 +455,20 @@ def build_all_histories_command(
         # Build only for Alisson chips with at least 10 experiments
         process_and_analyze build-all-histories -g Alisson -n 10
     """
+    # Load config for defaults
+    from src.cli.main import get_config
+    config = get_config()
+
+    if manifest_path is None:
+        manifest_path = config.stage_dir / "raw_measurements" / "_manifest" / "manifest.parquet"
+        if config.verbose:
+            console.print(f"[dim]Using manifest path from config: {manifest_path}[/dim]")
+
+    if output_dir is None:
+        output_dir = config.history_dir
+        if config.verbose:
+            console.print(f"[dim]Using output directory from config: {output_dir}[/dim]")
+
     console.print()
     console.print(Panel.fit(
         "[bold cyan]Build All Chip Histories from Staged Data[/bold cyan]",

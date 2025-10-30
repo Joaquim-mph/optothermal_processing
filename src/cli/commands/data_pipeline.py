@@ -23,23 +23,23 @@ console = Console()
     description="Run complete data processing pipeline"
 )
 def full_pipeline_command(
-    raw_root: Path = typer.Option(
-        Path("data/01_raw"),
+    raw_root: Optional[Path] = typer.Option(
+        None,
         "--raw-root",
         "-r",
-        help="Root directory containing raw CSV files"
+        help="Root directory containing raw CSV files (default: from config)"
     ),
-    stage_root: Path = typer.Option(
-        Path("data/02_stage/raw_measurements"),
+    stage_root: Optional[Path] = typer.Option(
+        None,
         "--stage-root",
         "-s",
-        help="Output directory for staged Parquet files"
+        help="Output directory for staged Parquet files (default: from config)"
     ),
-    history_dir: Path = typer.Option(
-        Path("data/02_stage/chip_histories"),
+    history_dir: Optional[Path] = typer.Option(
+        None,
         "--history-dir",
         "-o",
-        help="Output directory for chip history Parquet files"
+        help="Output directory for chip history Parquet files (default: from config)"
     ),
     procedures_yaml: Path = typer.Option(
         Path("config/procedures.yml"),
@@ -93,6 +93,25 @@ def full_pipeline_command(
     """
     from src.cli.commands.stage import stage_all_command
     from src.cli.commands.history import build_all_histories_command
+
+    # Load config for defaults
+    from src.cli.main import get_config
+    config = get_config()
+
+    if raw_root is None:
+        raw_root = config.raw_data_dir
+        if config.verbose:
+            console.print(f"[dim]Using raw data directory from config: {raw_root}[/dim]")
+
+    if stage_root is None:
+        stage_root = config.stage_dir / "raw_measurements"
+        if config.verbose:
+            console.print(f"[dim]Using stage directory from config: {stage_root}[/dim]")
+
+    if history_dir is None:
+        history_dir = config.history_dir
+        if config.verbose:
+            console.print(f"[dim]Using history directory from config: {history_dir}[/dim]")
 
     console.print()
     console.print(Panel.fit(

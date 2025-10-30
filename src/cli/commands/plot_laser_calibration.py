@@ -132,7 +132,7 @@ def plot_laser_calibration_command(
         help="Color-code curves by wavelength (default: True)"
     ),
     show_markers: bool = typer.Option(
-        True,
+        False,
         "--markers/--no-markers",
         help="Show data point markers (default: True)"
     ),

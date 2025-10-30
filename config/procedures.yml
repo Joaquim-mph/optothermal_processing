@@ -27,6 +27,16 @@ procedures:
       Plate T (degC): float
       Ambient T (degC): float
       Clock (ms): float
+
+    ManifestColumns:
+      vds_v: [VDS, Vds]
+      vg_fixed_v: [VG, Vg]
+      wavelength_nm: [Laser wavelength]
+      laser_voltage_V: [Laser voltage]
+      laser_period_s: [Laser ON+OFF period]
+
+    Config:
+      light_detection: standard
   IVg:
     Parameters:
       Irange: float
@@ -53,6 +63,20 @@ procedures:
     Data:
       Vg (V): float
       I (A): float
+
+    # Manifest column extraction (optional)
+    # Maps manifest column names to parameter names (with aliases)
+    ManifestColumns:
+      vds_v: [VDS, Vds, VSD, Drain voltage]
+      vg_start_v: [VG start, Vg start]
+      vg_end_v: [VG end, Vg end]
+      vg_step_v: [VG step, Vg step]
+      wavelength_nm: [Laser wavelength]
+      laser_voltage_V: [Laser voltage]
+
+    # Procedure-specific configuration (optional)
+    Config:
+      light_detection: standard  # Options: standard, laser_calibration, none
   IVgT:
     Parameters:
       Irange: float
@@ -110,6 +134,16 @@ procedures:
       t (s): float
       I (A): float
       VL (V): float
+
+    ManifestColumns:
+      vds_v: [VDS, Vds]
+      vg_fixed_v: [VG, Vg]
+      wavelength_nm: [Laser wavelength]
+      laser_voltage_V: [Laser voltage]
+      laser_period_s: [Laser ON+OFF period]
+
+    Config:
+      light_detection: standard
   LaserCalibration:
     Parameters:
       N_avg: int
@@ -127,6 +161,21 @@ procedures:
     Data:
       VL (V): float
       Power (W): float
+
+    # Manifest column extraction
+    ManifestColumns:
+      wavelength_nm: [Laser wavelength]
+      laser_voltage_start_v: [Laser voltage start]
+      laser_voltage_end_v: [Laser voltage end]
+      laser_voltage_step_v: [Laser voltage step]
+      optical_fiber: [Optical fiber]
+      sensor_model: [Sensor model]  # From Metadata section
+
+    # LaserCalibration has special light detection logic
+    # Calibrations are on laser system, not chips
+    Config:
+      light_detection: laser_calibration
+      requires_chip: false  # No chip information needed for calibration
   Tt:
     Parameters:
       Chained execution: bool
@@ -134,7 +183,7 @@ procedures:
       Chip number: int
       Information: str
       Initial (current) T: float
-      Target T: float      
+      Target T: float
       T start: float
       T end: float
       T step: float
@@ -151,6 +200,10 @@ procedures:
       Plate Temperature (degC): float
       Ambient Temperature (degC): float
       Clock: float
+
+    # Tt is temperature-only, no light measurement
+    Config:
+      light_detection: none
   IV:
     Parameters:
       Irange: float
@@ -177,6 +230,22 @@ procedures:
     Data:
       Vsd (V): float
       I (A): float
+      # Optional columns (for backward compatibility with legacy data)
+      # New measurements may include these; old measurements will have null values
+      t (s):
+        type: float
+        required: false  # Added in v2.0 - optional for backward compat with old IV data
+
+    ManifestColumns:
+      vg_fixed_v: [VG, Vg]
+      vsd_start_v: [VSD start, Vsd start]
+      vsd_end_v: [VSD end, Vsd end]
+      vsd_step_v: [VSD step, Vsd step]
+      wavelength_nm: [Laser wavelength]
+      laser_voltage_V: [Laser voltage]
+
+    Config:
+      light_detection: standard
 
   It2:
     Parameters:

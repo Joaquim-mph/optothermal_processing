@@ -86,7 +86,11 @@ class StagingParameters(BaseModel):
     )
     only_yaml_data: bool = Field(
         default=False,
-        description="Drop columns not defined in YAML schema if True (strict mode)"
+        description="Drop columns not defined in YAML schema if True"
+    )
+    strict: bool = Field(
+        default=False,
+        description="Strict validation mode - fail on schema validation errors (missing required columns, etc.)"
     )
 
     model_config = ConfigDict(

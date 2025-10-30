@@ -49,6 +49,9 @@ python3 process_and_analyze.py plot-ivg 67 --auto
 # Stage raw CSVs to Parquet (with parallel processing)
 python3 process_and_analyze.py stage-all
 
+# Stage with schema validation (strict mode - fails on errors)
+python3 process_and_analyze.py stage-all --strict
+
 # Build experiment histories for all chips
 python3 process_and_analyze.py build-all-histories
 
@@ -144,6 +147,7 @@ The pipeline follows a three-stage data processing architecture:
 
 **Core Processing** (`src/core/`)
 - `stage_raw_measurements.py`: Main staging pipeline (CSV → Parquet + manifest)
+- `schema_validator.py`: **Schema validation engine (validates CSV against procedures.yml)**
 - `history_builder.py`: Chip history generation from manifest
 - `utils.py`: Common utilities, numeric coercion, light detection, Parquet reading with `read_measurement_parquet()`
 - `stage_utils.py`: Validation helpers, type coercion for staging
@@ -193,8 +197,11 @@ The pipeline follows a three-stage data processing architecture:
 **`config/procedures.yml`**
 - Schema definitions for all measurement procedures (IVg, IV, IVgT, It, ITt, LaserCalibration, Tt)
 - Specifies expected Parameters, Metadata, and Data columns with types
-- Used by staging pipeline for validation and type casting
-- **Modify this file to add new procedure types**
+- **ManifestColumns section** (optional): YAML-driven manifest column extraction
+- **Config section** (optional): Procedure-specific behavior (light detection, etc.)
+- Used by staging pipeline for validation, type casting, and dynamic manifest generation
+- **Modify this file to add new procedures** - no Python code changes needed!
+- **See**: `docs/YAML_DRIVEN_MANIFEST.md` for complete documentation
 
 **`config/chip_params.yaml`**
 - Chip-specific metadata (chip_group, expected_procs, voltage ranges, wavelengths)
@@ -214,6 +221,17 @@ The pipeline follows a three-stage data processing architecture:
 - **Schema-validated**: Types checked during staging, no parsing errors in plotting
 - **Single source of truth**: Staged Parquet files referenced by `parquet_path` in histories
 - Plotting functions use `read_measurement_parquet()` from `src/core/utils.py`
+
+**Schema Validation & Evolution**
+- **Automatic validation**: Every CSV validated against `config/procedures.yml` during staging
+- **Optional columns support**: Mark columns as `required: false` for backward compatibility
+- **Schema evolution**: Add new columns without breaking old data (nulls filled automatically)
+- **Validation modes**:
+  - Default: Warns on missing optional columns, continues processing
+  - Strict (`--strict`): Fails on missing required columns, critical parameters
+- **Validation output**: ERROR (fails in strict), WARN (logged), INFO (informational)
+- **Consistent schemas**: All parquet files have same columns (old data has typed nulls for new fields)
+- **See**: `docs/SCHEMA_VALIDATION_GUIDE.md` for complete documentation
 
 **Light Detection**
 - Primary: Laser voltage < 0.1V = dark (🌙), >= 0.1V = light (💡)

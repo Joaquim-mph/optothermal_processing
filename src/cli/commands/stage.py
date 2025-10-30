@@ -83,6 +83,11 @@ def stage_all_command(
         "--only-yaml-data",
         help="Drop columns not defined in YAML schema"
     ),
+    strict: bool = typer.Option(
+        False,
+        "--strict",
+        help="Strict validation mode - fail on schema errors (missing required columns, etc.)"
+    ),
     verbose: bool = typer.Option(
         False,
         "--verbose",
@@ -160,7 +165,8 @@ def stage_all_command(
     config_table.add_row("Polars Threads", str(polars_threads))
     config_table.add_row("Timezone", local_tz)
     config_table.add_row("Force Overwrite", "✓ Yes" if force else "✗ No")
-    config_table.add_row("Strict Schema", "✓ Yes" if only_yaml_data else "✗ No")
+    config_table.add_row("Only YAML Columns", "✓ Yes" if only_yaml_data else "✗ No")
+    config_table.add_row("Strict Validation", "✓ Yes" if strict else "✗ No")
 
     console.print(config_table)
     console.print()
@@ -180,6 +186,7 @@ def stage_all_command(
             polars_threads=polars_threads,
             force=force,
             only_yaml_data=only_yaml_data,
+            strict=strict,
         )
 
         # Discover files

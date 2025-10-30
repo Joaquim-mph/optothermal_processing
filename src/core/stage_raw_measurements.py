@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple, List
 from .stage_utils import *
+from .schema_validator import validate_measurement_schema, ValidationResult
 import polars as pl
 import yaml
 
@@ -45,18 +46,22 @@ KV_PAT         = re.compile(r"^#\s*([^:]+):\s*(.*)\s*$")
 class ProcSpec:
     """
     Schema specification for a measurement procedure.
-    
+
     Defines expected types for Parameters, Metadata, and Data columns
     as declared in the procedures YAML file.
-    
+
     Attributes:
         params: Type mappings for parameter fields (e.g., {"Laser wavelength": "float"})
         meta: Type mappings for metadata fields (e.g., {"Start time": "datetime"})
         data: Type mappings for data columns (e.g., {"I (A)": "float", "Vsd (V)": "float"})
+        manifest_columns: Mappings for manifest extraction (e.g., {"vds_v": ["VDS", "Vds"]})
+        config: Procedure-specific configuration (e.g., {"light_detection": "standard"})
     """
     params: Dict[str, str]
     meta: Dict[str, str]
     data: Dict[str, str]
+    manifest_columns: Dict[str, List[str]] = None  # NEW: Manifest column extraction config
+    config: Dict[str, Any] = None  # NEW: Procedure-specific config
 
 _PROC_CACHE: Dict[str, ProcSpec] | None = None
 _PROC_YAML_PATH: Path | None = None
@@ -65,20 +70,20 @@ _PROC_YAML_PATH: Path | None = None
 def load_procedures_yaml(path: Path) -> Dict[str, ProcSpec]:
     """
     Load procedure specifications from YAML schema file.
-    
+
     Parses a YAML file containing procedure definitions with their expected
-    Parameters, Metadata, and Data column types. Used for validation and
-    type casting during CSV ingestion.
-    
+    Parameters, Metadata, Data column types, and optional ManifestColumns
+    and Config sections.
+
     Args:
         path: Path to procedures YAML file
-        
+
     Returns:
         Dictionary mapping procedure names to their ProcSpec specifications
-        
+
     Example YAML structure:
         procedures:
-          iv_sweep:
+          IVg:
             Parameters:
               Laser wavelength: float
               Chip number: int
@@ -87,21 +92,39 @@ def load_procedures_yaml(path: Path) -> Dict[str, ProcSpec]:
             Data:
               I (A): float
               Vsd (V): float
-              
+            ManifestColumns:  # Optional
+              vds_v: [VDS, Vds, VSD]
+              wavelength_nm: [Laser wavelength]
+            Config:  # Optional
+              light_detection: standard
+
     Example:
         >>> specs = load_procedures_yaml(Path("procedures.yaml"))
-        >>> specs["iv_sweep"].data
+        >>> specs["IVg"].data
         {"I (A)": "float", "Vsd (V)": "float"}
+        >>> specs["IVg"].manifest_columns
+        {"vds_v": ["VDS", "Vds", "VSD"], "wavelength_nm": ["Laser wavelength"]}
     """
     with path.open("r", encoding="utf-8") as f:
         y = yaml.safe_load(f) or {}
     procs = {}
     root = y.get("procedures", {}) or {}
     for name, blocks in root.items():
+        # Parse ManifestColumns (optional)
+        manifest_cols = blocks.get("ManifestColumns")
+        if manifest_cols:
+            # Ensure all values are lists
+            manifest_cols = {
+                k: v if isinstance(v, list) else [v]
+                for k, v in manifest_cols.items()
+            }
+
         procs[name] = ProcSpec(
-            params=(blocks.get("Parameters") or {}) ,
-            meta=(blocks.get("Metadata") or {}) ,
-            data=(blocks.get("Data") or {}) ,
+            params=(blocks.get("Parameters") or {}),
+            meta=(blocks.get("Metadata") or {}),
+            data=(blocks.get("Data") or {}),
+            manifest_columns=manifest_cols,
+            config=(blocks.get("Config") or {}),
         )
     return procs
 
@@ -603,6 +626,174 @@ def atomic_write_parquet(df: pl.DataFrame, out_file: Path) -> None:
         raise
 
 
+# ------------------------------- Manifest Column Extraction ----------------------------------
+
+def extract_value_from_sources(
+    sources: Dict[str, Any],
+    aliases: List[str],
+    extractor_fn=None
+) -> Optional[Any]:
+    """
+    Extract a value from a dict by trying multiple alias keys.
+
+    Searches through a dict trying each alias in order until a match is found.
+    Optionally applies an extractor function to convert the value.
+
+    Args:
+        sources: Dictionary to search (typically params or meta)
+        aliases: List of keys to try in order
+        extractor_fn: Optional function to apply to extracted value (e.g., float, int)
+
+    Returns:
+        Extracted and optionally converted value, or None if no alias matches
+
+    Example:
+        >>> params = {"VDS": "0.5V", "Laser wavelength": "450"}
+        >>> extract_value_from_sources(params, ["VDS", "Vds", "VSD"], float)
+        0.5
+        >>> extract_value_from_sources(params, ["Wavelength", "Laser wavelength"], float)
+        450.0
+    """
+    for key in aliases:
+        if key in sources and sources[key] is not None:
+            value = sources[key]
+            if extractor_fn:
+                try:
+                    return extractor_fn(value)
+                except (TypeError, ValueError):
+                    continue
+            return value
+    return None
+
+
+def extract_manifest_columns_dynamic(
+    spec: ProcSpec,
+    params: Dict[str, Any],
+    meta: Dict[str, Any]
+) -> Dict[str, Any]:
+    """
+    Dynamically extract manifest columns based on YAML ManifestColumns configuration.
+
+    Uses the ManifestColumns section from procedures.yml to determine which
+    parameters/metadata to extract and what names to use in the manifest.
+
+    Args:
+        spec: ProcSpec containing manifest_columns configuration
+        params: Parsed parameters dict
+        meta: Parsed metadata dict
+
+    Returns:
+        Dictionary of manifest columns with standardized names
+
+    Example:
+        >>> spec.manifest_columns = {"vds_v": ["VDS", "Vds"], "wavelength_nm": ["Laser wavelength"]}
+        >>> params = {"VDS": 0.5, "Laser wavelength": 450}
+        >>> extract_manifest_columns_dynamic(spec, params, {})
+        {"vds_v": 0.5, "wavelength_nm": 450.0}
+    """
+    if not spec.manifest_columns:
+        return {}
+
+    # Combined source dict (params + metadata)
+    sources = {**params, **meta}
+
+    extracted = {}
+    for manifest_col, aliases in spec.manifest_columns.items():
+        # Determine type based on column name suffix conventions
+        # _v suffix = float (voltage), _nm suffix = float (wavelength), etc.
+        if manifest_col.endswith(("_v", "_V", "_nm", "_s", "_a", "_A")):
+            extractor = float
+        elif "_step" in manifest_col or "_period" in manifest_col:
+            extractor = float
+        else:
+            extractor = None  # Keep as-is (str, int, etc.)
+
+        value = extract_value_from_sources(sources, aliases, extractor)
+        extracted[manifest_col] = value
+
+    return extracted
+
+
+def get_light_detection_config(spec: ProcSpec, proc: str) -> str:
+    """
+    Get light detection method from procedure config.
+
+    Checks Config.light_detection field in YAML. Falls back to sensible defaults
+    if not specified.
+
+    Args:
+        spec: ProcSpec containing config
+        proc: Procedure name (for fallback logic)
+
+    Returns:
+        Light detection method: "standard", "laser_calibration", or "none"
+
+    Example:
+        >>> spec.config = {"light_detection": "standard"}
+        >>> get_light_detection_config(spec, "IVg")
+        'standard'
+    """
+    if spec.config and "light_detection" in spec.config:
+        return spec.config["light_detection"]
+
+    # Fallback defaults based on procedure name
+    if proc == "LaserCalibration":
+        return "laser_calibration"
+    elif proc in {"Tt"}:  # Temperature procedures typically don't use light
+        return "none"
+    else:
+        return "standard"
+
+
+def compute_light_detection(
+    method: str,
+    params: Dict[str, Any],
+    manifest_cols: Dict[str, Any]
+) -> bool:
+    """
+    Compute with_light flag based on detection method and available data.
+
+    Applies different logic depending on the configured detection method:
+    - "standard": wavelength exists and laser voltage > 0
+    - "laser_calibration": wavelength exists and voltage sweep defined
+    - "none": always False
+
+    Args:
+        method: Detection method from config
+        params: Parameter dict
+        manifest_cols: Extracted manifest columns (may contain wavelength_nm, laser_voltage_V, etc.)
+
+    Returns:
+        True if light is detected/present, False otherwise
+
+    Example:
+        >>> compute_light_detection("standard", {}, {"wavelength_nm": 450.0, "laser_voltage_V": 0.5})
+        True
+        >>> compute_light_detection("standard", {}, {"wavelength_nm": 450.0, "laser_voltage_V": 0.0})
+        False
+    """
+    wl_f = manifest_cols.get("wavelength_nm")
+
+    if method == "laser_calibration":
+        # LaserCalibration: check if wavelength exists and voltage sweep is defined
+        lv_start = manifest_cols.get("laser_voltage_start_v")
+        lv_end = manifest_cols.get("laser_voltage_end_v")
+        return (wl_f is not None) and (lv_start is not None or lv_end is not None)
+
+    elif method == "standard":
+        # Standard: wavelength exists and laser voltage > 0
+        lv_f = manifest_cols.get("laser_voltage_V")
+        return (wl_f is not None) and (lv_f is not None) and (lv_f != 0.0)
+
+    elif method == "none":
+        return False
+
+    else:
+        # Unknown method: default to standard logic
+        lv_f = manifest_cols.get("laser_voltage_V")
+        return (wl_f is not None) and (lv_f is not None) and (lv_f != 0.0)
+
+
 # ------------------------------- Worker ----------------------------------
 
 def ingest_file_task(
@@ -614,6 +805,7 @@ def ingest_file_task(
     events_dir_str: str,
     rejects_dir_str: str,
     only_yaml_data: bool,
+    strict: bool = False,
 ) -> Dict[str, Any]:
     """
     Process a single CSV file into staged Parquet format.
@@ -702,6 +894,7 @@ def ingest_file_task(
             raise RuntimeError("empty data table")
 
         # --- NEW: rename data columns to exact YAML "Data" names ---
+        ren_map = {}
         if spec.data:
             ren_map = build_yaml_rename_map(df.columns, spec.data)
             if ren_map:
@@ -713,47 +906,89 @@ def ingest_file_task(
             # Cast per YAML types (for those present)
             df = cast_df_data_types(df, spec.data)
 
-        # Derive light flags (works even with YAML naming; keys come from Parameters)
-        with_light = False
-        wl_f = None
-        lv_f = None
-        def _get_float(keys):
-            for key in keys:
-                if key in params and params[key] is not None:
-                    try:
-                        return float(params[key])
-                    except (TypeError, ValueError):
-                        continue
-            return None
+        # --- SCHEMA VALIDATION ---
+        validation_result = validate_measurement_schema(
+            proc=proc,
+            param_specs=spec.params,
+            meta_specs=spec.meta,
+            data_specs=spec.data,
+            parsed_params=params,
+            parsed_meta=meta,
+            df_columns=list(df.columns),
+            rename_map=ren_map,
+            strict=strict,
+            proc_config=spec.config  # Pass config for requires_chip check
+        )
 
-        try:
-            wl_f = float(params.get("Laser wavelength")) if params.get("Laser wavelength") is not None else None
-        except Exception:
-            wl_f = None
-        try:
-            lv_f = float(params.get("Laser voltage")) if params.get("Laser voltage") is not None else None
-        except Exception:
-            lv_f = None
+        # Collect validation messages for event record
+        validation_messages = []
 
-        vds_v = _get_float(["VDS", "Vds", "VSD", "Drain voltage"])
-        vg_fixed_v = _get_float(["VG", "Vg", "Gate voltage", "Fixed gate voltage"])
-        vg_start_v = _get_float(["VG start", "Vg start"])
-        vg_end_v = _get_float(["VG end", "Vg end"])
-        vg_step_v = _get_float(["VG step", "Vg step"])
-        laser_period_s = _get_float(["Laser ON+OFF period", "Laser ON+OFF period (s)", "ON+OFF period"])
+        # Log validation messages
+        if validation_result.has_errors:
+            for msg in validation_result.errors:
+                validation_messages.append(msg.format())
+                warn(f"{src.name}: {msg.format()}")
+            if strict:
+                raise RuntimeError(f"Schema validation failed in strict mode:\n" + validation_result.format_all())
 
-        # LaserCalibration-specific parameters
-        optical_fiber = params.get("Optical fiber")
-        laser_voltage_start_v = _get_float(["Laser voltage start"])
-        laser_voltage_end_v = _get_float(["Laser voltage end"])
-        laser_voltage_step_v = _get_float(["Laser voltage step"])
-        sensor_model = meta.get("Sensor model")
+        if validation_result.has_warnings:
+            for msg in validation_result.warnings:
+                validation_messages.append(msg.format())
+                warn(f"{src.name}: {msg.format()}")
 
-        # with_light logic: For LaserCalibration, check if wavelength exists and voltage sweep is defined
-        if proc == "LaserCalibration":
-            with_light = (wl_f is not None) and (laser_voltage_start_v is not None or laser_voltage_end_v is not None)
-        else:
-            with_light = (wl_f is not None) and (lv_f is not None) and (lv_f != 0.0)
+        # Add missing optional columns as null (for schema consistency)
+        if hasattr(validation_result, 'missing_optional_columns'):
+            for col_name, col_spec in validation_result.missing_optional_columns.items():
+                # Determine appropriate null type
+                if col_spec.type in {"float", "float_no_unit"}:
+                    df = df.with_columns(pl.lit(None, dtype=pl.Float64).alias(col_name))
+                elif col_spec.type == "int":
+                    df = df.with_columns(pl.lit(None, dtype=pl.Int64).alias(col_name))
+                elif col_spec.type == "bool":
+                    df = df.with_columns(pl.lit(None, dtype=pl.Boolean).alias(col_name))
+                else:
+                    df = df.with_columns(pl.lit(None, dtype=pl.Utf8).alias(col_name))
+
+        # --- DYNAMIC MANIFEST COLUMN EXTRACTION ---
+        # Use YAML-configured extraction if available, otherwise fall back to hardcoded
+        manifest_cols = extract_manifest_columns_dynamic(spec, params, meta)
+
+        # Backward compatibility: If YAML doesn't define ManifestColumns, use legacy hardcoded extraction
+        if not manifest_cols:
+            # Legacy hardcoded extraction (for procedures without ManifestColumns in YAML)
+            def _get_float(keys):
+                for key in keys:
+                    if key in params and params[key] is not None:
+                        try:
+                            return float(params[key])
+                        except (TypeError, ValueError):
+                            continue
+                return None
+
+            manifest_cols = {
+                "wavelength_nm": _get_float(["Laser wavelength"]),
+                "laser_voltage_V": _get_float(["Laser voltage"]),
+                "laser_period_s": _get_float(["Laser ON+OFF period", "Laser ON+OFF period (s)", "ON+OFF period"]),
+                "vds_v": _get_float(["VDS", "Vds", "VSD", "Drain voltage"]),
+                "vg_fixed_v": _get_float(["VG", "Vg", "Gate voltage", "Fixed gate voltage"]),
+                "vg_start_v": _get_float(["VG start", "Vg start"]),
+                "vg_end_v": _get_float(["VG end", "Vg end"]),
+                "vg_step_v": _get_float(["VG step", "Vg step"]),
+                # LaserCalibration-specific
+                "optical_fiber": params.get("Optical fiber"),
+                "laser_voltage_start_v": _get_float(["Laser voltage start"]),
+                "laser_voltage_end_v": _get_float(["Laser voltage end"]),
+                "laser_voltage_step_v": _get_float(["Laser voltage step"]),
+                "sensor_model": meta.get("Sensor model"),
+            }
+
+        # Extract commonly used values for convenience
+        wl_f = manifest_cols.get("wavelength_nm")
+        lv_f = manifest_cols.get("laser_voltage_V")
+
+        # --- CONFIGURABLE LIGHT DETECTION ---
+        light_method = get_light_detection_config(spec, proc)
+        with_light = compute_light_detection(light_method, params, manifest_cols)
 
         out_dir = stage_root / f"proc={proc}" / f"date={date_part}" / f"run_id={rid}"
         out_file = out_dir / "part-000.parquet"
@@ -770,21 +1005,13 @@ def ingest_file_task(
             "chip_group": params.get("Chip group name"),
             "start_time_utc": start_dt,
             "has_light": with_light,
-            "wavelength_nm": wl_f,
-            "laser_voltage_V": lv_f,
-            "laser_period_s": laser_period_s,
-            "vds_v": vds_v,
-            "vg_fixed_v": vg_fixed_v,
-            "vg_start_v": vg_start_v,
-            "vg_end_v": vg_end_v,
-            "vg_step_v": vg_step_v,
             "date_local": date_part,
-            # LaserCalibration-specific parameters
-            "optical_fiber": optical_fiber,
-            "laser_voltage_start_v": laser_voltage_start_v,
-            "laser_voltage_end_v": laser_voltage_end_v,
-            "laser_voltage_step_v": laser_voltage_step_v,
-            "sensor_model": sensor_model,
+            # Schema validation results
+            "validation_errors": len(validation_result.errors),
+            "validation_warnings": len(validation_result.warnings),
+            "validation_messages": validation_messages if validation_messages else None,
+            # Dynamically extracted manifest columns (all of them)
+            **manifest_cols,
         }
 
         if out_file.exists() and not force:
@@ -796,24 +1023,12 @@ def ingest_file_task(
                 "start_dt": start_dt,
                 "source_file": str(src),
                 "with_light": with_light,
-                "wavelength_nm": wl_f,
-                "laser_voltage_V": lv_f,
-                "laser_period_s": laser_period_s,
-                "vds_v": vds_v,
-                "vg_fixed_v": vg_fixed_v,
-                "vg_start_v": vg_start_v,
-                "vg_end_v": vg_end_v,
-                "vg_step_v": vg_step_v,
                 "chip_group": params.get("Chip group name"),
                 "chip_number": params.get("Chip number"),
                 "sample": params.get("Sample"),
                 "procedure_version": params.get("Procedure version"),
-                # LaserCalibration-specific parameters
-                "optical_fiber": optical_fiber,
-                "laser_voltage_start_v": laser_voltage_start_v,
-                "laser_voltage_end_v": laser_voltage_end_v,
-                "laser_voltage_step_v": laser_voltage_step_v,
-                "sensor_model": sensor_model,
+                # Dynamically extracted manifest columns (all procedure-specific fields)
+                **manifest_cols,
             }
             df = df.with_columns([pl.lit(v).alias(k) for k, v in extra_cols.items()])
             atomic_write_parquet(df, out_file)
@@ -1000,6 +1215,7 @@ def run_staging_pipeline(params: StagingParameters, progress_callback=None) -> N
     polars_threads = params.polars_threads
     force = params.force
     only_yaml_data = params.only_yaml_data
+    strict = params.strict
 
     # Create output directories
     ensure_dir(stage_root)
@@ -1041,6 +1257,7 @@ def run_staging_pipeline(params: StagingParameters, progress_callback=None) -> N
                 str(events_dir),
                 str(rejects_dir),
                 only_yaml_data,
+                strict,
             )
             future_to_src[fut] = src
             submitted += 1
@@ -1146,6 +1363,7 @@ Examples:
     ap.add_argument("--polars-threads", type=int, default=DEFAULT_POLARS_THREADS, help="POLARS_MAX_THREADS per worker")
     ap.add_argument("--force", action="store_true", help="Overwrite staged Parquet if exists")
     ap.add_argument("--only-yaml-data", action="store_true", help="Drop non-YAML data columns")
+    ap.add_argument("--strict", action="store_true", help="Strict validation mode - fail on schema errors")
 
     args = ap.parse_args()
 
@@ -1171,6 +1389,7 @@ Examples:
                 polars_threads=args.polars_threads,
                 force=args.force,
                 only_yaml_data=args.only_yaml_data,
+                strict=args.strict,
             )
 
         else:

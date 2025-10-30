@@ -24,7 +24,7 @@ def plot_laser_calibration(
     tag: str,
     *,
     group_by_wavelength: bool = True,
-    show_markers: bool = True,
+    show_markers: bool = False,
     power_unit: str = "uW",
 ) -> Path:
     """

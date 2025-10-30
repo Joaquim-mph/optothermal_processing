@@ -5,10 +5,12 @@ This guide provides step-by-step instructions and code templates for implementin
 ## Table of Contents
 
 1. [Overview & Architecture](#overview--architecture)
-2. [Procedure Categories](#procedure-categories)
-3. [Implementation Checklist](#implementation-checklist)
-4. [Step-by-Step Instructions](#step-by-step-instructions)
-5. [Procedure-Specific Templates](#procedure-specific-templates)
+2. [Configuration System Integration](#configuration-system-integration)
+3. [Procedure Categories](#procedure-categories)
+4. [Implementation Checklist](#implementation-checklist)
+5. [Step-by-Step Instructions](#step-by-step-instructions)
+6. [Procedure-Specific Templates](#procedure-specific-templates)
+7. [Configuration Compliance Checklist](#configuration-compliance-checklist)
 
 ---
 
@@ -49,6 +51,164 @@ CLI displays success message
 - **Time-series (I vs t)**: `src/plotting/its.py` + `src/cli/commands/plot_its.py`
 - **Voltage sweep (I vs Vg)**: `src/plotting/ivg.py` + `src/cli/commands/plot_ivg.py`
 - **Derivative plot**: `src/plotting/transconductance.py` + `src/cli/commands/plot_transconductance.py`
+- **Laser calibration**: `src/plotting/laser_calibration.py` + `src/cli/commands/plot_laser_calibration.py`
+
+---
+
+## Configuration System Integration
+
+### Overview
+
+**All plotting commands MUST support the persistent configuration system** introduced in the CLI refactor. This allows users to set default paths and options once, then use them across all commands.
+
+### Configuration Architecture
+
+**Configuration Sources (priority order):**
+1. **Command-line arguments** - Explicit `--output-dir` or `--history-dir` flags
+2. **Specified config file** - `--config my-config.json`
+3. **Project config** - `./.optothermal_cli_config.json`
+4. **User config** - `~/.optothermal_cli_config.json`
+5. **Environment variables** - `CLI_OUTPUT_DIR`, `CLI_HISTORY_DIR`, etc.
+6. **Built-in defaults** - Hardcoded in `src/cli/config.py`
+
+### Key Configuration Fields for Plotting
+
+```python
+# From src/cli/config.py
+class CLIConfig(BaseModel):
+    # Directories
+    output_dir: Path = Path("figs")
+    history_dir: Path = Path("data/02_stage/chip_histories")
+
+    # Behavior
+    verbose: bool = False
+    dry_run: bool = False
+
+    # Plot settings
+    default_plot_format: Literal["png", "pdf", "svg", "jpg"] = "png"
+    plot_dpi: int = 300
+```
+
+### Required Pattern for CLI Commands
+
+**CRITICAL**: All plotting commands must follow this pattern:
+
+```python
+@cli_command(...)
+def plot_{procedure_name}_command(
+    chip_number: int = typer.Argument(...),
+    # ... other arguments ...
+    history_dir: Optional[Path] = typer.Option(
+        None,  # ✅ MUST be None, not a hardcoded default
+        "--history-dir",
+        help="Chip history directory (default: from config)"
+    ),
+    output_dir: Optional[Path] = typer.Option(
+        None,  # ✅ MUST be None, not a hardcoded default
+        "--output",
+        "-o",
+        help="Output directory (default: from config)"
+    ),
+):
+    """Command docstring."""
+
+    # ✅ STEP 1: Load config at the very start
+    from src.cli.main import get_config
+    config = get_config()
+
+    # ✅ STEP 2: Apply config defaults with verbose logging
+    if output_dir is None:
+        output_dir = config.output_dir
+        if config.verbose:
+            console.print(f"[dim]Using output directory from config: {output_dir}[/dim]")
+
+    if history_dir is None:
+        history_dir = config.history_dir
+        if config.verbose:
+            console.print(f"[dim]Using history directory from config: {history_dir}[/dim]")
+
+    # ✅ STEP 3: Use setup_output_dir helper (handles config value)
+    output_dir = setup_output_dir(chip_number, chip_group, output_dir)
+
+    # ✅ STEP 4: Set FIG_DIR before calling plotting function
+    from src.plotting import {procedure_name}
+    {procedure_name}.FIG_DIR = output_dir
+
+    # Now call plotting function...
+```
+
+### Common Mistakes to Avoid
+
+❌ **WRONG - Hardcoded default:**
+```python
+history_dir: Path = typer.Option(
+    Path("data/02_stage/chip_histories"),  # ❌ Don't do this!
+    "--history-dir"
+)
+```
+
+❌ **WRONG - Not loading config:**
+```python
+def plot_something_command(...):
+    # Missing config loading!
+    if output_dir is None:
+        output_dir = Path("figs")  # ❌ Hardcoded fallback
+```
+
+❌ **WRONG - Not setting FIG_DIR:**
+```python
+# Plotting function saves to hardcoded FIG_DIR
+output_file = plot_something(selected, Path("."), tag)  # ❌ Wrong output location
+```
+
+✅ **CORRECT Pattern:**
+```python
+history_dir: Optional[Path] = typer.Option(None, "--history-dir",
+    help="Chip history directory (default: from config)")
+
+# Load config
+config = get_config()
+if history_dir is None:
+    history_dir = config.history_dir
+    if config.verbose:
+        console.print(f"[dim]Using history directory from config: {history_dir}[/dim]")
+
+# Set module FIG_DIR before plotting
+from src.plotting import procedure_module
+procedure_module.FIG_DIR = output_dir
+```
+
+### Testing Configuration Support
+
+After implementing a new plotting command, test configuration support:
+
+```bash
+# 1. Test with built-in defaults
+python process_and_analyze.py plot-{procedure} 67 --auto
+
+# 2. Test with verbose mode (shows config values)
+python process_and_analyze.py --verbose plot-{procedure} 67 --auto
+
+# 3. Test with global output override
+python process_and_analyze.py --output-dir /tmp/plots plot-{procedure} 67 --auto
+
+# 4. Test with custom config file
+python process_and_analyze.py config-init --profile production
+python process_and_analyze.py plot-{procedure} 67 --auto
+
+# 5. Test with explicit command-line override
+python process_and_analyze.py plot-{procedure} 67 --auto --output /custom/path
+```
+
+### Debugging Configuration Issues
+
+If your command doesn't respect config:
+
+1. **Check parameter type**: Must be `Optional[Path] = None`, not `Path = Path(...)`
+2. **Check config loading**: Add `from src.cli.main import get_config` at start of function
+3. **Check verbose output**: Run with `--verbose` to see which config is used
+4. **Check FIG_DIR**: Ensure plotting module's `FIG_DIR` is set before calling plot function
+5. **Check helper signature**: `setup_output_dir(chip, group, output_dir)` - note parameter order!
 
 ---
 
@@ -119,11 +279,15 @@ For each procedure, follow this checklist:
 - [ ] Create `src/cli/commands/plot_{procedure_name}.py`
 - [ ] Use `@cli_command` decorator (auto-discovery!)
 - [ ] Define Typer command with standard options
+- [ ] **CRITICAL: Set `history_dir` and `output_dir` parameters to `Optional[Path] = None`**
+- [ ] **CRITICAL: Load config at start with `get_config()`**
+- [ ] **CRITICAL: Apply config defaults with verbose logging**
 - [ ] Load chip history from Parquet
 - [ ] Filter by procedure type
 - [ ] Parse seq numbers or auto-select
 - [ ] Apply metadata filters (VDS, date, wavelength, etc.)
-- [ ] Setup output directory with `setup_output_dir()`
+- [ ] Setup output directory with `setup_output_dir(chip, group, output_dir)`
+- [ ] **CRITICAL: Set plotting module's `FIG_DIR = output_dir` before calling plot function**
 - [ ] Call plotting function
 - [ ] Display success with `display_plot_success()`
 
@@ -131,6 +295,11 @@ For each procedure, follow this checklist:
 - [ ] Test with real data: `python3 process_and_analyze.py plot-{name} <chip> --auto`
 - [ ] Verify plot quality (labels, legends, colors)
 - [ ] Test filtering options (--seq, --vds, --date)
+- [ ] **Test configuration support:**
+  - [ ] Test with `--verbose` flag (should show config values)
+  - [ ] Test with global `--output-dir` override
+  - [ ] Test with custom `--config` file
+  - [ ] Test with explicit command `--output` flag (should override config)
 - [ ] Check edge cases (empty data, missing columns)
 - [ ] Update CLAUDE.md if needed
 
@@ -339,16 +508,16 @@ def plot_{procedure_name}_command(
         "--date",
         help="Filter by date (YYYY-MM-DD)"
     ),
-    history_dir: Path = typer.Option(
-        Path("data/02_stage/chip_histories"),
+    history_dir: Optional[Path] = typer.Option(
+        None,  # ✅ MUST be None for config support
         "--history-dir",
-        help="Chip history directory"
+        help="Chip history directory (default: from config)"
     ),
     output_dir: Optional[Path] = typer.Option(
-        None,
+        None,  # ✅ MUST be None for config support
         "--output",
         "-o",
-        help="Output directory (default: figs/{chip})"
+        help="Output directory (default: from config)"
     ),
     preview: bool = typer.Option(
         False,
@@ -374,6 +543,20 @@ def plot_{procedure_name}_command(
     """
     # Build chip identifier
     chip_name = f"{chip_group}{chip_number}"
+
+    # ✅ Load config for defaults
+    from src.cli.main import get_config
+    config = get_config()
+
+    if output_dir is None:
+        output_dir = config.output_dir
+        if config.verbose:
+            console.print(f"[dim]Using output directory from config: {output_dir}[/dim]")
+
+    if history_dir is None:
+        history_dir = config.history_dir
+        if config.verbose:
+            console.print(f"[dim]Using history directory from config: {history_dir}[/dim]")
 
     # Load chip history
     history_file = history_dir / f"{chip_name}_history.parquet"
@@ -431,11 +614,12 @@ def plot_{procedure_name}_command(
         console.print("\n[cyan]Preview mode - no plots generated[/cyan]")
         return
 
-    # Setup output directory
-    if output_dir is None:
-        output_dir = setup_output_dir(chip_number, chip_group)
-    else:
-        output_dir.mkdir(parents=True, exist_ok=True)
+    # ✅ Setup output directory (config already loaded earlier)
+    output_dir = setup_output_dir(chip_number, chip_group, output_dir)
+
+    # ✅ Set output directory for plotting module
+    from src.plotting import {procedure_name}
+    {procedure_name}.FIG_DIR = output_dir
 
     # Generate plot
     console.print(f"\n[cyan]Generating {ProcedureName} plot...[/cyan]")
@@ -468,6 +652,12 @@ python3 process_and_analyze.py plot-{procedure-name} 67 --auto
 
 # Test with filters
 python3 process_and_analyze.py plot-{procedure-name} 67 --seq 1,2,3 --wavelength 450
+
+# ✅ Test configuration support
+python3 process_and_analyze.py --verbose plot-{procedure-name} 67 --auto  # Shows config values
+python3 process_and_analyze.py --output-dir /tmp/plots plot-{procedure-name} 67 --auto  # Global override
+python3 process_and_analyze.py plot-{procedure-name} 67 --auto --output /custom/path  # Command override
+python3 process_and_analyze.py config-show  # View current config
 ```
 
 ---
@@ -984,5 +1174,54 @@ Based on typical usage, implement in this order:
 2. Add features incrementally (legend, filters, styling)
 3. Test with real data frequently
 4. Copy patterns from existing implementations
+
+---
+
+## Configuration Compliance Checklist
+
+Use this checklist to verify your new plotting command supports the configuration system correctly:
+
+### ✅ Parameter Definitions
+- [ ] `history_dir` parameter is `Optional[Path] = None` (not `Path = Path(...)`)
+- [ ] `output_dir` parameter is `Optional[Path] = None` (not `Path = Path(...)`)
+- [ ] Help text says "(default: from config)" for both parameters
+
+### ✅ Config Loading (at start of function)
+- [ ] `from src.cli.main import get_config` import exists
+- [ ] `config = get_config()` called before using paths
+- [ ] `if output_dir is None: output_dir = config.output_dir`
+- [ ] `if history_dir is None: history_dir = config.history_dir`
+- [ ] Verbose logging: `if config.verbose: console.print(...)`
+
+### ✅ Helper Function Usage
+- [ ] `setup_output_dir(chip_number, chip_group, output_dir)` called with correct parameter order
+- [ ] NOT using conditional `if output_dir is None: ... else: ...` pattern (deprecated)
+
+### ✅ Plotting Module Integration
+- [ ] Import plotting module: `from src.plotting import {procedure_name}`
+- [ ] Set FIG_DIR before plotting: `{procedure_name}.FIG_DIR = output_dir`
+- [ ] Call happens BEFORE calling the plot function
+
+### ✅ Testing
+- [ ] Tested with `--verbose` flag (shows "Using ... from config")
+- [ ] Tested with global `--output-dir` override
+- [ ] Tested with command-specific `--output` override
+- [ ] Tested with `config-init` and custom config file
+- [ ] All tests produce output in expected directory
+
+### ✅ Reference Implementation
+If you're unsure, compare your implementation with these verified examples:
+- `src/cli/commands/plot_its.py` (lines 248-260 for config loading)
+- `src/cli/commands/plot_laser_calibration.py` (lines 198-210 for config loading)
+- `src/cli/commands/plot_ivg.py` (for another working example)
+
+### Common Errors and Fixes
+
+| Error | Symptom | Fix |
+|-------|---------|-----|
+| Plots go to wrong directory | Config ignored | Set `{module}.FIG_DIR = output_dir` before plotting |
+| `--verbose` shows nothing | No config loading | Add `config = get_config()` at function start |
+| TypeError with paths | Wrong parameter type | Change `Path = Path(...)` to `Optional[Path] = None` |
+| `setup_output_dir` error | Wrong parameter order | Use `(chip, group, output_dir)` not `(output_dir, chip, group)` |
 
 Good luck! 🚀

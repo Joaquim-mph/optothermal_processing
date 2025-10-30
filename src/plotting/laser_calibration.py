@@ -16,7 +16,6 @@ from src.core.utils import read_measurement_parquet
 
 # Configuration
 FIG_DIR = Path("figs")
-DEFAULT_FIGSIZE = (10, 7)
 
 
 def plot_laser_calibration(
@@ -26,7 +25,7 @@ def plot_laser_calibration(
     *,
     group_by_wavelength: bool = True,
     show_markers: bool = True,
-    power_unit: str = "mW",
+    power_unit: str = "uW",
 ) -> Path:
     """
     Generate laser calibration plot (Power vs Laser Voltage).
@@ -49,7 +48,7 @@ def plot_laser_calibration(
     show_markers : bool, optional
         If True, show data point markers (default: True)
     power_unit : str, optional
-        Power unit for y-axis: "mW", "W", or "uW" (default: "mW")
+        Power unit for y-axis: "uW", "mW", or "W" (default: "uW")
 
     Returns
     -------
@@ -65,14 +64,18 @@ def plot_laser_calibration(
 
     Notes
     -----
-    - Power is converted from W to mW by default for better readability
+    - Power is converted from W to µW by default for better readability
     - Each calibration (seq number) is plotted as a separate curve
     - Legend includes wavelength, fiber, and seq number for identification
     - Grid is enabled for easy voltage/power reading
     """
-    # Apply plot style
-    from src.plotting.styles import set_plot_style
-    set_plot_style("prism_rain")
+    # Load config and apply plot style from config
+    from src.cli.main import get_config
+    from src.plotting.styles import set_plot_style, THEMES
+
+    config = get_config()
+    theme_name = config.plot_theme
+    set_plot_style(theme_name)
 
     # Filter and sort by seq number (chronological order)
     data = df.filter(pl.col("proc") == "LaserCalibration").sort("seq")
@@ -80,8 +83,8 @@ def plot_laser_calibration(
         print("[warn] No LaserCalibration experiments to plot")
         return None
 
-    # Create figure
-    fig, ax = plt.subplots(figsize=DEFAULT_FIGSIZE)
+    # Create figure (figsize from theme's rcParams)
+    fig, ax = plt.subplots()
 
     # Determine power conversion factor
     power_factors = {
@@ -90,15 +93,17 @@ def plot_laser_calibration(
         "uW": 1e6,
         "µW": 1e6,
     }
-    power_factor = power_factors.get(power_unit, 1e3)  # Default to mW
+    power_factor = power_factors.get(power_unit, 1e6)  # Default to µW
 
     # Track wavelengths for color grouping
     if group_by_wavelength:
         wavelengths = data["wavelength_nm"].unique().sort() if "wavelength_nm" in data.columns else []
-        # Create color map
+        # Get color palette from theme
         if len(wavelengths) > 0:
-            cmap = plt.cm.get_cmap('tab10')
-            wl_colors = {wl: cmap(i % 10) for i, wl in enumerate(wavelengths)}
+            theme = THEMES[theme_name]
+            color_cycle = theme["rc"]["axes.prop_cycle"]
+            colors = [c['color'] for c in color_cycle]
+            wl_colors = {wl: colors[i % len(colors)] for i, wl in enumerate(wavelengths)}
         else:
             wl_colors = {}
     else:
@@ -146,7 +151,7 @@ def plot_laser_calibration(
         # Build label from metadata
         seq = int(row["seq"])
         wavelength = row.get("wavelength_nm")
-        fiber = row.get("Optical fiber", "unknown fiber")
+        fiber = row.get("optical_fiber", "unknown fiber")
 
         # Create descriptive label
         label_parts = [f"seq {seq}"]
@@ -162,23 +167,18 @@ def plot_laser_calibration(
         else:
             color = None  # Let matplotlib auto-assign
 
-        # Plot with markers
+        # Plot (using theme's line/marker settings)
         if show_markers:
             ax.plot(vl, power_display,
                    marker='o',
-                   markersize=5,
                    linestyle='-',
-                   linewidth=1.5,
                    label=label,
-                   color=color,
-                   alpha=0.8)
+                   color=color)
         else:
             ax.plot(vl, power_display,
                    linestyle='-',
-                   linewidth=2,
                    label=label,
-                   color=color,
-                   alpha=0.8)
+                   color=color)
 
         curves_plotted += 1
 
@@ -187,20 +187,17 @@ def plot_laser_calibration(
         plt.close(fig)
         return None
 
-    # Styling
-    ax.set_xlabel("Laser Voltage (V)", fontsize=12, fontweight='bold')
-    ax.set_ylabel(f"Optical Power ({power_unit})", fontsize=12, fontweight='bold')
-    ax.set_title(f"Laser Calibration — {tag}", fontsize=14, fontweight='bold')
+    # Labels and title (using theme's font settings)
+    ax.set_xlabel("Laser Voltage (V)")
+    ax.set_ylabel(f"Optical Power ({power_unit})")
+    ax.set_title(f"Laser Calibration — {tag}")
 
-    # Legend with smaller font if many curves
-    legend_fontsize = 9 if curves_plotted > 5 else 10
-    ax.legend(fontsize=legend_fontsize,
-             loc='best',
-             framealpha=0.9,
-             edgecolor='gray')
+    # Legend (using theme's legend settings)
+    ax.legend()
 
-    # Grid for easy reading
-    ax.grid(True, alpha=0.3, linestyle='--', linewidth=0.5)
+    # Grid (if enabled in theme)
+    if plt.rcParams.get('axes.grid', False):
+        ax.grid(True)
 
     # Start y-axis at 0 (power can't be negative)
     ax.set_ylim(bottom=0)
@@ -208,12 +205,12 @@ def plot_laser_calibration(
     # Tight layout
     plt.tight_layout()
 
-    # Save figure
+    # Save figure (using config DPI)
     output_dir = FIG_DIR / tag
     output_dir.mkdir(parents=True, exist_ok=True)
-    output_file = output_dir / f"laser_calibration_{tag}.png"
+    output_file = output_dir / f"laser_calibration_{tag}.{config.default_plot_format}"
 
-    fig.savefig(output_file, dpi=300, bbox_inches='tight')
+    fig.savefig(output_file, dpi=config.plot_dpi, bbox_inches='tight')
     plt.close(fig)
 
     print(f"[info] Saved {output_file}")
@@ -255,8 +252,13 @@ def plot_laser_calibration_comparison(
     >>> cal_data = history.filter(pl.col("proc") == "LaserCalibration")
     >>> output = plot_laser_calibration_comparison(cal_data, Path("."), "Alisson67")
     """
+    # Load config and apply plot style from config
+    from src.cli.main import get_config
     from src.plotting.styles import set_plot_style
-    set_plot_style("prism_rain")
+
+    config = get_config()
+    theme_name = config.plot_theme
+    set_plot_style(theme_name)
 
     data = df.filter(pl.col("proc") == "LaserCalibration").sort("seq")
     if data.height == 0:
@@ -269,7 +271,7 @@ def plot_laser_calibration_comparison(
         group_label = "Wavelength"
         group_unit = "nm"
     elif group_by == "fiber":
-        group_col = "Optical fiber"
+        group_col = "optical_fiber"
         group_label = "Fiber"
         group_unit = ""
     else:
@@ -288,12 +290,10 @@ def plot_laser_calibration_comparison(
         print("[warn] No groups found for comparison")
         return None
 
-    # Create subplots
+    # Create subplots (let theme control figure size)
     n_cols = min(2, n_groups)
     n_rows = (n_groups + n_cols - 1) // n_cols
-    fig, axes = plt.subplots(n_rows, n_cols,
-                            figsize=(7*n_cols, 5*n_rows),
-                            squeeze=False)
+    fig, axes = plt.subplots(n_rows, n_cols, squeeze=False)
     axes = axes.flatten()
 
     # Plot each group
@@ -323,20 +323,20 @@ def plot_laser_calibration_comparison(
                 continue
 
             vl = measurement["VL"].to_numpy()
-            power = measurement["Power"].to_numpy() * 1e3  # mW
+            power = measurement["Power"].to_numpy() * 1e6  # µW
 
             seq = int(row["seq"])
-            ax.plot(vl, power, marker='o', markersize=4,
-                   linestyle='-', linewidth=1.5,
-                   label=f"seq {seq}", alpha=0.8)
+            # Use theme's line/marker settings
+            ax.plot(vl, power, marker='o', linestyle='-', label=f"seq {seq}")
 
-        # Subplot styling
+        # Subplot styling (using theme settings)
         unit_str = f" {group_unit}" if group_unit else ""
-        ax.set_title(f"{group_label}: {group_val}{unit_str}", fontweight='bold')
+        ax.set_title(f"{group_label}: {group_val}{unit_str}")
         ax.set_xlabel("Laser Voltage (V)")
-        ax.set_ylabel("Optical Power (mW)")
-        ax.legend(fontsize=8)
-        ax.grid(True, alpha=0.3)
+        ax.set_ylabel("Optical Power (µW)")
+        ax.legend()
+        if plt.rcParams.get('axes.grid', False):
+            ax.grid(True)
         ax.set_ylim(bottom=0)
 
     # Hide unused subplots
@@ -344,17 +344,16 @@ def plot_laser_calibration_comparison(
         axes[idx].axis('off')
 
     # Overall title
-    fig.suptitle(f"Laser Calibration Comparison — {tag}",
-                fontsize=16, fontweight='bold', y=0.995)
+    fig.suptitle(f"Laser Calibration Comparison — {tag}")
 
     plt.tight_layout()
 
-    # Save figure
+    # Save figure (using config settings)
     output_dir = FIG_DIR / tag
     output_dir.mkdir(parents=True, exist_ok=True)
-    output_file = output_dir / f"laser_calibration_comparison_{tag}.png"
+    output_file = output_dir / f"laser_calibration_comparison_{tag}.{config.default_plot_format}"
 
-    fig.savefig(output_file, dpi=300, bbox_inches='tight')
+    fig.savefig(output_file, dpi=config.plot_dpi, bbox_inches='tight')
     plt.close(fig)
 
     print(f"[info] Saved {output_file}")

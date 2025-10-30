@@ -216,56 +216,34 @@ def stage_all_command(
         if not verbose:
             import sys
             import io
-            import threading
-            import re
+            from contextlib import redirect_stdout
 
-            # Show progress bar while processing
+            # Show spinner with live counter while processing
             with Progress(
+                SpinnerColumn(),
                 TextColumn("[progress.description]{task.description}"),
-                BarColumn(),
-                TaskProgressColumn(),
                 TextColumn("•"),
-                TextColumn("[cyan]{task.fields[current_file]}"),
+                TextColumn("[cyan]{task.fields[status]}"),
                 console=console,
-                transient=False
+                transient=False,
+                refresh_per_second=10  # Update 10 times per second
             ) as progress:
                 task = progress.add_task(
                     "Staging files",
-                    total=len(csvs),
-                    current_file=""
+                    total=None,  # Indeterminate progress (spinner mode)
+                    status=f"0/{len(csvs)} files processed"
                 )
 
-                # Custom IO to capture and parse progress
-                class ProgressCapture(io.StringIO):
-                    def __init__(self, progress_obj, task_id):
-                        super().__init__()
-                        self.progress = progress_obj
-                        self.task = task_id
-                        self.pattern = re.compile(r'^\[(\d+)\]\s+(\w+)\s+(\w+)')
-                        self.completed = 0
+                # Progress callback function
+                def update_progress(current, total, proc, status_str):
+                    progress.update(
+                        task,
+                        status=f"{current}/{total} files • {proc} ({status_str})"
+                    )
 
-                    def write(self, text):
-                        # Check if line matches staging output format
-                        match = self.pattern.match(text.strip())
-                        if match:
-                            self.completed += 1
-                            proc_type = match.group(3)
-                            self.progress.update(
-                                self.task,
-                                completed=self.completed,
-                                current_file=f"{proc_type} ({self.completed}/{len(csvs)})"
-                            )
-                        return len(text)
-
-                # Redirect stdout to progress capture
-                old_stdout = sys.stdout
-                sys.stdout = ProgressCapture(progress, task)
-
-                try:
-                    run_staging_pipeline(params)
-                    progress.update(task, completed=len(csvs), current_file="Complete!")
-                finally:
-                    sys.stdout = old_stdout
+                # Run staging with progress callback (print statements disabled in core)
+                run_staging_pipeline(params, progress_callback=update_progress)
+                progress.update(task, status=f"✓ {len(csvs)}/{len(csvs)} files processed")
         else:
             console.print("[dim]Detailed file-by-file progress:[/dim]")
             console.print()

@@ -545,3 +545,346 @@ def build_all_histories_command(
         ))
         console.print()
         raise typer.Exit(1)
+
+
+@cli_command(
+    name="enrich-histories-with-calibrations",
+    group="history",
+    description="Associate light experiments with laser calibrations"
+)
+def enrich_histories_command(
+    history_dir: Optional[Path] = typer.Option(
+        None,
+        "--history-dir",
+        "-d",
+        help="Directory containing chip history Parquet files (default: from config)"
+    ),
+    manifest: Optional[Path] = typer.Option(
+        None,
+        "--manifest",
+        "-m",
+        help="Path to manifest.parquet (default: <stage-root>/_manifest/manifest.parquet)"
+    ),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        "-f",
+        help="Overwrite existing calibration associations"
+    ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Preview changes without modifying files"
+    ),
+    stale_threshold: float = typer.Option(
+        24.0,
+        "--stale-threshold",
+        help="Hours beyond which calibration is considered stale (default: 24)"
+    ),
+    verbose_warnings: bool = typer.Option(
+        False,
+        "--verbose-warnings",
+        help="Show all warnings (default: show first 10 per chip)"
+    ),
+):
+    """
+    Enrich chip histories with laser calibration associations.
+
+    For each light experiment, finds the appropriate laser calibration based
+    on wavelength (strict equality) and temporal proximity. Adds two new columns
+    to chip history files:
+    - calibration_parquet_path: Path to associated calibration Parquet
+    - calibration_time_delta_hours: Time between experiment and calibration
+
+    The matching strategy:
+    1. PREFERRED: Most recent calibration BEFORE experiment (same wavelength)
+    2. FALLBACK: Nearest calibration AFTER experiment (same wavelength)
+    3. WARNING: No calibration found for wavelength
+
+    \\b
+    Examples:
+        # Enrich all chip histories
+        enrich-histories-with-calibrations
+
+        # Dry run (preview changes)
+        enrich-histories-with-calibrations --dry-run
+
+        # Force re-enrichment
+        enrich-histories-with-calibrations --force
+
+        # Custom stale threshold (48 hours)
+        enrich-histories-with-calibrations --stale-threshold 48
+
+        # Custom paths
+        enrich-histories-with-calibrations --history-dir data/histories --manifest data/manifest.parquet
+
+    \\b
+    Output:
+        - Creates backups: {chip}_history.backup.parquet
+        - Updates original files with new columns
+        - Displays summary report per chip
+
+    \\b
+    Notes:
+        - Requires LaserCalibration data in manifest
+        - Only processes experiments with with_light=True
+        - Skips LaserCalibration experiments themselves
+        - Wavelength matching is strict (no tolerance)
+    """
+    from src.core.calibration_matcher import CalibrationMatcher, print_enrichment_report
+
+    # Load config for defaults
+    from src.cli.main import get_config
+    config = get_config()
+
+    if history_dir is None:
+        history_dir = config.history_dir
+        if config.verbose:
+            console.print(f"[dim]Using history directory from config: {history_dir}[/dim]")
+
+    if manifest is None:
+        # Default manifest location
+        manifest = config.stage_dir / "raw_measurements" / "_manifest" / "manifest.parquet"
+        if config.verbose:
+            console.print(f"[dim]Using manifest from: {manifest}[/dim]")
+
+    # Validate paths
+    if not history_dir.exists():
+        console.print(f"[red]✗[/red] History directory not found: {history_dir}")
+        console.print("[yellow]→[/yellow] Run: [cyan]python3 process_and_analyze.py build-all-histories[/cyan]")
+        raise typer.Exit(1)
+
+    if not manifest.exists():
+        console.print(f"[red]✗[/red] Manifest not found: {manifest}")
+        console.print("[yellow]→[/yellow] Run: [cyan]python3 process_and_analyze.py stage-all[/cyan]")
+        raise typer.Exit(1)
+
+    # Find history files
+    history_files = sorted(history_dir.glob("*_history.parquet"))
+    if len(history_files) == 0:
+        console.print(f"[red]✗[/red] No chip history files found in {history_dir}")
+        console.print("[yellow]→[/yellow] Run: [cyan]python3 process_and_analyze.py build-all-histories[/cyan]")
+        raise typer.Exit(1)
+
+    console.print()
+    console.print(Panel.fit(
+        "[bold cyan]Laser Calibration Enrichment[/bold cyan]\n\n"
+        f"History directory: {history_dir}\n"
+        f"Manifest: {manifest}\n"
+        f"Chip histories: {len(history_files)}\n"
+        f"Stale threshold: {stale_threshold:.0f} hours",
+        border_style="cyan"
+    ))
+
+    if dry_run:
+        console.print()
+        console.print("[yellow]🔍 DRY RUN MODE - No files will be modified[/yellow]")
+
+    # Initialize matcher
+    try:
+        console.print()
+        console.print("[cyan]Loading laser calibrations from manifest...[/cyan]")
+        matcher = CalibrationMatcher(manifest)
+        console.print(f"[green]✓[/green] Found {matcher.calibrations.height} laser calibrations")
+        console.print(f"[dim]Available wavelengths: {', '.join([f'{w:.0f}nm' for w in matcher.available_wavelengths])}[/dim]")
+    except Exception as e:
+        console.print(f"[red]✗[/red] Failed to load calibrations: {str(e)}")
+        raise typer.Exit(1)
+
+    # Process each chip history
+    console.print()
+    console.print(f"[cyan]Processing {len(history_files)} chip histories...[/cyan]")
+    console.print()
+
+    all_reports = []
+    total_matched = 0
+    total_missing = 0
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        console=console,
+    ) as progress:
+        task = progress.add_task("[cyan]Enriching histories...", total=len(history_files))
+
+        for history_path in history_files:
+            chip_name = history_path.stem.replace("_history", "")
+            progress.update(task, description=f"[cyan]Processing {chip_name}...")
+
+            try:
+                if not dry_run:
+                    report = matcher.enrich_chip_history(
+                        history_path,
+                        force=force,
+                        stale_threshold_hours=stale_threshold
+                    )
+                else:
+                    # Dry run: just analyze without writing
+                    history = pl.read_parquet(history_path)
+                    light_col = "has_light" if "has_light" in history.columns else "with_light"
+                    light_exps = history.filter(
+                        (pl.col(light_col) == True) &
+                        (pl.col("proc") != "LaserCalibration")
+                    )
+                    # Create dummy report
+                    from src.core.calibration_matcher import EnrichmentReport
+                    report = EnrichmentReport(
+                        chip_name=chip_name,
+                        total_light_exps=light_exps.height,
+                        matched_perfect=0,
+                        matched_future=0,
+                        matched_stale=0,
+                        missing=0,
+                        warnings=["[DRY RUN] Analysis not performed"],
+                        errors=[]
+                    )
+
+                all_reports.append(report)
+                total_matched += report.matched_perfect + report.matched_future + report.matched_stale
+                total_missing += report.missing
+
+            except Exception as e:
+                console.print(f"\n[red]✗[/red] Error processing {chip_name}: {str(e)}")
+
+            progress.advance(task)
+
+    # Display individual reports
+    console.print()
+    console.print("[bold cyan]═══ Individual Chip Reports ═══[/bold cyan]")
+
+    for report in all_reports:
+        if report.total_light_exps > 0:  # Only show chips with light experiments
+            print_enrichment_report(report, verbose=verbose_warnings)
+
+    # Display summary
+    console.print()
+    console.print(Panel.fit(
+        f"[bold]Enrichment Summary[/bold]\n\n"
+        f"Chips processed: {len(history_files)}\n"
+        f"Total light experiments: {sum(r.total_light_exps for r in all_reports)}\n"
+        f"Matched: {total_matched}\n"
+        f"Missing: {total_missing}\n\n"
+        f"{'[yellow]DRY RUN - No changes made[/yellow]' if dry_run else '[green]✓ Enrichment complete[/green]'}",
+        border_style="cyan"
+    ))
+
+    if not dry_run:
+        console.print()
+        console.print("[dim]💾 Backup files created: {chip}_history.backup.parquet[/dim]")
+        console.print()
+
+
+@cli_command(
+    name="validate-calibration-links",
+    group="history",
+    description="Validate calibration links in chip histories"
+)
+def validate_calibration_links_command(
+    history_dir: Optional[Path] = typer.Option(
+        None,
+        "--history-dir",
+        "-d",
+        help="Directory containing chip history Parquet files (default: from config)"
+    ),
+):
+    """
+    Validate that calibration links in chip histories point to existing files.
+
+    Checks all chip histories for calibration_parquet_path columns and
+    verifies that the referenced calibration files exist. Useful for
+    detecting missing or moved calibration files.
+
+    \\b
+    Examples:
+        # Validate all chip histories
+        validate-calibration-links
+
+        # Custom history directory
+        validate-calibration-links --history-dir data/histories
+    """
+    from src.cli.main import get_config
+    config = get_config()
+
+    if history_dir is None:
+        history_dir = config.history_dir
+
+    if not history_dir.exists():
+        console.print(f"[red]✗[/red] History directory not found: {history_dir}")
+        raise typer.Exit(1)
+
+    history_files = sorted(history_dir.glob("*_history.parquet"))
+    if len(history_files) == 0:
+        console.print(f"[red]✗[/red] No chip history files found in {history_dir}")
+        raise typer.Exit(1)
+
+    console.print()
+    console.print(Panel.fit(
+        "[bold cyan]Calibration Link Validation[/bold cyan]\n\n"
+        f"Checking {len(history_files)} chip histories...",
+        border_style="cyan"
+    ))
+    console.print()
+
+    total_links = 0
+    valid_links = 0
+    broken_links = 0
+    chips_with_issues = []
+
+    for history_path in history_files:
+        chip_name = history_path.stem.replace("_history", "")
+        history = pl.read_parquet(history_path)
+
+        if "calibration_parquet_path" not in history.columns:
+            console.print(f"[yellow]⚠[/yellow] {chip_name}: Not enriched (no calibration column)")
+            continue
+
+        # Get all non-null calibration paths
+        cal_paths = history.filter(
+            pl.col("calibration_parquet_path").is_not_null()
+        )["calibration_parquet_path"].unique().to_list()
+
+        if len(cal_paths) == 0:
+            continue
+
+        total_links += len(cal_paths)
+        chip_broken = []
+
+        for cal_path in cal_paths:
+            if not Path(cal_path).exists():
+                broken_links += 1
+                chip_broken.append(cal_path)
+            else:
+                valid_links += 1
+
+        if chip_broken:
+            chips_with_issues.append((chip_name, chip_broken))
+            console.print(f"[red]✗[/red] {chip_name}: {len(chip_broken)} broken link(s)")
+            for path in chip_broken[:3]:  # Show first 3
+                console.print(f"    [dim]{path}[/dim]")
+            if len(chip_broken) > 3:
+                console.print(f"    [dim]... and {len(chip_broken)-3} more[/dim]")
+        else:
+            console.print(f"[green]✓[/green] {chip_name}: All links valid")
+
+    # Summary
+    console.print()
+    if broken_links == 0:
+        console.print(Panel.fit(
+            f"[bold green]✓ All Calibration Links Valid[/bold green]\n\n"
+            f"Total links checked: {total_links}\n"
+            f"Valid: {valid_links}",
+            border_style="green"
+        ))
+    else:
+        console.print(Panel.fit(
+            f"[bold red]✗ Broken Calibration Links Found[/bold red]\n\n"
+            f"Total links: {total_links}\n"
+            f"Valid: {valid_links}\n"
+            f"Broken: {broken_links}\n\n"
+            f"Chips affected: {len(chips_with_issues)}",
+            border_style="red"
+        ))
+        console.print()
+        console.print("[yellow]→[/yellow] Re-run enrichment to fix: [cyan]enrich-histories-with-calibrations --force[/cyan]")
+
+    console.print()

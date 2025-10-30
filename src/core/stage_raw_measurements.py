@@ -741,7 +741,19 @@ def ingest_file_task(
         vg_end_v = _get_float(["VG end", "Vg end"])
         vg_step_v = _get_float(["VG step", "Vg step"])
         laser_period_s = _get_float(["Laser ON+OFF period", "Laser ON+OFF period (s)", "ON+OFF period"])
-        with_light = (wl_f is not None) and (lv_f is not None) and (lv_f != 0.0)
+
+        # LaserCalibration-specific parameters
+        optical_fiber = params.get("Optical fiber")
+        laser_voltage_start_v = _get_float(["Laser voltage start"])
+        laser_voltage_end_v = _get_float(["Laser voltage end"])
+        laser_voltage_step_v = _get_float(["Laser voltage step"])
+        sensor_model = meta.get("Sensor model")
+
+        # with_light logic: For LaserCalibration, check if wavelength exists and voltage sweep is defined
+        if proc == "LaserCalibration":
+            with_light = (wl_f is not None) and (laser_voltage_start_v is not None or laser_voltage_end_v is not None)
+        else:
+            with_light = (wl_f is not None) and (lv_f is not None) and (lv_f != 0.0)
 
         out_dir = stage_root / f"proc={proc}" / f"date={date_part}" / f"run_id={rid}"
         out_file = out_dir / "part-000.parquet"
@@ -767,6 +779,12 @@ def ingest_file_task(
             "vg_end_v": vg_end_v,
             "vg_step_v": vg_step_v,
             "date_local": date_part,
+            # LaserCalibration-specific parameters
+            "optical_fiber": optical_fiber,
+            "laser_voltage_start_v": laser_voltage_start_v,
+            "laser_voltage_end_v": laser_voltage_end_v,
+            "laser_voltage_step_v": laser_voltage_step_v,
+            "sensor_model": sensor_model,
         }
 
         if out_file.exists() and not force:
@@ -790,6 +808,12 @@ def ingest_file_task(
                 "chip_number": params.get("Chip number"),
                 "sample": params.get("Sample"),
                 "procedure_version": params.get("Procedure version"),
+                # LaserCalibration-specific parameters
+                "optical_fiber": optical_fiber,
+                "laser_voltage_start_v": laser_voltage_start_v,
+                "laser_voltage_end_v": laser_voltage_end_v,
+                "laser_voltage_step_v": laser_voltage_step_v,
+                "sensor_model": sensor_model,
             }
             df = df.with_columns([pl.lit(v).alias(k) for k, v in extra_cols.items()])
             atomic_write_parquet(df, out_file)
@@ -917,19 +941,42 @@ def merge_events_to_manifest(events_dir: Path, manifest_path: Path) -> None:
     ensure_dir(manifest_path.parent)
     if manifest_path.exists():
         prev = pl.read_parquet(manifest_path)
-        all_df = pl.concat([prev, df], how="vertical_relaxed")
-        all_df = all_df.unique(subset=["run_id", "ts", "status", "path"], keep="last")
+
+        # Ensure both DataFrames have the same columns with matching types
+        prev_cols = set(prev.columns)
+        new_cols = set(df.columns)
+
+        # Add missing columns to prev with correct types from df
+        for col in new_cols - prev_cols:
+            dtype = df[col].dtype
+            prev = prev.with_columns(pl.lit(None, dtype=dtype).alias(col))
+
+        # Add missing columns to df with correct types from prev
+        for col in prev_cols - new_cols:
+            dtype = prev[col].dtype
+            df = df.with_columns(pl.lit(None, dtype=dtype).alias(col))
+
+        # Ensure same column order
+        common_cols = sorted(set(prev.columns) & set(df.columns))
+        prev = prev.select(common_cols)
+        df = df.select(common_cols)
+
+        all_df = pl.concat([prev, df], how="vertical")
+        # Deduplicate by run_id only (run_id is deterministic hash of path+timestamp)
+        # Keep "last" to update records when re-running with --force
+        all_df = all_df.unique(subset=["run_id"], keep="last")
         all_df.write_parquet(manifest_path)
     else:
         df.write_parquet(manifest_path)
 
 
-def run_staging_pipeline(params: StagingParameters) -> None:
+def run_staging_pipeline(params: StagingParameters, progress_callback=None) -> None:
     """
     Run staging pipeline with Pydantic-validated parameters.
 
     Args:
         params: Validated StagingParameters instance
+        progress_callback: Optional callback function(current, total, proc, status) for progress updates
 
     Example:
         >>> from models.parameters import StagingParameters
@@ -968,16 +1015,21 @@ def run_staging_pipeline(params: StagingParameters) -> None:
 
     # Discover CSV files
     csvs = discover_csvs(raw_root)
-    print(f"[info] discovered {len(csvs)} CSV files under {raw_root}")
+    if not progress_callback:
+        print(f"[info] discovered {len(csvs)} CSV files under {raw_root}")
     if not csvs:
-        print("[done] nothing to do.")
+        if not progress_callback:
+            print("[done] nothing to do.")
         return
 
     # Process files in parallel
+    from concurrent.futures import as_completed
+
     submitted = 0
     ok = skipped = reject = 0
     with ProcessPoolExecutor(max_workers=workers) as ex:
-        futs = []
+        # Submit all tasks and track futures with their source files
+        future_to_src = {}
         for src in csvs:
             fut = ex.submit(
                 ingest_file_task,
@@ -990,18 +1042,28 @@ def run_staging_pipeline(params: StagingParameters) -> None:
                 str(rejects_dir),
                 only_yaml_data,
             )
-            futs.append((src, fut))
+            future_to_src[fut] = src
             submitted += 1
 
-        for i, (src, fut) in enumerate(futs, 1):
+        # Process futures as they complete (not in submission order)
+        completed = 0
+        for fut in as_completed(future_to_src):
+            completed += 1
+            src = future_to_src[fut]
+
             try:
                 out = fut.result()
             except Exception as e:
                 reject += 1
-                print(f"[{i:04d}]  REJECT {src} :: {e}")
+                if not progress_callback:
+                    print(f"[{completed:04d}]  REJECT {src} :: {e}")
+                if progress_callback:
+                    progress_callback(completed, len(csvs), "unknown", "reject")
                 continue
 
             st = out.get("status")
+            proc = out.get("proc", "unknown")
+
             if st == "ok":
                 ok += 1
             elif st == "skipped":
@@ -1009,14 +1071,23 @@ def run_staging_pipeline(params: StagingParameters) -> None:
             elif st == "reject":
                 reject += 1
 
-            if st in {"ok", "skipped"}:
-                print(f"[{i:04d}] {st.upper():>7} {out['proc']:<8} rows={out['rows']:<7} → {out['path']}  ({out.get('date_origin','meta')})")
-            else:
-                print(f"[{i:04d}]  REJECT {src} :: {out.get('error')}")
+            # Only print if no callback (verbose mode)
+            if not progress_callback:
+                if st in {"ok", "skipped"}:
+                    print(f"[{completed:04d}] {st.upper():>7} {out['proc']:<8} rows={out['rows']:<7} → {out['path']}  ({out.get('date_origin','meta')})")
+                else:
+                    print(f"[{completed:04d}]  REJECT {src} :: {out.get('error')}")
+
+            # Call progress callback if provided
+            if progress_callback:
+                progress_callback(completed, len(csvs), proc, st)
 
     # Merge events into manifest
     merge_events_to_manifest(events_dir, manifest_path)
-    print(f"[done] staging complete  |  ok={ok}  skipped={skipped}  rejects={reject}  submitted={submitted}")
+
+    # Only print summary if no callback (verbose mode)
+    if not progress_callback:
+        print(f"[done] staging complete  |  ok={ok}  skipped={skipped}  rejects={reject}  submitted={submitted}")
 
 
 def main() -> None:

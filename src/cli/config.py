@@ -61,7 +61,7 @@ class CLIConfig(BaseModel):
 
     # Processing settings
     parallel_workers: int = Field(
-        default=4,
+        default=8,
         ge=1,
         le=16,
         description="Number of parallel workers for data processing"
@@ -86,6 +86,10 @@ class CLIConfig(BaseModel):
         ge=72,
         le=600,
         description="DPI for plot output"
+    )
+    plot_theme: Literal["prism_rain"] = Field(
+        default="prism_rain",
+        description="Default matplotlib theme for plots (from src/plotting/styles.py)"
     )
 
     # Config metadata (not user-configurable)

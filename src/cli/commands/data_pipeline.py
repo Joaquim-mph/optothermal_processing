@@ -140,6 +140,7 @@ def full_pipeline_command(
             polars_threads=2,
             force=force,
             only_yaml_data=False,
+            strict=False,
             verbose=False,
         )
     except SystemExit as e:

@@ -82,10 +82,11 @@ def build_chip_history_from_manifest(
     if stage_root is None:
         stage_root = manifest_path.parent.parent  # Go up from _manifest/ to raw_measurements/
 
-    # Load manifest rows (status == "ok" are the successful ingestions)
+    # Load manifest rows
+    # Both "ok" (freshly staged) and "skipped" (already existed) are valid
     df = (
         pl.read_parquet(manifest_path)
-        .filter(pl.col("status") == "ok")
+        .filter(pl.col("status").is_in(["ok", "skipped"]))
     )
 
     # Filter by chip identifier

@@ -65,6 +65,29 @@ python3 process_and_analyze.py inspect-manifest --chip 67
 python3 process_and_analyze.py show-history 67 --proc IVg --light dark --limit 20
 ```
 
+### Derived Metrics Pipeline (New in v3.0)
+
+```bash
+# Extract all derived metrics (CNP, photoresponse) from measurements
+python3 process_and_analyze.py derive-all-metrics
+
+# Include laser calibration power extraction (enabled by default)
+python3 process_and_analyze.py derive-all-metrics --calibrations
+
+# Extract metrics for specific chip or procedure
+python3 process_and_analyze.py derive-all-metrics --chip 75
+python3 process_and_analyze.py derive-all-metrics --procedures IVg,VVg
+
+# Preview what would be extracted (dry run)
+python3 process_and_analyze.py derive-all-metrics --dry-run
+
+# Force re-extraction (overwrite existing metrics)
+python3 process_and_analyze.py derive-all-metrics --force
+
+# Enrich chip history with derived metrics as columns
+python3 process_and_analyze.py enrich-history 75
+```
+
 ### Plotting Commands
 
 ```bash
@@ -79,6 +102,25 @@ python3 process_and_analyze.py plot-ivg 67 --auto
 
 # Transconductance (gm = dI/dVg) plots
 python3 process_and_analyze.py plot-transconductance 67 --seq 2,8,14
+
+# VVg (drain-source voltage vs gate voltage) plots
+python3 process_and_analyze.py plot-vvg 67 --seq 2,8,14
+python3 process_and_analyze.py plot-vvg 67 --auto
+
+# Vt (voltage vs time) plots
+python3 process_and_analyze.py plot-vt 67 --seq 10,20,30
+
+# CNP (Charge Neutrality Point / Dirac point) evolution plots
+python3 process_and_analyze.py plot-cnp-time 81
+
+# Photoresponse plots (vs power, wavelength, gate voltage, or time)
+python3 process_and_analyze.py plot-photoresponse 81 power
+python3 process_and_analyze.py plot-photoresponse 81 wavelength --vg -0.4
+python3 process_and_analyze.py plot-photoresponse 81 gate_voltage --wl 660
+python3 process_and_analyze.py plot-photoresponse 81 time
+
+# Laser calibration plots
+python3 process_and_analyze.py plot-laser-calibration 67
 ```
 
 ### Configuration Management
@@ -121,7 +163,7 @@ python3 process_and_analyze.py list-plugins --group plotting
 
 ### Data Flow
 
-The pipeline follows a three-stage data processing architecture:
+The pipeline follows a four-stage data processing architecture:
 
 **Stage 1: Raw Data** (`data/01_raw/`)
 - Raw CSV files from lab equipment
@@ -135,8 +177,15 @@ The pipeline follows a three-stage data processing architecture:
 - Schema-validated using Pydantic models (`src/models/manifest.py`)
 - Parallel processing using multiprocessing pool (configurable workers)
 - Run IDs: deterministic SHA-1 hash of `(path|timestamp_utc)` for idempotency
+- `chip_histories/`: Per-chip Parquet histories with sequential experiment numbers
 
-**Stage 3: Chip Histories** (`data/02_stage/chip_histories/`)
+**Stage 3: Derived Metrics** (`data/03_derived/`) **[New in v3.0]**
+- `_metrics/metrics.parquet`: Extracted derived metrics (CNP, photoresponse, etc.)
+- `chip_histories_enriched/`: Chip histories with derived metrics joined as columns
+- Contains laser calibration power associations (irradiated power values)
+- Built by `derive-all-metrics` command from staged measurements
+
+**Stage 2.5: Chip Histories** (`data/02_stage/chip_histories/`)
 - Per-chip Parquet histories with sequential experiment numbers
 - Built from manifest.parquet, filtered by chip_number/chip_group
 - **Includes `parquet_path` column** pointing to staged measurement data
@@ -162,12 +211,24 @@ The pipeline follows a three-stage data processing architecture:
 **Plotting** (`src/plotting/`)
 - `its.py`: Current vs time plots (photoresponse) - **reads from staged Parquet via `parquet_path`**
 - `ivg.py`: Gate voltage sweep plots
+- `vvg.py`: Drain-source voltage vs gate voltage plots
+- `vt.py`: Voltage vs time plots
 - `transconductance.py`: dI/dVg calculations (Savitzky-Golay filtering)
+- `cnp_time.py`: CNP (Dirac point) evolution over time
+- `photoresponse.py`: Photoresponse vs power/wavelength/gate/time
+- `laser_calibration.py`: Laser calibration curve plots
 - `its_presets.py`: Predefined ITS plot configurations
 - `plot_utils.py`: Baseline interpolation, shared utilities
 - `overlays.py`: Multi-experiment overlay logic
 - `styles.py`: scienceplots styling configuration
 - **IMPORTANT**: All plotting uses `read_measurement_parquet()` from `src/core/utils.py`
+
+**Derived Metrics** (`src/derived/`) **[New in v3.0]**
+- `metric_pipeline.py`: Main pipeline for extracting derived metrics
+- `extractors/`: Individual metric extractors (CNP, photoresponse, calibration matching)
+- `registry.py`: Plugin registry for auto-discovery of extractors
+- `models.py`: Pydantic models for metric metadata
+- Supports parallel extraction and incremental updates
 
 **CLI** (`src/cli/`)
 - `main.py`: Typer app with plugin discovery system
@@ -177,9 +238,15 @@ The pipeline follows a three-stage data processing architecture:
   - `data_pipeline.py`: Full pipeline orchestration
   - `history.py`: History viewing and generation
   - `stage.py`: Staging commands and validation
+  - `derived_metrics.py`: Derived metrics extraction commands
   - `plot_its.py`: ITS plotting with presets
   - `plot_ivg.py`: IVg plotting
+  - `plot_vvg.py`: VVg plotting
+  - `plot_vt.py`: Vt plotting
   - `plot_transconductance.py`: Transconductance plotting
+  - `plot_cnp.py`: CNP evolution plotting
+  - `plot_photoresponse.py`: Photoresponse analysis plotting
+  - `plot_laser_calibration.py`: Laser calibration plotting
   - `config.py`: Configuration management commands
   - `utilities.py`: Utility commands (list-plugins, etc.)
 - `helpers.py`: Shared CLI utilities (seq parsing, output setup, Rich displays)
@@ -252,6 +319,36 @@ The pipeline follows a three-stage data processing architecture:
 - Localized to `America/Santiago` during staging
 - Converted to UTC for storage in manifest.parquet
 - `date_local` field preserves local calendar date for Hive partitioning
+
+## Key Concepts (Continued)
+
+**Derived Metrics Pipeline** **[New in v3.0]**
+- **Automated extraction**: Extracts derived quantities (CNP, photoresponse) from measurements
+- **Plugin-based extractors**: Auto-discovered metric extractors in `src/derived/extractors/`
+- **Incremental updates**: Only processes new/changed measurements (use `--force` to re-extract)
+- **Parallel processing**: Multi-worker extraction for performance
+- **Laser calibration matching**: Associates light experiments with nearest calibration curves
+- **Power interpolation**: Calculates irradiated power from laser voltage and calibration data
+- **Enriched histories**: Chip histories with derived metrics joined as columns for plotting
+- **See**: `docs/DERIVED_METRICS_ARCHITECTURE.md` for complete documentation
+
+**Adding New Derived Metrics**
+1. **Create extractor** in `src/derived/extractors/my_metric.py`:
+   ```python
+   from src.derived.registry import register_extractor
+   from src.derived.models import DerivedMetric
+
+   @register_extractor
+   class MyMetricExtractor:
+       procedures = ["IVg"]  # Which procedures to process
+
+       def extract(self, measurement: pl.DataFrame, metadata: dict) -> list[DerivedMetric]:
+           # Extract metric from measurement data
+           return [DerivedMetric(...)]
+   ```
+2. **Auto-discovered**: No registration needed, just import in `__init__.py`
+3. **Test**: `python3 process_and_analyze.py derive-all-metrics --procedures IVg`
+4. **See**: `docs/ADDING_NEW_METRICS_GUIDE.md` for step-by-step guide
 
 ## Development Workflow
 
@@ -335,7 +432,10 @@ Quick overview:
 **Reference implementations:**
 - Time-series (I vs t): `src/plotting/its.py`
 - Voltage sweeps (I vs Vg): `src/plotting/ivg.py`
+- Voltage sweeps (V vs Vg): `src/plotting/vvg.py`
+- Voltage time-series (V vs t): `src/plotting/vt.py`
 - Derivatives: `src/plotting/transconductance.py`
+- Derived metrics: `src/plotting/cnp_time.py`, `src/plotting/photoresponse.py`
 
 ### Modifying Data Schema
 
@@ -405,6 +505,7 @@ python3 process_and_analyze.py list-plugins
 - `full-pipeline`: Runs staging → history generation
 - `stage-all`: CSV → Parquet with Pydantic validation
 - `build-all-histories`: Generate histories from `manifest.parquet`
+- `derive-all-metrics`: Extract derived metrics (CNP, photoresponse) with laser calibration power
 - Uses `data/02_stage/raw_measurements/_manifest/manifest.parquet` as source of truth
 
 **Legacy Pipeline (DEPRECATED - DO NOT USE):**
@@ -412,3 +513,29 @@ python3 process_and_analyze.py list-plugins
 - `chip-histories`: Generate histories from metadata folder (obsolete)
 - Functions in `src/core/parser.py` and `src/core/timeline.py` (kept for compatibility)
 - Some legacy functions still used by TUI, but being phased out
+
+## Recent Additions & Features
+
+### Version 3.0 - Derived Metrics Pipeline (October 2025)
+
+**New Commands:**
+- `derive-all-metrics`: Extract CNP, photoresponse, and laser calibration power
+- `enrich-history`: Join derived metrics to chip histories as columns
+- `plot-cnp-time`: Plot CNP (Dirac point) evolution over time
+- `plot-photoresponse`: Plot photoresponse vs power, wavelength, gate voltage, or time
+- `plot-laser-calibration`: Visualize laser calibration curves
+
+**New Plotting Support:**
+- `plot-vvg`: Drain-source voltage vs gate voltage plots (VVg procedure)
+- `plot-vt`: Voltage vs time plots (Vt procedure)
+
+**Workflow:**
+1. Stage data: `python3 process_and_analyze.py full-pipeline`
+2. Extract metrics: `python3 process_and_analyze.py derive-all-metrics`
+3. Plot derived quantities: `python3 process_and_analyze.py plot-cnp-time 81`
+
+**Documentation:**
+- `docs/DERIVED_METRICS_ARCHITECTURE.md`: Complete architecture guide
+- `docs/ADDING_NEW_METRICS_GUIDE.md`: Step-by-step guide for adding extractors
+- `docs/DERIVED_METRICS_QUICKSTART.md`: Quick start guide
+- `docs/CNP_EXTRACTOR_GUIDE.md`: CNP extractor implementation details

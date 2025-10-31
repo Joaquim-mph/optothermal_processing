@@ -10,8 +10,9 @@ This pipeline processes raw measurement CSV files from lab equipment (Keithley s
 
 - **Modern Data Pipeline**: CSV → Parquet staging with schema validation
 - **Experiment History Management**: Track and organize experiments by chip
-- **Publication-Quality Plotting**: ITS, IVg, and transconductance plots with scienceplots styling
-- **Parallel Processing**: Multi-core data staging for faster processing
+- **Derived Metrics Extraction**: Automatic CNP, photoresponse, and laser power extraction
+- **Publication-Quality Plotting**: ITS, IVg, VVg, CNP, photoresponse, and more with scienceplots styling
+- **Parallel Processing**: Multi-core data staging and metric extraction
 - **Terminal UI**: User-friendly TUI for non-technical lab users
 - **Plugin Architecture**: Extensible CLI with auto-discovery of commands
 
@@ -31,9 +32,12 @@ uv install -r requirements.txt
 ### Basic Usage
 
 ```bash
-# drop lab data in data/01_raw/
+# Drop lab data in data/01_raw/
 # Run the complete pipeline (staging + history generation)
 python process_and_analyze.py full-pipeline
+
+# Extract derived metrics (CNP, photoresponse, laser power)
+python process_and_analyze.py derive-all-metrics
 
 # View experiment history for a chip
 python process_and_analyze.py show-history 67
@@ -41,6 +45,8 @@ python process_and_analyze.py show-history 67
 # Generate plots
 python process_and_analyze.py plot-its 67 --seq 52,57,58
 python process_and_analyze.py plot-ivg 67 --auto
+python process_and_analyze.py plot-cnp-time 81
+python process_and_analyze.py plot-photoresponse 81 power
 
 # Launch terminal UI for lab users
 python tui_app.py
@@ -111,7 +117,11 @@ See [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md) for complete configuration 
    ├─ manifest.parquet (metadata index)
    └─ chip_histories/ (per-chip timelines)
 
-3. Plots (figs/)
+3. Derived Metrics (data/03_derived/)
+   ├─ metrics.parquet (CNP, photoresponse, etc.)
+   └─ chip_histories_enriched/ (with metrics joined)
+
+4. Plots (figs/)
    └─ Publication-quality PNG figures
 ```
 
@@ -122,18 +132,25 @@ See [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md) for complete configuration 
 - `full-pipeline` - Run complete pipeline (staging + histories)
 - `stage-all` - Stage raw CSVs to Parquet with validation
 - `build-all-histories` - Generate chip histories from manifest
+- `derive-all-metrics` - Extract CNP, photoresponse, laser power (v3.0)
 
 ### History Management
 
 - `show-history` - Display chip experiment timeline
 - `build-history` - Build history for specific chip
+- `enrich-history` - Add derived metrics to chip history (v3.0)
 
 ### Plotting
 
 - `plot-its` - Current vs time overlay plots
 - `plot-its-sequential` - Sequential ITS plots
 - `plot-ivg` - Gate voltage sweep plots
+- `plot-vvg` - Drain-source voltage vs gate voltage plots
+- `plot-vt` - Voltage vs time plots
 - `plot-transconductance` - Transconductance (gm = dI/dVg) plots
+- `plot-cnp-time` - CNP (Dirac point) evolution over time (v3.0)
+- `plot-photoresponse` - Photoresponse vs power/wavelength/gate/time (v3.0)
+- `plot-laser-calibration` - Laser calibration curves (v3.0)
 
 ### Data Validation
 
@@ -284,12 +301,27 @@ disabled_commands: []
 
 ## Documentation
 
-- **[CLAUDE.md](CLAUDE.md)** - Project overview and commands
+### Core Documentation
+- **[CLAUDE.md](CLAUDE.md)** - Complete project overview and commands for AI assistants
 - **[CLI_MODULE_ARCHITECTURE.md](docs/CLI_MODULE_ARCHITECTURE.md)** - CLI architecture
 - **[CONFIGURATION.md](docs/CONFIGURATION.md)** - Configuration management guide
-- **[CLI_PLUGIN_SYSTEM.md](docs/CLI_PLUGIN_SYSTEM.md)** - Plugin system guide
-- **[PLUGIN_SYSTEM_MIGRATION.md](docs/PLUGIN_SYSTEM_MIGRATION.md)** - Migration guide
 - **[PYDANTIC_ARCHITECTURE.md](docs/PYDANTIC_ARCHITECTURE.md)** - Data models
+
+### Plugin Systems
+- **[CLI_PLUGIN_SYSTEM.md](docs/CLI_PLUGIN_SYSTEM.md)** - CLI plugin system guide
+- **[PLUGIN_SYSTEM_MIGRATION.md](docs/PLUGIN_SYSTEM_MIGRATION.md)** - Migration guide
+
+### Derived Metrics (v3.0)
+- **[DERIVED_METRICS_ARCHITECTURE.md](docs/DERIVED_METRICS_ARCHITECTURE.md)** - Architecture overview
+- **[DERIVED_METRICS_QUICKSTART.md](docs/DERIVED_METRICS_QUICKSTART.md)** - Quick start guide
+- **[ADDING_NEW_METRICS_GUIDE.md](docs/ADDING_NEW_METRICS_GUIDE.md)** - Step-by-step extractor guide
+- **[CNP_EXTRACTOR_GUIDE.md](docs/CNP_EXTRACTOR_GUIDE.md)** - CNP implementation details
+
+### Data Processing
+- **[SCHEMA_VALIDATION_GUIDE.md](docs/SCHEMA_VALIDATION_GUIDE.md)** - Schema validation
+- **[YAML_DRIVEN_MANIFEST.md](docs/YAML_DRIVEN_MANIFEST.md)** - Manifest generation
+- **[PLOTTING_IMPLEMENTATION_GUIDE.md](docs/PLOTTING_IMPLEMENTATION_GUIDE.md)** - Plotting guide
+- **[PROCEDURES.md](docs/PROCEDURES.md)** - Procedure types reference
 
 ## Examples
 
@@ -304,6 +336,9 @@ python process_and_analyze.py build-all-histories
 
 # Or do both in one step
 python process_and_analyze.py full-pipeline
+
+# Extract derived metrics (CNP, photoresponse, laser power)
+python process_and_analyze.py derive-all-metrics
 ```
 
 ### Generate Plots
@@ -324,8 +359,20 @@ python process_and_analyze.py plot-its 67 --auto --vg -0.4
 # IVg sequence plots
 python process_and_analyze.py plot-ivg 67 --seq 2,8,14
 
+# VVg (drain-source voltage vs gate voltage)
+python process_and_analyze.py plot-vvg 67 --seq 2,8,14
+
 # Transconductance
 python process_and_analyze.py plot-transconductance 67 --seq 2,8,14
+
+# CNP evolution over time
+python process_and_analyze.py plot-cnp-time 81
+
+# Photoresponse analysis
+python process_and_analyze.py plot-photoresponse 81 power
+python process_and_analyze.py plot-photoresponse 81 wavelength --vg -0.4
+python process_and_analyze.py plot-photoresponse 81 gate_voltage --wl 660
+python process_and_analyze.py plot-photoresponse 81 time
 ```
 
 ### View History
@@ -364,6 +411,24 @@ def plot_my_analysis_command(chip_number: int, ...):
 # 3. Done! Command auto-discovered
 ```
 
+### Adding a Derived Metric Extractor
+
+```python
+# 1. Create extractor in src/derived/extractors/
+from src.derived.registry import register_extractor
+from src.derived.models import DerivedMetric
+
+@register_extractor
+class MyMetricExtractor:
+    procedures = ["IVg"]  # Which procedures to process
+
+    def extract(self, measurement, metadata):
+        # Extract metric from measurement data
+        return [DerivedMetric(...)]
+
+# 2. Done! Auto-discovered by derive-all-metrics
+```
+
 ### Running Tests
 
 ```bash
@@ -378,6 +443,9 @@ python process_and_analyze.py --help
 
 # Validate manifest
 python process_and_analyze.py validate-manifest
+
+# Test metric extraction (dry run)
+python process_and_analyze.py derive-all-metrics --dry-run
 ```
 
 ## Contributing

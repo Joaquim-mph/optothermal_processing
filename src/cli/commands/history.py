@@ -235,40 +235,63 @@ def show_history_command(
     console.print(Columns(summary_items, equal=True, expand=True))
     console.print()
 
-    # Experiment table
+    # Experiment table (expand to full terminal width for all the columns)
     table = Table(
         title=f"Experiments" + (f" (showing last {limit})" if limit else ""),
         box=box.ROUNDED,
         show_lines=False,
-        expand=False
+        expand=True  # Expand to terminal width
     )
 
-    # Check for enriched metric columns
+    # Check for enriched metric columns and experimental parameters
     has_light_col = "has_light" in history.columns
     has_cnp = "cnp_voltage" in history.columns
     has_delta_current = "delta_current" in history.columns
     has_delta_voltage = "delta_voltage" in history.columns
     has_power = "irradiated_power_w" in history.columns
 
+    # Check for experimental parameters
+    has_vds = "vds_v" in history.columns
+    has_vg_fixed = "vg_fixed_v" in history.columns
+    has_vg_range = "vg_start_v" in history.columns and "vg_end_v" in history.columns
+    has_wavelength = "wavelength_nm" in history.columns
+    has_laser_period = "laser_period_s" in history.columns
+
+    # Build table columns
     if has_light_col:
-        table.add_column("💡", style="bold", width=3, justify="center")
+        table.add_column("💡", style="bold", justify="center", no_wrap=True)
 
-    table.add_column("Seq", style="dim", width=5, justify="right")
-    table.add_column("Date", style="cyan", width=12)
-    table.add_column("Time", style="green", width=10)
-    table.add_column("Proc", style="yellow", width=6)
+    table.add_column("Seq", style="dim", justify="right", no_wrap=True)
+    table.add_column("Date", style="cyan", no_wrap=True)
+    table.add_column("Time", style="green", no_wrap=True)
+    table.add_column("Proc", style="yellow", no_wrap=True)
 
-    # Add derived metrics columns if they exist
+    # Experimental parameters (before derived metrics for logical flow)
+    if has_vds:
+        table.add_column("VDS", style="cyan", justify="right", no_wrap=True)
+    if has_vg_fixed:
+        table.add_column("Vg", style="cyan", justify="right", no_wrap=True)
+    if has_vg_range:
+        table.add_column("Vg range", style="cyan", justify="center", no_wrap=True)
+    if has_wavelength:
+        table.add_column("λ", style="bright_yellow", justify="right", no_wrap=True)
+    if has_laser_period:
+        table.add_column("Period", style="yellow", justify="right", no_wrap=True)
+
+    # Derived metrics columns
     if has_cnp:
-        table.add_column("CNP (V)", style="magenta", width=9, justify="right")
+        table.add_column("CNP", style="magenta", justify="right", no_wrap=True)
     if has_delta_current:
-        table.add_column("ΔI (μA)", style="blue", width=9, justify="right")
+        table.add_column("ΔI", style="blue", justify="right", no_wrap=True)
     if has_delta_voltage:
-        table.add_column("ΔV (mV)", style="blue", width=9, justify="right")
+        table.add_column("ΔV", style="blue", justify="right", no_wrap=True)
     if has_power:
-        table.add_column("Power (μW)", style="bright_yellow", width=10, justify="right")
+        table.add_column("Power", style="bright_yellow", justify="right", no_wrap=True)
 
-    table.add_column("Description", style="white")
+    # Only add description if we don't have many parameter columns
+    show_description = not (has_vds and has_vg_range and has_wavelength and has_laser_period)
+    if show_description:
+        table.add_column("Notes", style="white", overflow="fold")
 
     # Group by date for visual separation
     current_date = None
@@ -281,22 +304,40 @@ def show_history_command(
 
         current_date = date
 
-        # Build description from summary
+        # Build simplified description (parameters now in dedicated columns)
         summary = row.get("summary", "")
-        # Remove chip name and sequence number from summary for cleaner display
         desc = summary
+
+        # Remove chip name
         for prefix in [chip_name, f"{chip_group}{chip_number}"]:
             desc = desc.replace(prefix, "").strip()
-        # Remove leading procedure name (already in Proc column)
+
+        # Remove procedure name (already in Proc column)
         proc = row.get("proc", "")
         if desc.startswith(proc):
             desc = desc[len(proc):].strip()
 
+        # Remove parameter details that are now in columns
+        # e.g., "VDS=0.1 V VG=-5.0→5.0", "λ=455nm", etc.
+        import re
+        desc = re.sub(r'VDS=[\d.]+\s*V?', '', desc, flags=re.IGNORECASE)
+        desc = re.sub(r'V\s*VG=[-\d.]+→[-\d.]+', '', desc)
+        desc = re.sub(r'\(step\s+[\d.]+\)', '', desc)
+        desc = re.sub(r'VL=[\d.]+', '', desc)
+        desc = re.sub(r'λ=\d+\s*nm', '', desc, flags=re.IGNORECASE)
+        desc = re.sub(r'period=[\d.]+\s*s', '', desc, flags=re.IGNORECASE)
+        desc = re.sub(r'\s+', ' ', desc).strip()  # Clean up multiple spaces
+
         # Truncate if too long
-        has_derived_metrics = (has_cnp or has_delta_current or has_delta_voltage or has_power)
-        desc_max_len = 50 if has_derived_metrics else 80
+        has_many_cols = (has_cnp or has_delta_current or has_delta_voltage or has_power or
+                        has_vds or has_vg_fixed or has_vg_range or has_wavelength or has_laser_period)
+        desc_max_len = 25 if has_many_cols else 60
         if len(desc) > desc_max_len:
             desc = desc[:desc_max_len-3] + "..."
+
+        # If description is empty or too short, add a placeholder
+        if not desc or len(desc) < 3:
+            desc = "—"
 
         # Build row data
         row_data = []
@@ -319,6 +360,79 @@ def show_history_command(
             row.get("time_hms", "?"),
             proc
         ])
+
+        # Add experimental parameters
+        if has_vds:
+            vds = row.get("vds_v")
+            if vds is not None and vds != "":
+                try:
+                    vds_float = float(vds) if isinstance(vds, str) else vds
+                    if not (vds_float != vds_float):  # Check for NaN
+                        row_data.append(f"{vds_float:.2f}")
+                    else:
+                        row_data.append("—")
+                except (ValueError, TypeError):
+                    row_data.append("—")
+            else:
+                row_data.append("—")
+
+        if has_vg_fixed:
+            vg = row.get("vg_fixed_v")
+            if vg is not None and vg != "":
+                try:
+                    vg_float = float(vg) if isinstance(vg, str) else vg
+                    if not (vg_float != vg_float):  # Check for NaN
+                        row_data.append(f"{vg_float:.2f}")
+                    else:
+                        row_data.append("—")
+                except (ValueError, TypeError):
+                    row_data.append("—")
+            else:
+                row_data.append("—")
+
+        if has_vg_range:
+            vg_start = row.get("vg_start_v")
+            vg_end = row.get("vg_end_v")
+            if vg_start is not None and vg_end is not None:
+                try:
+                    vg_start_f = float(vg_start) if isinstance(vg_start, str) else vg_start
+                    vg_end_f = float(vg_end) if isinstance(vg_end, str) else vg_end
+                    if not (vg_start_f != vg_start_f or vg_end_f != vg_end_f):
+                        row_data.append(f"{vg_start_f:.1f}→{vg_end_f:.1f}")
+                    else:
+                        row_data.append("—")
+                except (ValueError, TypeError):
+                    row_data.append("—")
+            else:
+                row_data.append("—")
+
+        if has_wavelength:
+            wl = row.get("wavelength_nm")
+            if wl is not None and wl != "":
+                try:
+                    wl_float = float(wl) if isinstance(wl, str) else wl
+                    if not (wl_float != wl_float):  # Check for NaN
+                        row_data.append(f"{wl_float:.0f}")
+                    else:
+                        row_data.append("—")
+                except (ValueError, TypeError):
+                    row_data.append("—")
+            else:
+                row_data.append("—")
+
+        if has_laser_period:
+            period = row.get("laser_period_s")
+            if period is not None and period != "":
+                try:
+                    period_float = float(period) if isinstance(period, str) else period
+                    if not (period_float != period_float):  # Check for NaN
+                        row_data.append(f"{period_float:.1f}")
+                    else:
+                        row_data.append("—")
+                except (ValueError, TypeError):
+                    row_data.append("—")
+            else:
+                row_data.append("—")
 
         # Add derived metrics if columns exist
         if has_cnp:
@@ -377,8 +491,9 @@ def show_history_command(
             else:
                 row_data.append("—")
 
-        # Description
-        row_data.append(desc)
+        # Description/Notes (only if showing description column)
+        if show_description:
+            row_data.append(desc)
 
         table.add_row(*row_data)
 

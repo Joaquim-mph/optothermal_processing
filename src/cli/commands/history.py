@@ -102,9 +102,61 @@ def show_history_command(
             console.print(f"  [dim](directory does not exist)[/dim]")
         raise typer.Exit(1)
 
-    # Load history
+    # Try to load enriched history from Stage 3 first (has calibration data)
+    # If not available, fall back to Stage 2 and try to join with metrics
+    enriched_history_file = config.stage_dir.parent / "03_derived" / "chip_histories_enriched" / f"{chip_name}_history.parquet"
+    metrics_file = config.stage_dir.parent / "03_derived" / "_metrics" / "metrics.parquet"
+
     try:
-        history = pl.read_parquet(history_file)
+        if enriched_history_file.exists():
+            # Load enriched history (has calibration power data)
+            history = pl.read_parquet(enriched_history_file)
+
+            # Try to join with metrics for CNP and photoresponse
+            if metrics_file.exists():
+                metrics = pl.read_parquet(metrics_file)
+
+                # Filter metrics for this chip
+                chip_metrics = metrics.filter(
+                    (pl.col("chip_number") == chip_number) &
+                    (pl.col("chip_group") == chip_group)
+                )
+
+                # Pivot metrics to wide format (one column per metric type)
+                # Join CNP voltage
+                cnp_metrics = chip_metrics.filter(pl.col("metric_name") == "cnp_voltage")
+                if cnp_metrics.height > 0:
+                    cnp_df = cnp_metrics.select([
+                        "run_id",
+                        pl.col("value_float").alias("cnp_voltage")
+                    ])
+                    history = history.join(cnp_df, on="run_id", how="left")
+
+                # Join delta current (photoresponse)
+                delta_i_metrics = chip_metrics.filter(pl.col("metric_name") == "delta_current")
+                if delta_i_metrics.height > 0:
+                    delta_i_df = delta_i_metrics.select([
+                        "run_id",
+                        pl.col("value_float").alias("delta_current")
+                    ])
+                    history = history.join(delta_i_df, on="run_id", how="left")
+
+                # Join delta voltage (photoresponse)
+                delta_v_metrics = chip_metrics.filter(pl.col("metric_name") == "delta_voltage")
+                if delta_v_metrics.height > 0:
+                    delta_v_df = delta_v_metrics.select([
+                        "run_id",
+                        pl.col("value_float").alias("delta_voltage")
+                    ])
+                    history = history.join(delta_v_df, on="run_id", how="left")
+
+            if config.verbose:
+                console.print(f"[dim]Loaded enriched history with derived metrics[/dim]")
+        else:
+            # Fall back to Stage 2 base history
+            history = pl.read_parquet(history_file)
+            if config.verbose:
+                console.print(f"[dim]Loaded base history (no derived metrics)[/dim]")
     except Exception as e:
         console.print(f"[red]Error:[/red] Failed to read history file: {e}")
         raise typer.Exit(1)
@@ -191,8 +243,12 @@ def show_history_command(
         expand=False
     )
 
-    # Add light indicator column if has_light exists
+    # Check for enriched metric columns
     has_light_col = "has_light" in history.columns
+    has_cnp = "cnp_voltage" in history.columns
+    has_delta_current = "delta_current" in history.columns
+    has_delta_voltage = "delta_voltage" in history.columns
+    has_power = "irradiated_power_w" in history.columns
 
     if has_light_col:
         table.add_column("💡", style="bold", width=3, justify="center")
@@ -201,6 +257,17 @@ def show_history_command(
     table.add_column("Date", style="cyan", width=12)
     table.add_column("Time", style="green", width=10)
     table.add_column("Proc", style="yellow", width=6)
+
+    # Add derived metrics columns if they exist
+    if has_cnp:
+        table.add_column("CNP (V)", style="magenta", width=9, justify="right")
+    if has_delta_current:
+        table.add_column("ΔI (μA)", style="blue", width=9, justify="right")
+    if has_delta_voltage:
+        table.add_column("ΔV (mV)", style="blue", width=9, justify="right")
+    if has_power:
+        table.add_column("Power (μW)", style="bright_yellow", width=10, justify="right")
+
     table.add_column("Description", style="white")
 
     # Group by date for visual separation
@@ -226,10 +293,15 @@ def show_history_command(
             desc = desc[len(proc):].strip()
 
         # Truncate if too long
-        if len(desc) > 80:
-            desc = desc[:77] + "..."
+        has_derived_metrics = (has_cnp or has_delta_current or has_delta_voltage or has_power)
+        desc_max_len = 50 if has_derived_metrics else 80
+        if len(desc) > desc_max_len:
+            desc = desc[:desc_max_len-3] + "..."
 
-        # Get light indicator if column exists
+        # Build row data
+        row_data = []
+
+        # Light indicator
         if has_light_col:
             has_light = row.get("has_light")
             if has_light is True:
@@ -237,24 +309,78 @@ def show_history_command(
             elif has_light is False:
                 light_icon = "🌙"
             else:
-                light_icon = "[red]❗[/red]"  # Red for unknown/warning
+                light_icon = "[red]❗[/red]"
+            row_data.append(light_icon)
 
-            table.add_row(
-                light_icon,
-                str(row.get("seq", "?")),
-                date,
-                row.get("time_hms", "?"),
-                proc,
-                desc
-            )
-        else:
-            table.add_row(
-                str(row.get("seq", "?")),
-                date,
-                row.get("time_hms", "?"),
-                proc,
-                desc
-            )
+        # Basic columns
+        row_data.extend([
+            str(row.get("seq", "?")),
+            date,
+            row.get("time_hms", "?"),
+            proc
+        ])
+
+        # Add derived metrics if columns exist
+        if has_cnp:
+            cnp_val = row.get("cnp_voltage")
+            if cnp_val is not None and cnp_val != "":
+                try:
+                    cnp_float = float(cnp_val) if isinstance(cnp_val, str) else cnp_val
+                    if not (cnp_float != cnp_float):  # Check for NaN
+                        row_data.append(f"{cnp_float:.3f}")
+                    else:
+                        row_data.append("—")
+                except (ValueError, TypeError):
+                    row_data.append("—")
+            else:
+                row_data.append("—")
+
+        if has_delta_current:
+            delta_i = row.get("delta_current")
+            if delta_i is not None and delta_i != "":
+                try:
+                    delta_i_float = float(delta_i) if isinstance(delta_i, str) else delta_i
+                    if not (delta_i_float != delta_i_float):  # Check for NaN
+                        row_data.append(f"{delta_i_float*1e6:.2f}")  # Convert to μA
+                    else:
+                        row_data.append("—")
+                except (ValueError, TypeError):
+                    row_data.append("—")
+            else:
+                row_data.append("—")
+
+        if has_delta_voltage:
+            delta_v = row.get("delta_voltage")
+            if delta_v is not None and delta_v != "":
+                try:
+                    delta_v_float = float(delta_v) if isinstance(delta_v, str) else delta_v
+                    if not (delta_v_float != delta_v_float):  # Check for NaN
+                        row_data.append(f"{delta_v_float*1e3:.2f}")  # Convert to mV
+                    else:
+                        row_data.append("—")
+                except (ValueError, TypeError):
+                    row_data.append("—")
+            else:
+                row_data.append("—")
+
+        if has_power:
+            power = row.get("irradiated_power_w")
+            if power is not None and power != "":
+                try:
+                    power_float = float(power) if isinstance(power, str) else power
+                    if not (power_float != power_float):  # Check for NaN
+                        row_data.append(f"{power_float*1e6:.2f}")  # Convert to μW
+                    else:
+                        row_data.append("—")
+                except (ValueError, TypeError):
+                    row_data.append("—")
+            else:
+                row_data.append("—")
+
+        # Description
+        row_data.append(desc)
+
+        table.add_row(*row_data)
 
     console.print(table)
     console.print()
@@ -559,6 +685,12 @@ def enrich_histories_command(
         "-d",
         help="Directory containing chip history Parquet files (default: from config)"
     ),
+    output_dir: Optional[Path] = typer.Option(
+        None,
+        "--output-dir",
+        "-o",
+        help="Output directory for enriched histories (default: data/03_derived/chip_histories_enriched/)"
+    ),
     manifest: Optional[Path] = typer.Option(
         None,
         "--manifest",
@@ -569,7 +701,7 @@ def enrich_histories_command(
         False,
         "--force",
         "-f",
-        help="Overwrite existing calibration associations"
+        help="Overwrite existing enriched history files"
     ),
     dry_run: bool = typer.Option(
         False,
@@ -590,11 +722,12 @@ def enrich_histories_command(
     """
     Enrich chip histories with laser calibration associations.
 
-    For each light experiment, finds the appropriate laser calibration based
-    on wavelength (strict equality) and temporal proximity. Adds two new columns
-    to chip history files:
+    Reads chip histories from Stage 2 (data/02_stage/chip_histories/) and
+    writes enriched versions to Stage 3 (data/03_derived/chip_histories_enriched/)
+    with three new columns:
     - calibration_parquet_path: Path to associated calibration Parquet
     - calibration_time_delta_hours: Time between experiment and calibration
+    - irradiated_power_w: Interpolated power from calibration curve
 
     The matching strategy:
     1. PREFERRED: Most recent calibration BEFORE experiment (same wavelength)
@@ -603,7 +736,7 @@ def enrich_histories_command(
 
     \\b
     Examples:
-        # Enrich all chip histories
+        # Enrich all chip histories (writes to Stage 3)
         enrich-histories-with-calibrations
 
         # Dry run (preview changes)
@@ -616,12 +749,12 @@ def enrich_histories_command(
         enrich-histories-with-calibrations --stale-threshold 48
 
         # Custom paths
-        enrich-histories-with-calibrations --history-dir data/histories --manifest data/manifest.parquet
+        enrich-histories-with-calibrations --history-dir data/02_stage/chip_histories --output-dir data/03_derived/custom
 
     \\b
     Output:
-        - Creates backups: {chip}_history.backup.parquet
-        - Updates original files with new columns
+        - Writes to: data/03_derived/chip_histories_enriched/ (Stage 3)
+        - Stage 2 files remain unchanged (immutable)
         - Displays summary report per chip
 
     \\b
@@ -630,8 +763,9 @@ def enrich_histories_command(
         - Only processes experiments with with_light=True
         - Skips LaserCalibration experiments themselves
         - Wavelength matching is strict (no tolerance)
+        - This is a DERIVED METRIC extraction (Stage 3), not raw metadata (Stage 2)
     """
-    from src.core.calibration_matcher import CalibrationMatcher, print_enrichment_report
+    from src.derived.extractors import CalibrationMatcher, print_enrichment_report
 
     # Load config for defaults
     from src.cli.main import get_config
@@ -641,6 +775,13 @@ def enrich_histories_command(
         history_dir = config.history_dir
         if config.verbose:
             console.print(f"[dim]Using history directory from config: {history_dir}[/dim]")
+
+    if output_dir is None:
+        # Default: data/03_derived/chip_histories_enriched/ (Stage 3)
+        # Derive from stage_dir: data/02_stage -> data/03_derived
+        output_dir = config.stage_dir.parent / "03_derived" / "chip_histories_enriched"
+        if config.verbose:
+            console.print(f"[dim]Using output directory: {output_dir}[/dim]")
 
     if manifest is None:
         # Default manifest location
@@ -669,7 +810,8 @@ def enrich_histories_command(
     console.print()
     console.print(Panel.fit(
         "[bold cyan]Laser Calibration Enrichment[/bold cyan]\n\n"
-        f"History directory: {history_dir}\n"
+        f"Input (Stage 2): {history_dir}\n"
+        f"Output (Stage 3): {output_dir}\n"
         f"Manifest: {manifest}\n"
         f"Chip histories: {len(history_files)}\n"
         f"Stale threshold: {stale_threshold:.0f} hours",
@@ -715,6 +857,7 @@ def enrich_histories_command(
                 if not dry_run:
                     report = matcher.enrich_chip_history(
                         history_path,
+                        output_dir=output_dir,
                         force=force,
                         stale_threshold_hours=stale_threshold
                     )
@@ -727,7 +870,7 @@ def enrich_histories_command(
                         (pl.col("proc") != "LaserCalibration")
                     )
                     # Create dummy report
-                    from src.core.calibration_matcher import EnrichmentReport
+                    from src.derived.extractors import EnrichmentReport
                     report = EnrichmentReport(
                         chip_name=chip_name,
                         total_light_exps=light_exps.height,
@@ -770,7 +913,8 @@ def enrich_histories_command(
 
     if not dry_run:
         console.print()
-        console.print("[dim]💾 Backup files created: {chip}_history.backup.parquet[/dim]")
+        console.print(f"[dim]💾 Enriched histories written to: {output_dir}[/dim]")
+        console.print(f"[dim]📂 Stage 2 files remain unchanged (immutable)[/dim]")
         console.print()
 
 

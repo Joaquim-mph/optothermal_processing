@@ -77,6 +77,45 @@ procedures:
     # Procedure-specific configuration (optional)
     Config:
       light_detection: standard  # Options: standard, laser_calibration, none
+
+  VVg:
+    Parameters:
+      NPLC: int
+      Vrange: float
+      Burn-in time: float
+      Chip group name: str
+      Chip number: int
+      Drain-Source current: float
+      Information: str
+      Laser voltage: float
+      Laser wavelength: float
+      Procedure version: str
+      Sample: str
+      Step time: float
+      VG end: float
+      VG start: float
+      VG step: float
+    Metadata:
+      Start time: datetime
+    Data:
+      Vg (V): float
+      VDS (V): float
+      t (s): float
+      Plate T (degC): float
+      Ambient T (degC): float
+      Clock (ms): float
+
+    ManifestColumns:
+      ids_v: [Drain-Source current]
+      vg_start_v: [VG start, Vg start]
+      vg_end_v: [VG end, Vg end]
+      vg_step_v: [VG step, Vg step]
+      wavelength_nm: [Laser wavelength]
+      laser_voltage_V: [Laser voltage]
+
+    Config:
+      light_detection: standard
+
   IVgT:
     Parameters:
       Irange: float
@@ -362,37 +401,6 @@ procedures:
       t (s): float
       VDS (V): float
       VL (V): float
-      Plate T (degC): float
-      Ambient T (degC): float
-      Clock (ms): float
-
-  VVg:
-    Parameters:
-      Vrange: float
-      NPLC: int
-      Burn-in time: float
-      Chained execution: bool
-      Chip group name: str
-      Chip number: int
-      Information: str
-      Laser toggle: bool
-      Laser voltage: float
-      Laser wavelength: float
-      Procedure version: str
-      Sample: str
-      Show more: bool
-      Step time: float
-      VG end: float
-      VG start: float
-      VG step: float
-      Drain-Source current: float
-      Use temperature sensor: bool
-    Metadata:
-      Start time: datetime
-    Data:
-      Vg (V): float
-      VDS (V): float
-      t (s): float
       Plate T (degC): float
       Ambient T (degC): float
       Clock (ms): float

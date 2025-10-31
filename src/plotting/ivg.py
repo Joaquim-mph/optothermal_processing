@@ -4,6 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 import matplotlib.pyplot as plt
 import polars as pl
+import numpy as np
 
 from src.core.utils import read_measurement_parquet
 
@@ -11,7 +12,7 @@ from src.core.utils import read_measurement_parquet
 FIG_DIR = Path("figs")
 
 
-def plot_ivg_sequence(df: pl.DataFrame, base_dir: Path, tag: str):
+def plot_ivg_sequence(df: pl.DataFrame, base_dir: Path, tag: str, show_cnp: bool = False):
     """
     Plot all IVg in chronological order (Id vs Vg).
 
@@ -23,9 +24,12 @@ def plot_ivg_sequence(df: pl.DataFrame, base_dir: Path, tag: str):
         Base directory containing measurement files
     tag : str
         Tag for output filename
+    show_cnp : bool
+        If True, overlay detected CNP points in bright yellow
     """
     # Apply plot style (lazy initialization for thread-safety)
     from src.plotting.styles import set_plot_style
+    from src.plotting.plot_utils import extract_cnp_for_plotting
     set_plot_style("prism_rain")
 
     ivg = df.filter(pl.col("proc") == "IVg").sort("file_idx")
@@ -33,6 +37,7 @@ def plot_ivg_sequence(df: pl.DataFrame, base_dir: Path, tag: str):
         return
 
     plt.figure()
+    cnp_markers_added = False
     for row in ivg.iter_rows(named=True):
         path = base_dir / row["source_file"]
         if not path.exists():
@@ -57,6 +62,28 @@ def plot_ivg_sequence(df: pl.DataFrame, base_dir: Path, tag: str):
             continue
         lbl = f"#{int(row['file_idx'])}  {'light' if row['has_light'] else 'dark'}"
         plt.plot(d["VG"], d["I"]*1e6, label=lbl)
+
+        # Add CNP markers if requested
+        if show_cnp:
+            # Need to pass un-normalized measurement for CNP extraction
+            d_original = read_measurement_parquet(path)
+            all_cnp_vgs, all_cnp_is, avg_cnp_vg, avg_cnp_i = extract_cnp_for_plotting(d_original, row, "IVg")
+
+            if all_cnp_vgs is not None and all_cnp_is is not None:
+                # Plot all detected CNPs in yellow
+                all_label = "All CNPs" if not cnp_markers_added else None
+                plt.plot(all_cnp_vgs, np.array(all_cnp_is)*1e6, 'o', color='yellow',
+                         markersize=6, markeredgecolor='black', markeredgewidth=1,
+                         label=all_label, zorder=100)
+
+                # Plot average CNP in red diamond
+                if avg_cnp_vg is not None and avg_cnp_i is not None:
+                    avg_label = "Average CNP" if not cnp_markers_added else None
+                    plt.plot(avg_cnp_vg, avg_cnp_i*1e6, 'D', color='red',
+                             markersize=10, markeredgecolor='black', markeredgewidth=1.5,
+                             label=avg_label, zorder=101)
+
+                cnp_markers_added = True
 
     plt.xlabel("$\\rm{V_g\\ (V)}$")
     plt.ylabel("$\\rm{I_{ds}\\ (\\mu A)}$")

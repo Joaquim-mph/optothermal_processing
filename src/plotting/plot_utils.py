@@ -441,8 +441,149 @@ def _savgol_derivative_corrected(
 def _raw_derivative(vg: np.ndarray, i: np.ndarray) -> np.ndarray:
     """
     Calculate raw derivative using np.gradient for comparison.
-    
+
     This is what you'd get without filtering - noisy but unbiased.
     """
     return np.gradient(i, vg)
+
+
+def extract_cnp_for_plotting(
+    measurement: pl.DataFrame,
+    row_metadata: dict,
+    procedure: str = "IVg"
+) -> tuple[list[float] | None, list[float] | None, float | None, float | None]:
+    """
+    Extract CNP (charge neutrality point) for a measurement to overlay on plots.
+
+    Parameters
+    ----------
+    measurement : pl.DataFrame
+        Measurement data (from read_measurement_parquet)
+    row_metadata : dict
+        Row metadata from history (includes vds_v for IVg or ids_v for VVg)
+    procedure : str
+        Procedure type ("IVg" or "VVg")
+
+    Returns
+    -------
+    tuple[list[float] | None, list[float] | None, float | None, float | None]
+        (all_cnp_vgs, all_cnp_values, avg_cnp_vg, avg_cnp_value) where:
+        - all_cnp_vgs: List of all detected CNP Vg values
+        - all_cnp_values: List of corresponding I (IVg) or V (VVg) values at each CNP
+        - avg_cnp_vg: The averaged CNP voltage
+        - avg_cnp_value: The I/V value at the average CNP
+        Returns (None, None, None, None) if CNP extraction fails
+
+    Examples
+    --------
+    >>> all_vg, all_i, avg_vg, avg_i = extract_cnp_for_plotting(measurement, row, "IVg")
+    >>> if all_vg is not None:
+    ...     # Plot all detected CNPs
+    ...     plt.plot(all_vg, np.array(all_i)*1e6, 'o', color='yellow', markersize=6)
+    ...     # Plot average CNP
+    ...     plt.plot(avg_vg, avg_i*1e6, 'D', color='red', markersize=10)
+    """
+    try:
+        from src.derived.extractors.cnp_extractor import CNPExtractor
+
+        # Prepare metadata for CNP extractor
+        metadata = {
+            'run_id': row_metadata.get('run_id', 'unknown'),
+            'chip_number': row_metadata.get('chip_number', 0),
+            'chip_group': row_metadata.get('chip_group', 'Unknown'),
+            'procedure': procedure,
+            'seq_num': row_metadata.get('seq', 0),
+            'extraction_version': 'plot_overlay'
+        }
+
+        # Add procedure-specific parameters
+        if procedure == "IVg":
+            metadata['vds_v'] = row_metadata.get('vds_v')
+        elif procedure == "VVg":
+            # For VVg, need fixed current
+            # Try to get from metadata, or use default
+            metadata['ids_v'] = row_metadata.get('ids_v', 1e-5)  # Default 10 µA
+
+        # Extract CNP
+        extractor = CNPExtractor()
+        result = extractor.extract(measurement, metadata)
+
+        if result is None or result.value_float is None:
+            return None, None, None, None
+
+        avg_cnp_vg = result.value_float
+
+        # Parse JSON to get all detected CNPs
+        import json
+        cnp_data = json.loads(result.value_json) if result.value_json else {}
+        all_cnps_data = cnp_data.get("all_cnps", [])
+
+        # Extract just the Vg values from the CNP dictionaries
+        if all_cnps_data and isinstance(all_cnps_data[0], dict):
+            # all_cnps is list of dicts with 'vg', 'r', 'direction', etc.
+            all_cnps = [cnp['vg'] for cnp in all_cnps_data]
+        elif all_cnps_data:
+            # Already a list of floats
+            all_cnps = all_cnps_data
+        else:
+            # Fallback: if no detailed data, just use the average
+            all_cnps = [avg_cnp_vg]
+
+        # Find Vg column
+        vg_col = None
+        for col in ["Vg (V)", "VG (V)"]:
+            if col in measurement.columns:
+                vg_col = col
+                break
+
+        if vg_col is None:
+            return None, None, None, None
+
+        vg_array = measurement[vg_col].to_numpy()
+
+        # Get data column based on procedure
+        if procedure == "IVg":
+            # Get current column
+            data_col = None
+            for col in ["I (A)", "Ids (A)"]:
+                if col in measurement.columns:
+                    data_col = col
+                    break
+
+            if data_col is None:
+                return None, None, None, None
+
+            data_array = measurement[data_col].to_numpy()
+
+        elif procedure == "VVg":
+            # Get voltage column
+            data_col = None
+            for col in ["VDS (V)", "Vds (V)"]:
+                if col in measurement.columns:
+                    data_col = col
+                    break
+
+            if data_col is None:
+                return None, None, None, None
+
+            data_array = measurement[data_col].to_numpy()
+        else:
+            return None, None, None, None
+
+        # Find values at all CNP points
+        all_cnp_values = []
+        for cnp_vg in all_cnps:
+            idx = np.argmin(np.abs(vg_array - cnp_vg))
+            all_cnp_values.append(data_array[idx])
+
+        # Find value at average CNP
+        avg_idx = np.argmin(np.abs(vg_array - avg_cnp_vg))
+        avg_cnp_value = data_array[avg_idx]
+
+        return all_cnps, all_cnp_values, avg_cnp_vg, avg_cnp_value
+
+    except Exception as e:
+        # Silently fail - CNP extraction is optional for plotting
+        print(f"[debug] CNP extraction failed: {e}")
+        return None, None, None, None
 

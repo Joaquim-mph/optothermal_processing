@@ -94,6 +94,11 @@ def plot_vvg_command(
         "--dry-run",
         help="Dry run mode: validate experiments and show output filename only (fastest)"
     ),
+    show_cnp: bool = typer.Option(
+        False,
+        "--show-cnp",
+        help="Show detected CNP points in bright yellow"
+    ),
 ):
     """
     Generate VVg sequence plots from terminal.
@@ -319,7 +324,8 @@ def plot_vvg_command(
         vvg.plot_vvg_sequence(
             history,
             base_dir,
-            plot_tag
+            plot_tag,
+            show_cnp=show_cnp
         )
     except Exception as e:
         console.print(f"[red]Error generating plot:[/red] {e}")

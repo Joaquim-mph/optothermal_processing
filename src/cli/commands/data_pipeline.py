@@ -70,29 +70,48 @@ def full_pipeline_command(
         "-f",
         help="Force overwrite existing Parquet files"
     ),
+    skip_metrics: bool = typer.Option(
+        False,
+        "--skip-metrics",
+        help="Skip derived metrics extraction (Step 3)"
+    ),
+    include_calibrations: bool = typer.Option(
+        True,
+        "--calibrations/--no-calibrations",
+        help="Include laser calibration power extraction in metrics step (default: True)"
+    ),
 ):
     """
-    Run the complete pipeline: stage raw data AND generate chip histories.
+    Run the complete pipeline: stage → histories → derive metrics.
 
-    This modern pipeline uses the staging system (CSV → Parquet + manifest)
-    and builds histories from the authoritative manifest.parquet file.
+    This modern pipeline uses the staging system (CSV → Parquet + manifest),
+    builds histories from the authoritative manifest.parquet, and extracts
+    derived analytical metrics including laser calibration power.
 
     Steps:
       1. Stage all raw CSVs → Parquet with schema validation
       2. Generate chip histories from manifest
+      3. Extract derived metrics (CNP, photoresponse, calibration power)
 
     Examples:
-        # Basic pipeline with defaults
+        # Complete pipeline with all steps
         process_and_analyze full-pipeline
 
         # Custom paths with 16 workers
         process_and_analyze full-pipeline -r data/01_raw -s data/02_stage/raw_measurements -w 16
 
-        # Force re-staging and filter histories
-        process_and_analyze full-pipeline --force -g Alisson --min 10
+        # Force re-processing everything
+        process_and_analyze full-pipeline --force
+
+        # Skip metrics extraction (only stage + histories)
+        process_and_analyze full-pipeline --skip-metrics
+
+        # Filter by chip group
+        process_and_analyze full-pipeline -g Alisson --min 10
     """
     from src.cli.commands.stage import stage_all_command
     from src.cli.commands.history import build_all_histories_command
+    from src.cli.commands.derived_metrics import derive_all_metrics_command
 
     # Load config for defaults
     from src.cli.main import get_config
@@ -114,10 +133,16 @@ def full_pipeline_command(
             console.print(f"[dim]Using history directory from config: {history_dir}[/dim]")
 
     console.print()
-    console.print(Panel.fit(
+    steps_text = (
         "[bold blue]Complete Data Processing Pipeline[/bold blue]\n"
         "Step 1: Stage raw CSVs → Parquet + Manifest (schema-validated)\n"
-        "Step 2: Generate chip histories from manifest",
+        "Step 2: Generate chip histories from manifest"
+    )
+    if not skip_metrics:
+        steps_text += "\nStep 3: Extract derived metrics (CNP, photoresponse, calibration power)"
+
+    console.print(Panel.fit(
+        steps_text,
         title="Full Pipeline",
         border_style="blue"
     ))
@@ -168,19 +193,60 @@ def full_pipeline_command(
             console.print("[red]✗ History generation failed[/red]\n")
             raise typer.Exit(1)
 
+    # Step 3: Derive all metrics (CNP, photoresponse, calibration power)
+    if not skip_metrics:
+        console.print("\n" + "="*80 + "\n")
+        console.print("[bold green]═══ STEP 3: DERIVED METRICS ═══[/bold green]\n")
+
+        try:
+            derive_all_metrics_command(
+                procedures=None,  # Process all applicable procedures
+                chip_group=chip_group,
+                chip_number=None,
+                workers=workers,
+                force=force,
+                include_calibrations=include_calibrations,
+                stale_threshold=24.0,
+                dry_run=False,
+            )
+        except SystemExit as e:
+            if e.code != 0:
+                console.print("[red]✗ Metrics extraction failed[/red]\n")
+                raise typer.Exit(1)
+
     elapsed = time.time() - start_time
+
+    # Build output summary
+    outputs_text = (
+        f"[cyan]Outputs:[/cyan]\n"
+        f"  • Staged data: {stage_root}\n"
+        f"  • Manifest: {manifest_path}\n"
+        f"  • Histories (Stage 2): {history_dir}"
+    )
+
+    if not skip_metrics:
+        derived_dir = config.stage_dir.parent / "03_derived"
+        outputs_text += (
+            f"\n  • Metrics: {derived_dir / '_metrics' / 'metrics.parquet'}\n"
+            f"  • Enriched histories (Stage 3): {derived_dir / 'chip_histories_enriched'}"
+        )
+
+    next_steps_text = (
+        "[dim]Next steps:[/dim]\n"
+        "  • [cyan]show-history <chip_number>[/cyan] - View chip timeline\n"
+        "  • [cyan]plot-its[/cyan], [cyan]plot-ivg[/cyan] - Generate plots"
+    )
+
+    if skip_metrics:
+        next_steps_text += "\n  • [cyan]derive-all-metrics[/cyan] - Extract derived metrics"
+    else:
+        next_steps_text += "\n  • [cyan]validate-manifest[/cyan] - Check data quality"
 
     console.print("\n" + "="*80 + "\n")
     console.print(Panel.fit(
         f"[bold green]✓ Pipeline Complete![/bold green]\n\n"
         f"Total time: {elapsed:.1f}s\n\n"
-        f"[cyan]Outputs:[/cyan]\n"
-        f"  • Staged data: {stage_root}\n"
-        f"  • Manifest: {manifest_path}\n"
-        f"  • Histories: {history_dir}\n\n"
-        f"[dim]Next steps:[/dim]\n"
-        f"  • [cyan]show-history <chip_number>[/cyan] - View chip timeline\n"
-        f"  • [cyan]plot-its[/cyan], [cyan]plot-ivg[/cyan] - Generate plots\n"
-        f"  • [cyan]validate-manifest[/cyan] - Check data quality",
+        f"{outputs_text}\n\n"
+        f"{next_steps_text}",
         border_style="green"
     ))

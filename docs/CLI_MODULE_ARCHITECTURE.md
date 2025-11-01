@@ -1,18 +1,22 @@
 # CLI Module Architecture Documentation
 
+**Last Updated:** October 31, 2025
+**Version:** 3.0+
+
 ## Table of Contents
 
 1. [Overview](#overview)
 2. [Module Structure](#module-structure)
 3. [Architecture Design](#architecture-design)
-4. [Entry Point: main.py](#entry-point-mainpy)
-5. [Configuration Management](#configuration-management)
-6. [Helper Modules](#helper-modules)
-7. [Command Groups](#command-groups)
-8. [Design Patterns](#design-patterns)
-9. [User Experience Features](#user-experience-features)
-10. [Error Handling](#error-handling)
-11. [Extension Guide](#extension-guide)
+4. [Plugin System](#plugin-system)
+5. [Entry Point: main.py](#entry-point-mainpy)
+6. [Configuration Management](#configuration-management)
+7. [Helper Modules](#helper-modules)
+8. [Command Groups](#command-groups)
+9. [Design Patterns](#design-patterns)
+10. [User Experience Features](#user-experience-features)
+11. [Error Handling](#error-handling)
+12. [Extension Guide](#extension-guide)
 
 ---
 
@@ -34,52 +38,75 @@ The `src/cli` module provides a comprehensive command-line interface for the opt
 ```
 src/cli/
 ├── __init__.py                    # Empty module marker
-├── main.py                        # CLI entry point and command aggregator
+├── main.py                        # CLI entry point with plugin discovery
+├── plugin_system.py               # Plugin discovery and registration
+├── config.py                      # Configuration management
 ├── helpers.py                     # Shared plotting helpers
 ├── history_utils.py               # History filtering and summarization
-└── commands/                      # Command implementations
+└── commands/                      # Command implementations (auto-discovered)
     ├── __init__.py
     ├── data_pipeline.py           # Full pipeline orchestration
     ├── history.py                 # History viewing and generation
     ├── stage.py                   # Staging commands
+    ├── derived_metrics.py         # Metrics extraction commands
     ├── plot_its.py                # ITS plotting commands
     ├── plot_ivg.py                # IVg plotting
-    └── plot_transconductance.py   # Transconductance plotting
+    ├── plot_vvg.py                # VVg plotting
+    ├── plot_vt.py                 # Vt plotting
+    ├── plot_transconductance.py   # Transconductance plotting
+    ├── plot_cnp.py                # CNP evolution plotting
+    ├── plot_photoresponse.py      # Photoresponse analysis plotting
+    ├── plot_laser_calibration.py  # Laser calibration plotting
+    ├── config.py                  # Configuration commands
+    └── utilities.py               # Utility commands
 ```
 
 **File Responsibilities:**
-- **`main.py`**: Aggregates all commands into a single Typer app
+- **`main.py`**: Entry point, runs plugin discovery and creates Typer app
+- **`plugin_system.py`**: Auto-discovery and registration system (`@cli_command` decorator)
+- **`config.py`**: Configuration loading with precedence (env vars, files, CLI overrides)
 - **`helpers.py`**: Reusable plotting utilities (seq parsing, output dir setup, Rich displays)
 - **`history_utils.py`**: History filtering logic shared by CLI and TUI
-- **`commands/*.py`**: Individual command implementations organized by domain
+- **`commands/*.py`**: Individual command implementations (decorated with `@cli_command`)
 
 ---
 
 ## Architecture Design
 
-### 1. Command Registration Pattern
+### 1. Plugin-Based Command Discovery (v3.0)
 
-The CLI uses a **centralized registration** pattern where `main.py` imports all command functions and registers them with kebab-case names:
+The CLI uses a **plugin system** with automatic command discovery. Commands are decorated with `@cli_command` and automatically registered at startup:
 
 ```python
-# main.py
-from src.cli.commands.data_pipeline import full_pipeline_command
-from src.cli.commands.history import show_history_command, build_history_command
-from src.cli.commands.plot_its import plot_its_command
+# src/cli/commands/history.py
+from src.cli.plugin_system import cli_command
+
+@cli_command(name="show-history", group="history")
+def show_history_command(chip_number: int, ...):
+    """Display chip experiment timeline."""
+    pass
+
+# src/cli/main.py
+from src.cli.plugin_system import discover_commands
 
 app = typer.Typer(name="process_and_analyze", help="...")
 
-# Register with kebab-case names
-app.command(name="full-pipeline")(full_pipeline_command)
-app.command(name="show-history")(show_history_command)
-app.command(name="plot-its")(plot_its_command)
+# Auto-discover and register all commands
+discover_commands(
+    app,
+    commands_dir=Path("src/cli/commands"),
+    config_path=Path("config/cli_plugins.yaml")
+)
 ```
 
 **Benefits:**
-- Single source of truth for available commands
-- Consistent naming convention (kebab-case)
-- Easy to add/remove commands
-- Clear command namespace
+- **Zero boilerplate** - No manual registration needed in `main.py`
+- **Auto-discovery** - Commands registered automatically on import
+- **Configuration-driven** - Enable/disable commands via YAML config
+- **Group organization** - Commands organized by logical groups
+- **Extensible** - Add commands without touching core code
+
+**See:** [CLI Plugin System Documentation](CLI_PLUGIN_SYSTEM.md) for comprehensive guide
 
 ### 2. Thin Wrapper Entry Point
 
@@ -134,6 +161,153 @@ This **DRY principle** ensures:
 - Consistent behavior across commands
 - Easier testing and maintenance
 - Reduced code duplication
+
+---
+
+## Plugin System
+
+The CLI uses a decorator-based plugin system for automatic command discovery and registration.
+
+### Architecture
+
+```
+┌─────────────────────────────────────┐
+│   python process_and_analyze.py    │
+└──────────────┬──────────────────────┘
+               │
+               ↓
+    ┌──────────────────────┐
+    │   src/cli/main.py    │
+    │  - Creates Typer app │
+    │  - Calls discover_   │
+    │    commands()        │
+    └──────────┬───────────┘
+               │
+               ↓
+    ┌──────────────────────────┐
+    │ plugin_system.py         │
+    │ - Scans commands/ dir    │
+    │ - Imports all modules    │
+    │ - Loads cli_plugins.yaml │
+    │ - Filters by config      │
+    │ - Registers with Typer   │
+    └──────────┬───────────────┘
+               │
+     ┌─────────┴─────────┐
+     ↓                   ↓
+┌─────────┐         ┌─────────┐
+│ Import  │         │ Import  │
+│ Module  │   ...   │ Module  │
+└────┬────┘         └────┬────┘
+     │                   │
+     ↓                   ↓
+@cli_command        @cli_command
+     │                   │
+     └───────┬───────────┘
+             │
+             ↓
+    ┌────────────────┐
+    │    Registry    │
+    │ {name: metadata}│
+    └────────────────┘
+```
+
+### Key Components
+
+#### 1. Decorator: `@cli_command`
+
+Marks functions as CLI commands:
+
+```python
+from src.cli.plugin_system import cli_command
+
+@cli_command(
+    name="my-command",        # Required: kebab-case name
+    group="utilities",        # Required: command group
+    description="Brief desc", # Optional: short description
+    aliases=["alias1"],       # Optional: alternative names
+    priority=0                # Optional: registration order
+)
+def my_command_function(...):
+    """Detailed help text."""
+    pass
+```
+
+#### 2. Discovery Function: `discover_commands()`
+
+Scans command modules and registers decorated functions:
+
+```python
+discover_commands(
+    app,                                    # Typer app
+    commands_dir="src/cli/commands",        # Where to find commands
+    config_path="config/cli_plugins.yaml",  # Plugin configuration
+    verbose=False                           # Debug output
+)
+```
+
+**Process:**
+1. Scan `src/cli/commands/` for `.py` files
+2. Import each module (triggers `@cli_command` decorators)
+3. Load plugin config from `cli_plugins.yaml`
+4. Filter commands based on enabled groups and disabled list
+5. Register commands with Typer app in priority order
+
+#### 3. Configuration: `cli_plugins.yaml`
+
+Controls which commands are available:
+
+```yaml
+# Enable all commands
+enabled_groups:
+  - all
+
+# Or enable specific groups
+enabled_groups:
+  - pipeline
+  - history
+  - plotting
+
+# Disable specific commands
+disabled_commands:
+  - experimental-feature
+```
+
+### Command Groups
+
+Commands are organized into logical groups:
+
+- **pipeline** - Full pipeline orchestration (e.g., `full-pipeline`, `derive-all-metrics`)
+- **history** - History management (e.g., `show-history`, `build-all-histories`)
+- **staging** - Data staging and validation (e.g., `stage-all`, `validate-manifest`)
+- **plotting** - Plot generation (e.g., `plot-its`, `plot-cnp-time`)
+- **utilities** - Helper commands (e.g., `list-plugins`, `config-show`)
+
+### Adding New Commands
+
+**No `main.py` changes needed!**
+
+1. Create command file in `src/cli/commands/`:
+
+```python
+# src/cli/commands/my_feature.py
+from src.cli.plugin_system import cli_command
+import typer
+
+@cli_command(name="my-command", group="utilities")
+def my_command(arg: int = typer.Argument(...)):
+    """My command help text."""
+    print(f"Processing {arg}")
+```
+
+2. Test immediately:
+
+```bash
+python process_and_analyze.py my-command 42
+python process_and_analyze.py my-command --help
+```
+
+**See:** [CLI Plugin System Documentation](CLI_PLUGIN_SYSTEM.md) for complete guide
 
 ---
 

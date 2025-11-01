@@ -113,8 +113,7 @@ disabled_commands:
 
 ### Documentation Available:
 
-📚 docs/CLI_PLUGIN_SYSTEM.md - Complete architecture guide
-📚 docs/PLUGIN_SYSTEM_MIGRATION.md - Migration guide
+📚 docs/CLI_PLUGIN_SYSTEM.md - Complete architecture guide (includes migration guide)
 📚 docs/examples/plugin_system_example.py - Code examples
 📚 docs/examples/cli_plugins_examples.yaml - Config examples
 

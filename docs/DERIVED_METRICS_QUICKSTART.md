@@ -1,8 +1,11 @@
 # Derived Metrics Quickstart
 
-## ✅ Core Infrastructure - COMPLETED
+**Last Updated:** October 31, 2025
+**Status:** ✅ FULLY IMPLEMENTED (v3.0)
 
-The foundational infrastructure for the derived metrics pipeline is now in place!
+## ✅ Complete System - Production Ready
+
+The derived metrics pipeline is fully implemented and production-ready!
 
 ## What Was Created
 
@@ -150,7 +153,7 @@ pipeline = MetricPipeline(Path("."))
 metrics_path = pipeline.derive_all_metrics()
 ```
 
-## Usage Examples (Once Extractors Implemented)
+## Usage Examples
 
 ```python
 from pathlib import Path
@@ -177,22 +180,43 @@ enriched_path = pipeline.enrich_chip_history(
 all_paths = pipeline.enrich_all_chip_histories()
 ```
 
-## CLI Integration (To Be Implemented)
+## CLI Commands (Available Now!)
 
-Future CLI commands will look like:
+The complete CLI is implemented and ready to use:
 
 ```bash
-# Extract all metrics
+# Extract all metrics (CNP, photoresponse, laser power)
 python3 process_and_analyze.py derive-all-metrics
 
 # Extract for specific procedures
-python3 process_and_analyze.py derive-all-metrics --proc IVg,It
+python3 process_and_analyze.py derive-all-metrics --procedures IVg,It
 
-# Enrich chip history
+# Extract for specific chip
+python3 process_and_analyze.py derive-all-metrics --chip 67
+
+# Preview what would be extracted (dry run)
+python3 process_and_analyze.py derive-all-metrics --dry-run
+
+# Force re-extraction (overwrite existing)
+python3 process_and_analyze.py derive-all-metrics --force
+
+# Include laser calibration power extraction (enabled by default)
+python3 process_and_analyze.py derive-all-metrics --calibrations
+
+# Enrich chip history with metrics
 python3 process_and_analyze.py enrich-history 67
 
-# View enriched history
-python3 process_and_analyze.py show-history 67 --enriched
+# Plot CNP evolution over time
+python3 process_and_analyze.py plot-cnp-time 81
+
+# Plot photoresponse vs power
+python3 process_and_analyze.py plot-photoresponse 81 power
+
+# Plot photoresponse vs wavelength (with filters)
+python3 process_and_analyze.py plot-photoresponse 81 wavelength --vg -0.4
+
+# Plot photoresponse vs gate voltage
+python3 process_and_analyze.py plot-photoresponse 81 gate_voltage --wl 660
 ```
 
 ## Architecture Benefits
@@ -210,13 +234,53 @@ python3 process_and_analyze.py show-history 67 --enriched
 - **`ADDING_NEW_METRICS_GUIDE.md`** - Step-by-step implementation guide
 - **`DERIVED_METRICS_QUICKSTART.md`** - This file
 
-## Questions?
+## Complete Workflow
 
-The core infrastructure is complete and tested. You can now:
+Now you can run the entire pipeline:
 
-1. **Implement CNP extractor** - I can guide you through this
-2. **Implement photoresponse extractor** - Complete example already documented
-3. **Add CLI commands** - Connect to existing Typer CLI
-4. **Test on real data** - Run on your Chip 67 measurements
+```bash
+# 1. Stage raw data
+python3 process_and_analyze.py full-pipeline
 
-What would you like to implement first?
+# 2. Extract derived metrics
+python3 process_and_analyze.py derive-all-metrics
+
+# 3. Generate plots
+python3 process_and_analyze.py plot-cnp-time 81
+python3 process_and_analyze.py plot-photoresponse 81 power
+python3 process_and_analyze.py plot-its 67 --auto
+```
+
+## What's Implemented
+
+✅ **Core Infrastructure**
+- DerivedMetric Pydantic model
+- MetricExtractor base class
+- MetricPipeline orchestration
+- Registry-based extractor discovery
+
+✅ **Extractors**
+- CNPExtractor (Charge Neutrality Point)
+- PhotoresponseExtractor (ΔI, ΔV)
+- CalibrationMatcher (laser power interpolation)
+
+✅ **CLI Commands**
+- `derive-all-metrics` - Extract all metrics
+- `enrich-history` - Add metrics to histories
+- `plot-cnp-time` - CNP evolution plots
+- `plot-photoresponse` - Photoresponse analysis plots
+
+✅ **Plotting Functions**
+- CNP vs time plots (`src/plotting/cnp_time.py`)
+- Photoresponse vs power/wavelength/gate/time (`src/plotting/photoresponse.py`)
+- Integration with chip histories
+
+✅ **Documentation**
+- Architecture guide (DERIVED_METRICS_ARCHITECTURE.md)
+- Implementation guide (ADDING_NEW_METRICS_GUIDE.md)
+- CNP extractor guide (CNP_EXTRACTOR_GUIDE.md)
+- This quickstart guide
+
+## Adding New Metrics
+
+Want to add your own metric extractor? See [ADDING_NEW_METRICS_GUIDE.md](ADDING_NEW_METRICS_GUIDE.md) for step-by-step instructions.

@@ -221,11 +221,13 @@ def plot_its_overlay(
         Default: 2.0 (baseline at half the period)
     plot_start_time : float
         Start time for x-axis in seconds. Default: PLOT_START_TIME constant (20.0s)
-    legend_by : {"wavelength","vg","led_voltage","datetime"}
+    legend_by : {"wavelength","vg","led_voltage","power","datetime"}
         Use wavelength labels like "365 nm" (default), gate voltage labels like "3 V",
-        LED/laser voltage labels like "2.5 V", or datetime labels like "2025-10-14 15:03".
+        LED/laser voltage labels like "2.5 V", power labels like "1.2 mW", or
+        datetime labels like "2025-10-14 15:03".
         Aliases accepted: "wl","lambda" -> wavelength; "gate","vg","vgs" -> vg;
         "led","laser","led_voltage","laser_voltage" -> led_voltage;
+        "pow","irradiated_power","led_power" -> power;
         "datetime","date","time","dt" -> datetime.
     padding : float, optional
         Fraction of data range to add as padding on y-axis (default: 0.02 = 2%).
@@ -288,6 +290,8 @@ def plot_its_overlay(
         lb = "vg"
     elif lb in {"led", "laser", "led_voltage", "laser_voltage"}:
         lb = "led_voltage"
+    elif lb in {"pow", "power", "irradiated_power", "led_power"}:
+        lb = "power"
     elif lb in {"datetime", "date", "time", "dt"}:
         lb = "datetime"
     else:
@@ -400,6 +404,46 @@ def plot_its_overlay(
                         pass
         return None
 
+    # --- helper to extract irradiated power in watts from metadata row and format nicely ---
+    def _get_power_formatted(row: dict) -> tuple[float | None, str]:
+        """
+        Extract irradiated power from enriched history and format for display.
+
+        Returns
+        -------
+        tuple[float or None, str]
+            (power_in_watts, formatted_string)
+            e.g., (0.0012, "1.20 mW") or (None, "#seq")
+        """
+        # Try enriched history column first (from calibration matching)
+        power_keys = [
+            "irradiated_power_w",
+            "irradiated_power",
+            "power_w",
+            "power"
+        ]
+
+        for k in power_keys:
+            if k in row:
+                try:
+                    power_w = float(row[k])
+                    if np.isfinite(power_w) and power_w > 0:
+                        # Format nicely: choose appropriate unit (W, mW, µW, nW) with 2 decimals
+                        if power_w >= 1.0:
+                            return power_w, f"{power_w:.2f} W"
+                        elif power_w >= 1e-3:
+                            return power_w, f"{power_w*1e3:.2f} mW"
+                        elif power_w >= 1e-6:
+                            return power_w, f"{power_w*1e6:.2f} µW"
+                        elif power_w >= 1e-9:
+                            return power_w, f"{power_w*1e9:.2f} nW"
+                        else:
+                            return power_w, f"{power_w:.2f} W"
+                except (ValueError, TypeError):
+                    pass
+
+        return None, None
+
     its = df.filter(pl.col("proc") == "It").sort("file_idx")
     if its.height == 0:
         print("[warn] no ITS rows in metadata")
@@ -475,6 +519,14 @@ def plot_its_overlay(
                 legend_title = "Vg"
             else:
                 lbl = f"#{int(row['file_idx'])}"
+                legend_title = "Trace"
+        elif lb == "power":
+            power_w, power_str = _get_power_formatted(row)
+            if power_str is not None:
+                lbl = power_str
+                legend_title = "LED Power"
+            else:
+                lbl = f"#{int(row.get('seq', row.get('file_idx', 0)))}"
                 legend_title = "Trace"
         elif lb == "datetime":
             # Use datetime_local column if available
@@ -638,9 +690,9 @@ def plot_its_dark(
         Divisor for auto baseline calculation (default: 2.0)
     plot_start_time : float
         Start time for x-axis (default: PLOT_START_TIME)
-    legend_by : {"vg", "wavelength", "led_voltage", "datetime"}
+    legend_by : {"vg", "wavelength", "led_voltage", "power", "datetime"}
         Legend grouping. Default is "vg" (gate voltage) for dark measurements.
-        Can also use "datetime" to label by experiment date/time.
+        Can also use "power" for LED power or "datetime" to label by experiment date/time.
     padding : float
         Fraction of data range to add as y-axis padding (default: 0.02 = 2%)
     check_duration_mismatch : bool
@@ -695,6 +747,8 @@ def plot_its_dark(
         lb = "vg"
     elif lb in {"led", "laser", "led_voltage", "laser_voltage"}:
         lb = "led_voltage"
+    elif lb in {"pow", "power", "irradiated_power", "led_power"}:
+        lb = "power"
     elif lb in {"datetime", "date", "time", "dt"}:
         lb = "datetime"
     else:
@@ -779,6 +833,37 @@ def plot_its_dark(
                     pass
         return None
 
+    # --- helper to extract irradiated power in watts from metadata row and format nicely ---
+    def _get_power_formatted(row: dict) -> tuple[float | None, str]:
+        """Extract irradiated power from enriched history and format for display."""
+        power_keys = [
+            "irradiated_power_w",
+            "irradiated_power",
+            "power_w",
+            "power"
+        ]
+
+        for k in power_keys:
+            if k in row:
+                try:
+                    power_w = float(row[k])
+                    if np.isfinite(power_w) and power_w > 0:
+                        # Format nicely: choose appropriate unit (W, mW, µW, nW) with 2 decimals
+                        if power_w >= 1.0:
+                            return power_w, f"{power_w:.2f} W"
+                        elif power_w >= 1e-3:
+                            return power_w, f"{power_w*1e3:.2f} mW"
+                        elif power_w >= 1e-6:
+                            return power_w, f"{power_w*1e6:.2f} µW"
+                        elif power_w >= 1e-9:
+                            return power_w, f"{power_w*1e9:.2f} nW"
+                        else:
+                            return power_w, f"{power_w:.2f} W"
+                except (ValueError, TypeError):
+                    pass
+
+        return None, None
+
     its = df.filter(pl.col("proc") == "It").sort("file_idx")
     if its.height == 0:
         print("[warn] no ITS rows in metadata")
@@ -848,6 +933,14 @@ def plot_its_dark(
                 legend_title = "Vg"
             else:
                 lbl = f"#{int(row['file_idx'])}"
+                legend_title = "Trace"
+        elif lb == "power":
+            power_w, power_str = _get_power_formatted(row)
+            if power_str is not None:
+                lbl = power_str
+                legend_title = "LED Power"
+            else:
+                lbl = f"#{int(row.get('seq', row.get('file_idx', 0)))}"
                 legend_title = "Trace"
         elif lb == "datetime":
             # Use datetime_local column if available
@@ -967,10 +1060,11 @@ def plot_its_sequential(
         Start time to trim from each individual experiment. Default: PLOT_START_TIME (20.0s)
     show_boundaries : bool
         If True, show vertical dashed lines marking experiment boundaries. Default: True
-    legend_by : {"datetime","wavelength","vg","led_voltage"}
-        Legend grouping: datetime (default), wavelength, gate voltage, or LED voltage.
+    legend_by : {"datetime","wavelength","vg","led_voltage","power"}
+        Legend grouping: datetime (default), wavelength, gate voltage, LED voltage, or LED power.
         Aliases accepted: "wl","lambda" -> wavelength; "gate","vgs" -> vg;
-        "led","laser","laser_voltage" -> led_voltage; "date","time","dt" -> datetime.
+        "led","laser","laser_voltage" -> led_voltage; "pow","irradiated_power","led_power" -> power;
+        "date","time","dt" -> datetime.
     padding : float
         Fraction of data range to add as padding on y-axis (default: 0.02 = 2%)
 
@@ -1001,6 +1095,8 @@ def plot_its_sequential(
         lb = "vg"
     elif lb in {"led", "laser", "led_voltage", "laser_voltage"}:
         lb = "led_voltage"
+    elif lb in {"pow", "power", "irradiated_power", "led_power"}:
+        lb = "power"
     elif lb in {"datetime", "date", "time", "dt"}:
         lb = "datetime"
     else:
@@ -1052,6 +1148,36 @@ def plot_its_sequential(
                 except (ValueError, TypeError):
                     pass
         return None
+
+    def _get_power_formatted(row: dict) -> tuple[float | None, str]:
+        """Extract irradiated power from enriched history and format for display."""
+        power_keys = [
+            "irradiated_power_w",
+            "irradiated_power",
+            "power_w",
+            "power"
+        ]
+
+        for k in power_keys:
+            if k in row:
+                try:
+                    power_w = float(row[k])
+                    if np.isfinite(power_w) and power_w > 0:
+                        # Format nicely: choose appropriate unit (W, mW, µW, nW)
+                        if power_w >= 1.0:
+                            return power_w, f"{power_w:g} W"
+                        elif power_w >= 1e-3:
+                            return power_w, f"{power_w*1e3:g} mW"
+                        elif power_w >= 1e-6:
+                            return power_w, f"{power_w*1e6:g} µW"
+                        elif power_w >= 1e-9:
+                            return power_w, f"{power_w*1e9:g} nW"
+                        else:
+                            return power_w, f"{power_w:g} W"
+                except (ValueError, TypeError):
+                    pass
+
+        return None, None
 
     # Storage for plotting
     all_y_values = []  # For auto y-scaling
@@ -1134,6 +1260,14 @@ def plot_its_sequential(
             if vg is not None:
                 lbl = f"{vg:g} V"
                 legend_title = "Vg"
+            else:
+                lbl = f"#{int(row.get('seq', i))}"
+                legend_title = "Experiment"
+        elif lb == "power":
+            power_w, power_str = _get_power_formatted(row)
+            if power_str is not None:
+                lbl = power_str
+                legend_title = "LED Power"
             else:
                 lbl = f"#{int(row.get('seq', i))}"
                 legend_title = "Experiment"

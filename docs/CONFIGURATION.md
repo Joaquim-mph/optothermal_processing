@@ -1,5 +1,8 @@
 # Configuration Guide
 
+**Last Updated:** October 31, 2025
+**Version:** 3.0+
+
 Complete guide to configuring the optothermal processing pipeline CLI.
 
 ## Table of Contents

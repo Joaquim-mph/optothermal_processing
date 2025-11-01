@@ -1,6 +1,9 @@
 # Plotting Function Implementation Guide
 
-This guide provides step-by-step instructions and code templates for implementing plotting functions for each measurement procedure in the pipeline. It follows the project's established architecture and patterns from existing implementations (ITS, IVg, transconductance).
+**Last Updated:** October 31, 2025
+**Applies to:** v3.0+
+
+This guide provides step-by-step instructions and code templates for implementing plotting functions for each measurement procedure in the pipeline. It follows the project's established architecture and patterns from existing implementations (ITS, IVg, transconductance, CNP, photoresponse).
 
 ## Table of Contents
 

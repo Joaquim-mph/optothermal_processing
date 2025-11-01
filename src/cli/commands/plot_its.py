@@ -148,7 +148,7 @@ def plot_its_command(
         "led_voltage",
         "--legend",
         "-l",
-        help="Legend grouping: 'led_voltage', 'wavelength', or 'vg'"
+        help="Legend grouping: 'led_voltage', 'power', 'wavelength', or 'vg'"
     ),
     tag: Optional[str] = typer.Option(
         None,
@@ -232,11 +232,18 @@ def plot_its_command(
         # Auto-select all ITS with custom legend
         python process_and_analyze.py plot-its 67 --auto --legend wavelength
 
+        # Use LED power from calibration (requires enriched history)
+        python process_and_analyze.py plot-its 67 --auto --legend power
+
         # Filter by gate voltage
         python process_and_analyze.py plot-its 67 --auto --vg -0.4
 
         # Custom output location
         python process_and_analyze.py plot-its 67 --seq 52,57,58 --output results/
+
+    Note:
+        The 'power' legend option requires enriched chip histories with
+        calibration data. Run 'derive-all-metrics' to generate these.
     """
     console.print()
     console.print(Panel.fit(
@@ -254,10 +261,30 @@ def plot_its_command(
         if config.verbose:
             console.print(f"[dim]Using output directory from config: {output_dir}[/dim]")
 
+    # Auto-detect if we need enriched histories (for power legend)
+    needs_enriched = legend_by.lower() in {"pow", "power", "irradiated_power", "led_power"}
+
     if history_dir is None:
-        history_dir = config.history_dir
-        if config.verbose:
-            console.print(f"[dim]Using history directory from config: {history_dir}[/dim]")
+        if needs_enriched:
+            # Use enriched histories for power legend
+            base_history_dir = Path(config.history_dir)
+            # Navigate: data/02_stage/chip_histories/ -> data/03_derived/chip_histories_enriched/
+            data_dir = base_history_dir.parent.parent
+            history_dir = data_dir / "03_derived" / "chip_histories_enriched"
+
+            if not history_dir.exists():
+                console.print(f"[red]Error:[/red] Enriched histories not found at {history_dir}")
+                console.print("[yellow]The 'power' legend option requires enriched chip histories.[/yellow]")
+                console.print("[cyan]Run these commands first:[/cyan]")
+                console.print("  1. [cyan]python3 process_and_analyze.py full-pipeline[/cyan]")
+                console.print("  2. [cyan]python3 process_and_analyze.py derive-all-metrics[/cyan]")
+                raise typer.Exit(1)
+
+            console.print(f"[dim]Using enriched histories for power data: {history_dir}[/dim]")
+        else:
+            history_dir = config.history_dir
+            if config.verbose:
+                console.print(f"[dim]Using history directory from config: {history_dir}[/dim]")
 
     # Step 1: Get seq numbers (manual, auto, or interactive)
     mode_count = sum([bool(seq), auto, interactive])
@@ -597,7 +624,7 @@ def plot_its_sequential_command(
         "datetime",
         "--legend",
         "-l",
-        help="Legend grouping: 'datetime' (default), 'wavelength', 'vg', or 'led_voltage'"
+        help="Legend grouping: 'datetime' (default), 'wavelength', 'vg', 'led_voltage', or 'power'"
     ),
     padding: float = typer.Option(
         0.02,
@@ -658,10 +685,30 @@ def plot_its_sequential_command(
         if config.verbose:
             console.print(f"[dim]Using output directory from config: {output_dir}[/dim]")
 
+    # Auto-detect if we need enriched histories (for power legend)
+    needs_enriched = legend_by.lower() in {"pow", "power", "irradiated_power", "led_power"}
+
     if history_dir is None:
-        history_dir = config.history_dir
-        if config.verbose:
-            console.print(f"[dim]Using history directory from config: {history_dir}[/dim]")
+        if needs_enriched:
+            # Use enriched histories for power legend
+            base_history_dir = Path(config.history_dir)
+            # Navigate: data/02_stage/chip_histories/ -> data/03_derived/chip_histories_enriched/
+            data_dir = base_history_dir.parent.parent
+            history_dir = data_dir / "03_derived" / "chip_histories_enriched"
+
+            if not history_dir.exists():
+                console.print(f"[red]Error:[/red] Enriched histories not found at {history_dir}")
+                console.print("[yellow]The 'power' legend option requires enriched chip histories.[/yellow]")
+                console.print("[cyan]Run these commands first:[/cyan]")
+                console.print("  1. [cyan]python3 process_and_analyze.py full-pipeline[/cyan]")
+                console.print("  2. [cyan]python3 process_and_analyze.py derive-all-metrics[/cyan]")
+                raise typer.Exit(1)
+
+            console.print(f"[dim]Using enriched histories for power data: {history_dir}[/dim]")
+        else:
+            history_dir = config.history_dir
+            if config.verbose:
+                console.print(f"[dim]Using history directory from config: {history_dir}[/dim]")
 
     # Step 1: Get seq numbers (manual or auto)
     mode_count = sum([bool(seq), auto])

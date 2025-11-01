@@ -1,5 +1,8 @@
 # CNP Extractor Guide
 
+**Last Updated:** October 31, 2025
+**Version:** 3.0+
+
 ## Overview
 
 The CNP (Charge Neutrality Point) extractor is a sophisticated algorithm for detecting the gate voltage where resistance is maximum in IVg/VVg measurements. It handles complex sweep patterns and hysteresis effects common in 2D material devices.

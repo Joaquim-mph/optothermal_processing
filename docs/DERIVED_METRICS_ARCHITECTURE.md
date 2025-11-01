@@ -1,5 +1,8 @@
 # Derived Metrics Architecture
 
+**Last Updated:** October 31, 2025
+**Version:** 3.0 (Fully Implemented)
+
 ## Overview
 
 This document describes the architecture for extracting and storing derived analytical metrics from staged measurement data.

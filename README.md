@@ -309,7 +309,6 @@ disabled_commands: []
 
 ### Plugin Systems
 - **[CLI_PLUGIN_SYSTEM.md](docs/CLI_PLUGIN_SYSTEM.md)** - CLI plugin system guide
-- **[PLUGIN_SYSTEM_MIGRATION.md](docs/PLUGIN_SYSTEM_MIGRATION.md)** - Migration guide
 
 ### Derived Metrics (v3.0)
 - **[DERIVED_METRICS_ARCHITECTURE.md](docs/DERIVED_METRICS_ARCHITECTURE.md)** - Architecture overview

@@ -1,5 +1,8 @@
 # Guide: Adding New Derived Metrics
 
+**Last Updated:** October 31, 2025
+**Version:** 3.0+
+
 This guide walks you through adding a new derived metric to the pipeline. We'll use a real example: extracting **mobility (μ)** from IVg measurements.
 
 ## Prerequisites

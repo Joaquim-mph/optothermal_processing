@@ -75,6 +75,18 @@ class CLIConfig(BaseModel):
         ge=0,
         description="Cache time-to-live in seconds"
     )
+    cache_max_items: int = Field(
+        default=50,
+        ge=1,
+        le=500,
+        description="Maximum number of items in cache"
+    )
+    cache_max_size_mb: int = Field(
+        default=500,
+        ge=100,
+        le=5000,
+        description="Maximum cache size in megabytes"
+    )
 
     # Plot defaults
     default_plot_format: Literal["png", "pdf", "svg", "jpg"] = Field(

@@ -4,11 +4,12 @@ import typer
 from pathlib import Path
 from typing import Optional
 from rich.console import Console
+from src.cli.context import get_context
+from src.cli.cache import load_history_cached
 from rich.panel import Panel
 
 from src.cli.plugin_system import cli_command
 
-console = Console()
 
 
 @cli_command(
@@ -114,15 +115,15 @@ def plot_photoresponse_command(
     # Validate x_variable
     valid_x_vars = ["power", "wavelength", "gate_voltage", "time"]
     if x_variable not in valid_x_vars:
-        console.print(f"[red]Error:[/red] Invalid x_variable '{x_variable}'")
-        console.print(f"[yellow]Valid options:[/yellow] {', '.join(valid_x_vars)}")
+        ctx.print(f"[red]Error:[/red] Invalid x_variable '{x_variable}'")
+        ctx.print(f"[yellow]Valid options:[/yellow] {', '.join(valid_x_vars)}")
         raise typer.Exit(1)
 
     # Validate metric
     valid_metrics = ["delta_current", "delta_voltage"]
     if metric not in valid_metrics:
-        console.print(f"[red]Error:[/red] Invalid metric '{metric}'")
-        console.print(f"[yellow]Valid options:[/yellow] {', '.join(valid_metrics)}")
+        ctx.print(f"[red]Error:[/red] Invalid metric '{metric}'")
+        ctx.print(f"[yellow]Valid options:[/yellow] {', '.join(valid_metrics)}")
         raise typer.Exit(1)
 
     # Parse procedures
@@ -132,8 +133,8 @@ def plot_photoresponse_command(
         valid_procs = ["It", "Vt", "ITt"]
         for proc in procs_list:
             if proc not in valid_procs:
-                console.print(f"[red]Error:[/red] Invalid procedure '{proc}'")
-                console.print(f"[yellow]Valid options:[/yellow] {', '.join(valid_procs)}")
+                ctx.print(f"[red]Error:[/red] Invalid procedure '{proc}'")
+                ctx.print(f"[yellow]Valid options:[/yellow] {', '.join(valid_procs)}")
                 raise typer.Exit(1)
 
     # Load config
@@ -144,25 +145,25 @@ def plot_photoresponse_command(
 
     # Determine output directory
     if output_dir is None:
-        output_dir = config.output_dir
+        output_dir = ctx.output_dir
 
-    console.print()
-    console.print(Panel.fit(
+    ctx.print()
+    ctx.print(Panel.fit(
         f"[bold cyan]Photoresponse Plot - {chip_name}[/bold cyan]\n"
         f"[cyan]X-axis:[/cyan] {x_variable} | [cyan]Metric:[/cyan] {metric}",
         border_style="cyan"
     ))
-    console.print()
+    ctx.print()
 
     # Load enriched history from Stage 3
     enriched_history_file = config.stage_dir.parent / "03_derived" / "chip_histories_enriched" / f"{chip_name}_history.parquet"
     metrics_file = config.stage_dir.parent / "03_derived" / "_metrics" / "metrics.parquet"
 
-    console.print("[cyan]Loading chip history and metrics...[/cyan]")
+    ctx.print("[cyan]Loading chip history and metrics...[/cyan]")
 
     if not enriched_history_file.exists():
-        console.print(f"[red]Error:[/red] Enriched history not found: {enriched_history_file}")
-        console.print("[yellow]Hint:[/yellow] Run [cyan]derive-all-metrics --calibrations[/cyan] first")
+        ctx.print(f"[red]Error:[/red] Enriched history not found: {enriched_history_file}")
+        ctx.print("[yellow]Hint:[/yellow] Run [cyan]derive-all-metrics --calibrations[/cyan] first")
         raise typer.Exit(1)
 
     history = pl.read_parquet(enriched_history_file)
@@ -171,8 +172,8 @@ def plot_photoresponse_command(
     metric_col = metric  # Metrics use delta_current/delta_voltage names
     if metric_col not in history.columns:
         if not metrics_file.exists():
-            console.print(f"[red]Error:[/red] No metrics found")
-            console.print("[yellow]Hint:[/yellow] Run [cyan]derive-all-metrics[/cyan] first")
+            ctx.print(f"[red]Error:[/red] No metrics found")
+            ctx.print("[yellow]Hint:[/yellow] Run [cyan]derive-all-metrics[/cyan] first")
             raise typer.Exit(1)
 
         metrics = pl.read_parquet(metrics_file)
@@ -185,8 +186,8 @@ def plot_photoresponse_command(
         )
 
         if photo_metrics.height == 0:
-            console.print(f"[red]Error:[/red] No photoresponse data found for {chip_name}")
-            console.print("[yellow]Hint:[/yellow] Run [cyan]derive-all-metrics[/cyan] to extract photoresponse from It measurements")
+            ctx.print(f"[red]Error:[/red] No photoresponse data found for {chip_name}")
+            ctx.print("[yellow]Hint:[/yellow] Run [cyan]derive-all-metrics[/cyan] to extract photoresponse from It measurements")
             raise typer.Exit(1)
 
         # Join metrics to history
@@ -205,8 +206,8 @@ def plot_photoresponse_command(
     ).height
 
     if photo_count == 0:
-        console.print(f"[red]Error:[/red] No It measurements with photoresponse and illumination found for {chip_name}")
-        console.print("[yellow]Hint:[/yellow] This chip needs It measurements with light to calculate photoresponse")
+        ctx.print(f"[red]Error:[/red] No It measurements with photoresponse and illumination found for {chip_name}")
+        ctx.print("[yellow]Hint:[/yellow] This chip needs It measurements with light to calculate photoresponse")
         raise typer.Exit(1)
 
     # Check for irradiated power if plotting vs power
@@ -218,14 +219,14 @@ def plot_photoresponse_command(
         ).height > 0
 
         if not has_power:
-            console.print(f"[red]Error:[/red] No irradiated power data found")
-            console.print("[yellow]Hint:[/yellow] Run [cyan]derive-all-metrics --calibrations[/cyan] to extract power from laser calibrations")
+            ctx.print(f"[red]Error:[/red] No irradiated power data found")
+            ctx.print("[yellow]Hint:[/yellow] Run [cyan]derive-all-metrics --calibrations[/cyan] to extract power from laser calibrations")
             raise typer.Exit(1)
 
-    console.print(f"[green]✓[/green] Found {photo_count} It measurements with photoresponse data")
+    ctx.print(f"[green]✓[/green] Found {photo_count} It measurements with photoresponse data")
 
     # Generate plot
-    console.print(f"[cyan]Generating photoresponse vs {x_variable} plot...[/cyan]")
+    ctx.print(f"[cyan]Generating photoresponse vs {x_variable} plot...[/cyan]")
 
     # Build power range filter
     power_range = None
@@ -248,8 +249,8 @@ def plot_photoresponse_command(
             filter_power_range=power_range,
         )
 
-        console.print()
-        console.print(Panel(
+        ctx.print()
+        ctx.print(Panel(
             f"[green]✓ Plot saved successfully[/green]\n"
             f"[cyan]Output:[/cyan] {output_file}\n"
             f"[cyan]X-axis:[/cyan] {x_variable}\n"
@@ -269,16 +270,16 @@ def plot_photoresponse_command(
             filters.append(f"Power: {power_range[0]} - {power_range[1]} W")
 
         if filters:
-            console.print()
-            console.print("[bold]Applied Filters:[/bold]")
+            ctx.print()
+            ctx.print("[bold]Applied Filters:[/bold]")
             for f in filters:
-                console.print(f"  • {f}")
+                ctx.print(f"  • {f}")
 
     except Exception as e:
-        console.print(f"[red]Error:[/red] Failed to generate plot: {e}")
+        ctx.print(f"[red]Error:[/red] Failed to generate plot: {e}")
         import traceback
-        if config.verbose:
-            console.print(f"[dim]{traceback.format_exc()}[/dim]")
+        if ctx.verbose:
+            ctx.print(f"[dim]{traceback.format_exc()}[/dim]")
         raise typer.Exit(1)
 
-    console.print()
+    ctx.print()

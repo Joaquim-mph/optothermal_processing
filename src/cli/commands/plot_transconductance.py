@@ -5,6 +5,8 @@ from src.cli.plugin_system import cli_command
 from pathlib import Path
 from typing import Optional
 from rich.console import Console
+from src.cli.context import get_context
+from src.cli.cache import load_history_cached
 from rich.panel import Panel
 import polars as pl
 
@@ -21,7 +23,6 @@ from src.cli.helpers import (
     display_plot_success
 )
 
-console = Console()
 
 
 @cli_command(
@@ -137,49 +138,46 @@ def plot_transconductance_command(
         # Filter by date
         python process_and_analyze.py plot-transconductance 67 --auto --date 2025-10-15
     """
-    console.print()
-    console.print(Panel.fit(
+    ctx.print()
+    ctx.print(Panel.fit(
         f"[bold magenta]Transconductance Plot: {chip_group}{chip_number}[/bold magenta]",
         border_style="magenta"
     ))
-    console.print()
+    ctx.print()
 
-    # Load config for defaults
-    from src.cli.main import get_config
-    config = get_config()
 
     if output_dir is None:
-        output_dir = config.output_dir
-        if config.verbose:
-            console.print(f"[dim]Using output directory from config: {output_dir}[/dim]")
+        output_dir = ctx.output_dir
+        if ctx.verbose:
+            ctx.print(f"[dim]Using output directory from config: {output_dir}[/dim]")
 
     if history_dir is None:
-        history_dir = config.history_dir
-        if config.verbose:
-            console.print(f"[dim]Using history directory from config: {history_dir}[/dim]")
+        history_dir = ctx.history_dir
+        if ctx.verbose:
+            ctx.print(f"[dim]Using history directory from config: {history_dir}[/dim]")
 
     # Validate method
     method = method.lower()
     if method not in ["gradient", "savgol"]:
-        console.print(f"[red]Error:[/red] Invalid method '{method}'. Must be 'gradient' or 'savgol'")
+        ctx.print(f"[red]Error:[/red] Invalid method '{method}'. Must be 'gradient' or 'savgol'")
         raise typer.Exit(1)
 
     # Step 1: Get seq numbers (manual, auto, or interactive)
     mode_count = sum([bool(seq), auto, interactive])
     if mode_count > 1:
-        console.print("[red]Error:[/red] Can only use one of: --seq, --auto, or --interactive")
+        ctx.print("[red]Error:[/red] Can only use one of: --seq, --auto, or --interactive")
         raise typer.Exit(1)
 
     if mode_count == 0:
-        console.print("[red]Error:[/red] Must specify one of: --seq, --auto, or --interactive")
-        console.print("[yellow]Hint:[/yellow] Use --seq 2,8,14, --auto, or --interactive")
-        console.print("[yellow]Note:[/yellow] Only IVg experiments can be used for transconductance")
-        console.print("[dim]      Run: python process_and_analyze.py show-history {chip_number} --proc IVg[/dim]")
+        ctx.print("[red]Error:[/red] Must specify one of: --seq, --auto, or --interactive")
+        ctx.print("[yellow]Hint:[/yellow] Use --seq 2,8,14, --auto, or --interactive")
+        ctx.print("[yellow]Note:[/yellow] Only IVg experiments can be used for transconductance")
+        ctx.print("[dim]      Run: python process_and_analyze.py show-history {chip_number} --proc IVg[/dim]")
         raise typer.Exit(1)
 
     try:
         if auto:
-            console.print("[cyan]Auto-selecting IVg experiments...[/cyan]")
+            ctx.print("[cyan]Auto-selecting IVg experiments...[/cyan]")
             filters = {}
             if vds is not None:
                 filters["vds"] = vds
@@ -193,24 +191,24 @@ def plot_transconductance_command(
                 history_dir,
                 filters
             )
-            console.print(f"[green]✓[/green] Auto-selected {len(seq_numbers)} IVg experiment(s)")
+            ctx.print(f"[green]✓[/green] Auto-selected {len(seq_numbers)} IVg experiment(s)")
         elif interactive:
-            console.print("[red]Error:[/red] Interactive mode not yet updated for Parquet-based pipeline")
-            console.print("[yellow]Hint:[/yellow] Use --seq or --auto instead:")
-            console.print("  [cyan]--seq 2,8,14[/cyan]   # Specify seq numbers")
-            console.print("  [cyan]--auto[/cyan]         # Auto-select all IVg")
-            console.print("  [cyan]--auto --vds 0.1[/cyan] # Auto-select with filter")
+            ctx.print("[red]Error:[/red] Interactive mode not yet updated for Parquet-based pipeline")
+            ctx.print("[yellow]Hint:[/yellow] Use --seq or --auto instead:")
+            ctx.print("  [cyan]--seq 2,8,14[/cyan]   # Specify seq numbers")
+            ctx.print("  [cyan]--auto[/cyan]         # Auto-select all IVg")
+            ctx.print("  [cyan]--auto --vds 0.1[/cyan] # Auto-select with filter")
             raise typer.Exit(1)
         else:
             seq_numbers = parse_seq_list(seq)
-            console.print(f"[cyan]Using specified seq numbers:[/cyan] {seq_numbers}")
+            ctx.print(f"[cyan]Using specified seq numbers:[/cyan] {seq_numbers}")
 
     except (ValueError, FileNotFoundError) as e:
-        console.print(f"[red]Error:[/red] {e}")
+        ctx.print(f"[red]Error:[/red] {e}")
         raise typer.Exit(1)
 
     # Step 2: Validate seq numbers exist
-    console.print("\n[cyan]Validating experiments...[/cyan]")
+    ctx.print("\n[cyan]Validating experiments...[/cyan]")
     valid, errors = validate_experiments_exist(
         seq_numbers,
         chip_number,
@@ -219,12 +217,12 @@ def plot_transconductance_command(
     )
 
     if not valid:
-        console.print("[red]Validation failed:[/red]")
+        ctx.print("[red]Validation failed:[/red]")
         for error in errors:
-            console.print(f"  • {error}")
+            ctx.print(f"  • {error}")
         raise typer.Exit(1)
 
-    console.print(f"[green]✓[/green] All seq numbers valid")
+    ctx.print(f"[green]✓[/green] All seq numbers valid")
 
     # Dry-run mode: exit after validation, before loading metadata
     if dry_run:
@@ -241,20 +239,20 @@ def plot_transconductance_command(
         file_exists = output_file.exists()
         file_status = "[yellow](file exists - will overwrite)[/yellow]" if file_exists else "[green](new file)[/green]"
 
-        console.print()
-        console.print(Panel(
+        ctx.print()
+        ctx.print(Panel(
             f"[cyan]Output file:[/cyan]\n{output_file}\n{file_status}",
             title="[bold]Output File[/bold]",
             border_style="cyan"
         ))
-        console.print()
-        console.print("[bold green]✓ Dry run complete - no files generated[/bold green]")
-        console.print("[dim]  Run without --dry-run to generate plot[/dim]")
-        console.print("[dim]  Use --preview to see full experiment details[/dim]")
+        ctx.print()
+        ctx.print("[bold green]✓ Dry run complete - no files generated[/bold green]")
+        ctx.print("[dim]  Run without --dry-run to generate plot[/dim]")
+        ctx.print("[dim]  Use --preview to see full experiment details[/dim]")
         raise typer.Exit(0)
 
     # Step 3: Load history data (includes parquet_path to staged measurements)
-    console.print("\n[cyan]Loading experiment history...[/cyan]")
+    ctx.print("\n[cyan]Loading experiment history...[/cyan]")
     try:
         from src.cli.helpers import load_history_for_plotting
         history = load_history_for_plotting(
@@ -264,11 +262,11 @@ def plot_transconductance_command(
             history_dir
         )
     except Exception as e:
-        console.print(f"[red]Error loading history:[/red] {e}")
+        ctx.print(f"[red]Error loading history:[/red] {e}")
         raise typer.Exit(1)
 
     if history.height == 0:
-        console.print("[red]Error:[/red] No experiments loaded")
+        ctx.print("[red]Error:[/red] No experiments loaded")
         raise typer.Exit(1)
 
     # Use parquet_path (staged Parquet) if available, otherwise fall back to source_file (raw CSV)
@@ -279,48 +277,48 @@ def plot_transconductance_command(
         history = history.rename({"parquet_path": "source_file"})
     elif "source_file" not in history.columns:
         # Neither column exists - error
-        console.print("[red]Error:[/red] History file missing both 'parquet_path' and 'source_file' columns")
-        console.print("[yellow]Hint:[/yellow] Regenerate history files with: [cyan]build-all-histories[/cyan]")
+        ctx.print("[red]Error:[/red] History file missing both 'parquet_path' and 'source_file' columns")
+        ctx.print("[yellow]Hint:[/yellow] Regenerate history files with: [cyan]build-all-histories[/cyan]")
         raise typer.Exit(1)
 
     # Step 4: Apply additional filters (if any)
     if vds is not None or date is not None:
-        console.print("\n[cyan]Applying filters...[/cyan]")
+        ctx.print("\n[cyan]Applying filters...[/cyan]")
         original_count = history.height
         history = apply_metadata_filters(history, vds=vds, date=date)
 
         if history.height == 0:
-            console.print("[red]Error:[/red] No experiments remain after filtering")
+            ctx.print("[red]Error:[/red] No experiments remain after filtering")
             raise typer.Exit(1)
 
-        console.print(f"[green]✓[/green] Filtered: {original_count} → {history.height} experiment(s)")
+        ctx.print(f"[green]✓[/green] Filtered: {original_count} → {history.height} experiment(s)")
 
     # Step 5: CRITICAL - Verify ALL experiments are IVg type
-    console.print("\n[cyan]Validating experiment types...[/cyan]")
+    ctx.print("\n[cyan]Validating experiment types...[/cyan]")
     if "proc" in history.columns:
         non_ivg = history.filter(pl.col("proc") != "IVg")
         if non_ivg.height > 0:
-            console.print(f"[red]Error:[/red] Found {non_ivg.height} non-IVg experiment(s)")
-            console.print("[red]Transconductance can only be computed from IVg experiments![/red]")
-            console.print("\n[yellow]Non-IVg experiments found:[/yellow]")
+            ctx.print(f"[red]Error:[/red] Found {non_ivg.height} non-IVg experiment(s)")
+            ctx.print("[red]Transconductance can only be computed from IVg experiments![/red]")
+            ctx.print("\n[yellow]Non-IVg experiments found:[/yellow]")
             for row in non_ivg.iter_rows(named=True):
                 seq_num = row.get("seq", "?")
                 proc = row.get("proc", "?")
-                console.print(f"  • Seq {seq_num}: {proc}")
-            console.print(f"\n[yellow]Hint:[/yellow] Use [cyan]show-history {chip_number} --proc IVg[/cyan] to find valid IVg experiments")
+                ctx.print(f"  • Seq {seq_num}: {proc}")
+            ctx.print(f"\n[yellow]Hint:[/yellow] Use [cyan]show-history {chip_number} --proc IVg[/cyan] to find valid IVg experiments")
             raise typer.Exit(1)
     else:
-        console.print("[yellow]Warning:[/yellow] Could not verify experiment types (no 'proc' column)")
-        console.print("[dim]Proceeding anyway, but results may fail if non-IVg data is present[/dim]")
+        ctx.print("[yellow]Warning:[/yellow] Could not verify experiment types (no 'proc' column)")
+        ctx.print("[dim]Proceeding anyway, but results may fail if non-IVg data is present[/dim]")
 
-    console.print(f"[green]✓[/green] All {history.height} experiment(s) are IVg type")
+    ctx.print(f"[green]✓[/green] All {history.height} experiment(s) are IVg type")
 
     # Step 6: Display selected experiments
-    console.print()
+    ctx.print()
     display_experiment_list(history, title="IVg Experiments for Transconductance")
 
     # Step 7: Display plot settings
-    console.print()
+    ctx.print()
     method_desc = {
         "gradient": "numpy.gradient (central differences)",
         "savgol": f"Savitzky-Golay (window={window_length}, poly={polyorder})"
@@ -344,8 +342,8 @@ def plot_transconductance_command(
     else:  # savgol
         output_file = output_dir / f"encap{chip_number}_gm_savgol_{plot_tag}.png"
 
-    console.print()
-    console.print(Panel(
+    ctx.print()
+    ctx.print(Panel(
         f"[cyan]Output file:[/cyan]\n{output_file}",
         title="[bold]Output File[/bold]",
         border_style="cyan"
@@ -353,13 +351,13 @@ def plot_transconductance_command(
 
     # Exit in preview mode
     if preview:
-        console.print()
-        console.print("[bold green]✓ Preview complete - no files generated[/bold green]")
-        console.print("[dim]  Run without --preview to generate plot[/dim]")
+        ctx.print()
+        ctx.print("[bold green]✓ Preview complete - no files generated[/bold green]")
+        ctx.print("[dim]  Run without --preview to generate plot[/dim]")
         raise typer.Exit(0)
 
     # Step 9: Set FIG_DIR and call appropriate plotting function
-    console.print("\n[cyan]Generating transconductance plot...[/cyan]")
+    ctx.print("\n[cyan]Generating transconductance plot...[/cyan]")
     transconductance.FIG_DIR = output_dir
 
     # NOTE: Plotting functions expect 'source_file' column which we created by renaming 'parquet_path'
@@ -384,12 +382,12 @@ def plot_transconductance_command(
             )
 
     except Exception as e:
-        console.print(f"[red]Error generating plot:[/red] {e}")
+        ctx.print(f"[red]Error generating plot:[/red] {e}")
         import traceback
-        console.print(f"[dim]{traceback.format_exc()}[/dim]")
+        ctx.print(f"[dim]{traceback.format_exc()}[/dim]")
         raise typer.Exit(1)
 
     # Step 10: Display success with output file path
-    console.print()
+    ctx.print()
     display_plot_success(output_file)
-    console.print()
+    ctx.print()

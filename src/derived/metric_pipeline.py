@@ -13,6 +13,7 @@ from typing import List, Optional, Dict, Any, Tuple
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import datetime, timezone
 import logging
+import multiprocessing
 
 from src.core.utils import read_measurement_parquet
 from src.models.derived_metrics import DerivedMetric
@@ -20,6 +21,28 @@ from .extractors.base import MetricExtractor
 
 # Configure logging
 logger = logging.getLogger(__name__)
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Multiprocessing Worker Initialization
+# ══════════════════════════════════════════════════════════════════════
+
+def _reset_process_globals():
+    """
+    Reset global singletons in child processes after fork.
+
+    This is necessary because the cache and context contain fork-unsafe
+    objects like threading locks and Rich Console objects. Resetting them
+    ensures each child process creates fresh instances.
+    """
+    try:
+        from src.cli.cache import reset_cache
+        from src.cli.context import reset_context
+        reset_cache()
+        reset_context()
+    except ImportError:
+        # If CLI modules aren't available, that's fine
+        pass
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -277,8 +300,15 @@ class MetricPipeline:
 
         logger.info(f"Processing {len(rows)} measurements with {workers} workers")
 
+        # Use 'spawn' instead of 'fork' to avoid issues with fork-unsafe objects
+        # (threading locks, Rich console objects, etc.)
+        mp_context = multiprocessing.get_context('spawn')
+
         metrics = []
-        with ProcessPoolExecutor(max_workers=workers) as executor:
+        with ProcessPoolExecutor(
+            max_workers=workers,
+            mp_context=mp_context
+        ) as executor:
             # Submit all tasks
             future_to_row = {
                 executor.submit(self._extract_from_measurement, row): row

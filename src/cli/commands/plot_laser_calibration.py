@@ -9,6 +9,8 @@ import typer
 from pathlib import Path
 from typing import Optional
 from rich.console import Console
+from src.cli.context import get_context
+from src.cli.cache import load_history_cached
 from rich.panel import Panel
 from rich.table import Table
 import polars as pl
@@ -23,7 +25,6 @@ from src.plotting.laser_calibration import (
     plot_laser_calibration_comparison,
 )
 
-console = Console()
 
 
 def _display_calibration_experiments(df: pl.DataFrame, title: str = "Calibration Experiments"):
@@ -37,8 +38,8 @@ def _display_calibration_experiments(df: pl.DataFrame, title: str = "Calibration
     title : str
         Table title
     """
-    console.print()
-    console.print(Panel.fit(
+    ctx.print()
+    ctx.print(Panel.fit(
         f"[bold cyan]{title}[/bold cyan]",
         border_style="cyan"
     ))
@@ -68,9 +69,9 @@ def _display_calibration_experiments(df: pl.DataFrame, title: str = "Calibration
 
         table.add_row(seq, str(date), wavelength, fiber, sensor, voltage_range)
 
-    console.print(table)
-    console.print(f"[dim]Total: {df.height} calibration(s)[/dim]")
-    console.print()
+    ctx.print(table)
+    ctx.print(f"[dim]Total: {df.height} calibration(s)[/dim]")
+    ctx.print()
 
 
 @cli_command(
@@ -184,24 +185,21 @@ def plot_laser_calibration_command(
     Output:
         Saves plot to: figs/laser_calibrations/laser_calibration_*.png
     """
-    # Load config for defaults
-    from src.cli.main import get_config
-    config = get_config()
 
     if output_dir is None:
-        output_dir = config.output_dir / "laser_calibrations"
-        if config.verbose:
-            console.print(f"[dim]Using output directory: {output_dir}[/dim]")
+        output_dir = ctx.output_dir / "laser_calibrations"
+        if ctx.verbose:
+            ctx.print(f"[dim]Using output directory: {output_dir}[/dim]")
 
     if manifest is None:
         manifest = config.stage_dir / "raw_measurements" / "_manifest" / "manifest.parquet"
-        if config.verbose:
-            console.print(f"[dim]Using manifest from config: {manifest}[/dim]")
+        if ctx.verbose:
+            ctx.print(f"[dim]Using manifest from config: {manifest}[/dim]")
 
     # Load manifest
     if not manifest.exists():
-        console.print(f"[red]✗[/red] Manifest file not found: {manifest}")
-        console.print("[yellow]→[/yellow] Run: [cyan]python process_and_analyze.py stage-all[/cyan]")
+        ctx.print(f"[red]✗[/red] Manifest file not found: {manifest}")
+        ctx.print("[yellow]→[/yellow] Run: [cyan]python process_and_analyze.py stage-all[/cyan]")
         raise typer.Exit(1)
 
     manifest_df = pl.read_parquet(manifest)
@@ -209,9 +207,9 @@ def plot_laser_calibration_command(
     # Filter to LaserCalibration procedure
     calibrations = manifest_df.filter(pl.col("proc") == "LaserCalibration")
     if calibrations.height == 0:
-        console.print(f"[red]✗[/red] No LaserCalibration experiments found in manifest")
+        ctx.print(f"[red]✗[/red] No LaserCalibration experiments found in manifest")
         available = manifest_df["proc"].unique().to_list()
-        console.print(f"[yellow]Available procedures:[/yellow] {', '.join(available)}")
+        ctx.print(f"[yellow]Available procedures:[/yellow] {', '.join(available)}")
         raise typer.Exit(1)
 
     # Add sequential numbering for selection (sort by start time first)
@@ -229,7 +227,7 @@ def plot_laser_calibration_command(
 
     if wavelength is not None:
         if "wavelength_nm" not in filtered.columns:
-            console.print("[yellow]⚠[/yellow] Wavelength filter requested but no wavelength data in manifest")
+            ctx.print("[yellow]⚠[/yellow] Wavelength filter requested but no wavelength data in manifest")
         else:
             before_count = filtered.height
             filtered = filtered.filter(
@@ -237,30 +235,30 @@ def plot_laser_calibration_command(
             )
             after_count = filtered.height
             if after_count < before_count:
-                console.print(f"[dim]Filtered by wavelength {wavelength}nm: {before_count} → {after_count} experiments[/dim]")
+                ctx.print(f"[dim]Filtered by wavelength {wavelength}nm: {before_count} → {after_count} experiments[/dim]")
 
     if fiber is not None:
         if "optical_fiber" not in filtered.columns:
-            console.print("[yellow]⚠[/yellow] Fiber filter requested but no fiber data in manifest")
+            ctx.print("[yellow]⚠[/yellow] Fiber filter requested but no fiber data in manifest")
         else:
             before_count = filtered.height
             filtered = filtered.filter(pl.col("optical_fiber") == fiber)
             after_count = filtered.height
             if after_count < before_count:
-                console.print(f"[dim]Filtered by fiber '{fiber}': {before_count} → {after_count} experiments[/dim]")
+                ctx.print(f"[dim]Filtered by fiber '{fiber}': {before_count} → {after_count} experiments[/dim]")
 
     if date is not None:
         if "date_local" not in filtered.columns:
-            console.print("[yellow]⚠[/yellow] Date filter requested but no date data in manifest")
+            ctx.print("[yellow]⚠[/yellow] Date filter requested but no date data in manifest")
         else:
             before_count = filtered.height
             filtered = filtered.filter(pl.col("date_local") == date)
             after_count = filtered.height
             if after_count < before_count:
-                console.print(f"[dim]Filtered by date {date}: {before_count} → {after_count} experiments[/dim]")
+                ctx.print(f"[dim]Filtered by date {date}: {before_count} → {after_count} experiments[/dim]")
 
     if filtered.height == 0:
-        console.print("[red]✗[/red] No experiments match the specified filters")
+        ctx.print("[red]✗[/red] No experiments match the specified filters")
         raise typer.Exit(1)
 
     # Get seq numbers
@@ -269,16 +267,16 @@ def plot_laser_calibration_command(
     elif seq:
         seq_numbers = parse_seq_list(seq)
     else:
-        console.print("[red]✗[/red] Must specify --seq or --auto")
-        console.print("[yellow]→[/yellow] Example: [cyan]plot-laser-calibration --auto[/cyan]")
+        ctx.print("[red]✗[/red] Must specify --seq or --auto")
+        ctx.print("[yellow]→[/yellow] Example: [cyan]plot-laser-calibration --auto[/cyan]")
         raise typer.Exit(1)
 
     # Validate seq numbers exist in filtered dataframe
     valid_seqs = set(filtered["seq"].to_list())
     invalid_seqs = [s for s in seq_numbers if s not in valid_seqs]
     if invalid_seqs:
-        console.print(f"[red]✗[/red] Invalid seq numbers: {invalid_seqs}")
-        console.print(f"[yellow]Available seq numbers:[/yellow] 1-{filtered.height}")
+        ctx.print(f"[red]✗[/red] Invalid seq numbers: {invalid_seqs}")
+        ctx.print(f"[yellow]Available seq numbers:[/yellow] 1-{filtered.height}")
         raise typer.Exit(1)
 
     # Filter to selected experiments
@@ -289,7 +287,7 @@ def plot_laser_calibration_command(
 
     # Preview mode: stop here
     if preview:
-        console.print("[cyan]📋 Preview mode - no plots generated[/cyan]")
+        ctx.print("[cyan]📋 Preview mode - no plots generated[/cyan]")
         return
 
     # Setup output directory
@@ -304,7 +302,7 @@ def plot_laser_calibration_command(
 
     if comparison:
         # Generate comparison plot (subplots)
-        console.print(f"\n[cyan]📊 Generating LaserCalibration comparison plot...[/cyan]")
+        ctx.print(f"\n[cyan]📊 Generating LaserCalibration comparison plot...[/cyan]")
         output_file = plot_laser_calibration_comparison(
             selected,
             Path("."),  # Base dir not used (we have parquet_paths)
@@ -313,7 +311,7 @@ def plot_laser_calibration_command(
         )
     else:
         # Generate standard overlay plot
-        console.print(f"\n[cyan]📊 Generating LaserCalibration plot...[/cyan]")
+        ctx.print(f"\n[cyan]📊 Generating LaserCalibration plot...[/cyan]")
         output_file = plot_laser_calibration(
             selected,
             Path("."),  # Base dir not used (we have parquet_paths)
@@ -326,7 +324,7 @@ def plot_laser_calibration_command(
     if output_file:
         display_plot_success(output_file)
     else:
-        console.print("[red]✗[/red] Failed to generate plot")
+        ctx.print("[red]✗[/red] Failed to generate plot")
         raise typer.Exit(1)
 
 

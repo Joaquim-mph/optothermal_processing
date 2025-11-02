@@ -4,12 +4,13 @@ import typer
 from src.cli.plugin_system import cli_command
 from pathlib import Path
 from typing import Optional
-from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
 from src.plotting import its, plot_utils
 from src.plotting.its_presets import PRESETS, get_preset, preset_summary
+from src.cli.context import get_context
+from src.cli.cache import load_history_cached
 from src.cli.helpers import (
     parse_seq_list,
     generate_plot_tag,
@@ -23,8 +24,6 @@ from src.cli.helpers import (
 )
 import polars as pl
 
-console = Console()
-
 
 @cli_command(
     name="plot-its-presets",
@@ -34,12 +33,14 @@ console = Console()
 )
 def list_presets_command():
     """List all available ITS plot presets with descriptions."""
-    console.print()
-    console.print(Panel.fit(
+    ctx = get_context()
+
+    ctx.print()
+    ctx.print(Panel.fit(
         "[bold cyan]Available ITS Plot Presets[/bold cyan]",
         border_style="cyan"
     ))
-    console.print()
+    ctx.print()
 
     table = Table(show_header=True, header_style="bold cyan", show_lines=True)
     table.add_column("Preset Name", style="yellow", width=20)
@@ -65,11 +66,11 @@ def list_presets_command():
 
         table.add_row(name, preset.description, config_str)
 
-    console.print(table)
-    console.print()
-    console.print("[dim]Usage: [cyan]plot-its --preset <preset_name>[/cyan][/dim]")
-    console.print("[dim]Example: [cyan]plot-its 67 --seq 52,57,58 --preset dark[/cyan][/dim]")
-    console.print()
+    ctx.print(table)
+    ctx.print()
+    ctx.print("[dim]Usage: [cyan]plot-its --preset <preset_name>[/cyan][/dim]")
+    ctx.print("[dim]Example: [cyan]plot-its 67 --seq 52,57,58 --preset dark[/cyan][/dim]")
+    ctx.print()
 
 
 def _all_its_are_dark(meta: pl.DataFrame) -> bool:
@@ -245,21 +246,18 @@ def plot_its_command(
         The 'power' legend option requires enriched chip histories with
         calibration data. Run 'derive-all-metrics' to generate these.
     """
-    console.print()
-    console.print(Panel.fit(
+    ctx = get_context()
+
+    ctx.print()
+    ctx.print(Panel.fit(
         f"[bold cyan]ITS Overlay Plot: {chip_group}{chip_number}[/bold cyan]",
         border_style="cyan"
     ))
-    console.print()
-
-    # Load config for defaults
-    from src.cli.main import get_config
-    config = get_config()
+    ctx.print()
 
     if output_dir is None:
-        output_dir = config.output_dir
-        if config.verbose:
-            console.print(f"[dim]Using output directory from config: {output_dir}[/dim]")
+        output_dir = ctx.output_dir
+        ctx.print_verbose(f"Using output directory from config: {output_dir}")
 
     # Auto-detect if we need enriched histories (for power legend)
     needs_enriched = legend_by.lower() in {"pow", "power", "irradiated_power", "led_power"}
@@ -267,39 +265,39 @@ def plot_its_command(
     if history_dir is None:
         if needs_enriched:
             # Use enriched histories for power legend
-            base_history_dir = Path(config.history_dir)
+            base_history_dir = Path(ctx.history_dir)
             # Navigate: data/02_stage/chip_histories/ -> data/03_derived/chip_histories_enriched/
             data_dir = base_history_dir.parent.parent
             history_dir = data_dir / "03_derived" / "chip_histories_enriched"
 
             if not history_dir.exists():
-                console.print(f"[red]Error:[/red] Enriched histories not found at {history_dir}")
-                console.print("[yellow]The 'power' legend option requires enriched chip histories.[/yellow]")
-                console.print("[cyan]Run these commands first:[/cyan]")
-                console.print("  1. [cyan]python3 process_and_analyze.py full-pipeline[/cyan]")
-                console.print("  2. [cyan]python3 process_and_analyze.py derive-all-metrics[/cyan]")
+                ctx.print(f"[red]Error:[/red] Enriched histories not found at {history_dir}")
+                ctx.print("[yellow]The 'power' legend option requires enriched chip histories.[/yellow]")
+                ctx.print("[cyan]Run these commands first:[/cyan]")
+                ctx.print("  1. [cyan]python3 process_and_analyze.py full-pipeline[/cyan]")
+                ctx.print("  2. [cyan]python3 process_and_analyze.py derive-all-metrics[/cyan]")
                 raise typer.Exit(1)
 
-            console.print(f"[dim]Using enriched histories for power data: {history_dir}[/dim]")
+            ctx.print(f"[dim]Using enriched histories for power data: {history_dir}[/dim]")
         else:
-            history_dir = config.history_dir
-            if config.verbose:
-                console.print(f"[dim]Using history directory from config: {history_dir}[/dim]")
+            history_dir = ctx.history_dir
+            if ctx.verbose:
+                ctx.print(f"[dim]Using history directory from config: {history_dir}[/dim]")
 
     # Step 1: Get seq numbers (manual, auto, or interactive)
     mode_count = sum([bool(seq), auto, interactive])
     if mode_count > 1:
-        console.print("[red]Error:[/red] Can only use one of: --seq, --auto, or --interactive")
+        ctx.print("[red]Error:[/red] Can only use one of: --seq, --auto, or --interactive")
         raise typer.Exit(1)
 
     if mode_count == 0:
-        console.print("[red]Error:[/red] Must specify one of: --seq, --auto, or --interactive")
-        console.print("[yellow]Hint:[/yellow] Use --seq 52,57,58, --auto, or --interactive")
+        ctx.print("[red]Error:[/red] Must specify one of: --seq, --auto, or --interactive")
+        ctx.print("[yellow]Hint:[/yellow] Use --seq 52,57,58, --auto, or --interactive")
         raise typer.Exit(1)
 
     try:
         if auto:
-            console.print("[cyan]Auto-selecting ITS experiments...[/cyan]")
+            ctx.print("[cyan]Auto-selecting ITS experiments...[/cyan]")
             filters = {}
             if vg is not None:
                 filters["vg"] = vg
@@ -315,24 +313,24 @@ def plot_its_command(
                 history_dir,
                 filters
             )
-            console.print(f"[green]✓[/green] Auto-selected {len(seq_numbers)} ITS experiment(s)")
+            ctx.print(f"[green]✓[/green] Auto-selected {len(seq_numbers)} ITS experiment(s)")
         elif interactive:
-            console.print("[red]Error:[/red] Interactive mode not yet updated for Parquet-based pipeline")
-            console.print("[yellow]Hint:[/yellow] Use --seq or --auto instead:")
-            console.print("  [cyan]--seq 52,57,58[/cyan]   # Specify seq numbers")
-            console.print("  [cyan]--auto[/cyan]           # Auto-select all ITS")
-            console.print("  [cyan]--auto --vg -0.4[/cyan] # Auto-select with filter")
+            ctx.print("[red]Error:[/red] Interactive mode not yet updated for Parquet-based pipeline")
+            ctx.print("[yellow]Hint:[/yellow] Use --seq or --auto instead:")
+            ctx.print("  [cyan]--seq 52,57,58[/cyan]   # Specify seq numbers")
+            ctx.print("  [cyan]--auto[/cyan]           # Auto-select all ITS")
+            ctx.print("  [cyan]--auto --vg -0.4[/cyan] # Auto-select with filter")
             raise typer.Exit(1)
         else:
             seq_numbers = parse_seq_list(seq)
-            console.print(f"[cyan]Using specified seq numbers:[/cyan] {seq_numbers}")
+            ctx.print(f"[cyan]Using specified seq numbers:[/cyan] {seq_numbers}")
 
     except (ValueError, FileNotFoundError) as e:
-        console.print(f"[red]Error:[/red] {e}")
+        ctx.print(f"[red]Error:[/red] {e}")
         raise typer.Exit(1)
 
     # Step 2: Validate seq numbers exist
-    console.print("\n[cyan]Validating experiments...[/cyan]")
+    ctx.print("\n[cyan]Validating experiments...[/cyan]")
     valid, errors = validate_experiments_exist(
         seq_numbers,
         chip_number,
@@ -341,12 +339,12 @@ def plot_its_command(
     )
 
     if not valid:
-        console.print("[red]Validation failed:[/red]")
+        ctx.print("[red]Validation failed:[/red]")
         for error in errors:
-            console.print(f"  • {error}")
+            ctx.print(f"  • {error}")
         raise typer.Exit(1)
 
-    console.print(f"[green]✓[/green] All seq numbers valid")
+    ctx.print(f"[green]✓[/green] All seq numbers valid")
 
     # Dry-run mode: exit after validation, before loading metadata
     if dry_run:
@@ -360,20 +358,20 @@ def plot_its_command(
         file_exists = output_file.exists()
         file_status = "[yellow](file exists - will overwrite)[/yellow]" if file_exists else "[green](new file)[/green]"
 
-        console.print()
-        console.print(Panel(
+        ctx.print()
+        ctx.print(Panel(
             f"[cyan]Output file:[/cyan]\n{output_file}\n{file_status}",
             title="[bold]Output File[/bold]",
             border_style="cyan"
         ))
-        console.print()
-        console.print("[bold green]✓ Dry run complete - no files generated[/bold green]")
-        console.print("[dim]  Run without --dry-run to generate plot[/dim]")
-        console.print("[dim]  Use --preview to see full experiment details[/dim]")
+        ctx.print()
+        ctx.print("[bold green]✓ Dry run complete - no files generated[/bold green]")
+        ctx.print("[dim]  Run without --dry-run to generate plot[/dim]")
+        ctx.print("[dim]  Use --preview to see full experiment details[/dim]")
         raise typer.Exit(0)
 
     # Step 3: Load history data (includes parquet_path to staged measurements)
-    console.print("\n[cyan]Loading experiment history...[/cyan]")
+    ctx.print("\n[cyan]Loading experiment history...[/cyan]")
     try:
         from src.cli.helpers import load_history_for_plotting
         history = load_history_for_plotting(
@@ -383,11 +381,11 @@ def plot_its_command(
             history_dir
         )
     except Exception as e:
-        console.print(f"[red]Error loading history:[/red] {e}")
+        ctx.print(f"[red]Error loading history:[/red] {e}")
         raise typer.Exit(1)
 
     if history.height == 0:
-        console.print("[red]Error:[/red] No experiments loaded")
+        ctx.print("[red]Error:[/red] No experiments loaded")
         raise typer.Exit(1)
 
     # Use parquet_path (staged Parquet) if available, otherwise fall back to source_file (raw CSV)
@@ -398,21 +396,21 @@ def plot_its_command(
         history = history.rename({"parquet_path": "source_file"})
     elif "source_file" not in history.columns:
         # Neither column exists - error
-        console.print("[red]Error:[/red] History file missing both 'parquet_path' and 'source_file' columns")
-        console.print("[yellow]Hint:[/yellow] Regenerate history files with: [cyan]build-all-histories[/cyan]")
+        ctx.print("[red]Error:[/red] History file missing both 'parquet_path' and 'source_file' columns")
+        ctx.print("[yellow]Hint:[/yellow] Regenerate history files with: [cyan]build-all-histories[/cyan]")
         raise typer.Exit(1)
 
     # Step 4: Apply additional filters (if any)
     if vg is not None or wavelength is not None or date is not None:
-        console.print("\n[cyan]Applying filters...[/cyan]")
+        ctx.print("\n[cyan]Applying filters...[/cyan]")
         original_count = history.height
         history = apply_metadata_filters(history, vg=vg, wavelength=wavelength, date=date)
 
         if history.height == 0:
-            console.print("[red]Error:[/red] No experiments remain after filtering")
+            ctx.print("[red]Error:[/red] No experiments remain after filtering")
             raise typer.Exit(1)
 
-        console.print(f"[green]✓[/green] Filtered: {original_count} → {history.height} experiment(s)")
+        ctx.print(f"[green]✓[/green] Filtered: {original_count} → {history.height} experiment(s)")
 
     # Step 5: Apply preset configuration (if specified)
     baseline_mode = "fixed"
@@ -424,14 +422,14 @@ def plot_its_command(
     if preset:
         # Validate preset name
         if preset not in PRESETS:
-            console.print(f"[red]Error:[/red] Unknown preset '{preset}'")
-            console.print(f"[yellow]Available presets:[/yellow] {', '.join(PRESETS.keys())}")
-            console.print("[dim]Use 'plot-its-presets' to see detailed preset information[/dim]")
+            ctx.print(f"[red]Error:[/red] Unknown preset '{preset}'")
+            ctx.print(f"[yellow]Available presets:[/yellow] {', '.join(PRESETS.keys())}")
+            ctx.print("[dim]Use 'plot-its-presets' to see detailed preset information[/dim]")
             raise typer.Exit(1)
 
         preset_config = PRESETS[preset]
-        console.print(f"\n[green]✓[/green] Using preset: [bold]{preset_config.name}[/bold]")
-        console.print(f"[dim]  {preset_config.description}[/dim]\n")
+        ctx.print(f"\n[green]✓[/green] Using preset: [bold]{preset_config.name}[/bold]")
+        ctx.print(f"[dim]  {preset_config.description}[/dim]\n")
 
         # Apply preset settings (can be overridden by CLI flags)
         baseline_mode = preset_config.baseline_mode
@@ -447,24 +445,24 @@ def plot_its_command(
         else:
             # CLI override: force fixed mode
             baseline_mode = "fixed"
-            console.print(f"[dim]  Baseline overridden: {baseline_t}s (preset default ignored)[/dim]")
+            ctx.print(f"[dim]  Baseline overridden: {baseline_t}s (preset default ignored)[/dim]")
 
         # Apply legend_by if not explicitly set (check if it's still the default)
         # Note: We can't directly check if user set it, but we can use the preset's recommendation
         if legend_by == "led_voltage":  # Default from argument
             legend_by = preset_config.legend_by
-            console.print(f"[dim]  Legend by: {legend_by} (from preset)[/dim]")
+            ctx.print(f"[dim]  Legend by: {legend_by} (from preset)[/dim]")
 
     # Fallback: If no preset and no baseline specified, use default
     if baseline_t is None:
         baseline_t = 60.0
 
     # Step 6: Display selected experiments
-    console.print()
+    ctx.print()
     display_experiment_list(history, title="ITS Experiments to Plot")
 
     # Step 7: Display plot settings
-    console.print()
+    ctx.print()
     settings = {
         "Legend by": legend_by,
         "Padding": f"{padding:.2%}",
@@ -495,8 +493,8 @@ def plot_its_command(
     # Preview output filename (will be updated if dark measurement detected)
     output_file = output_dir / f"encap{chip_number}_ITS_{plot_tag}.png"
 
-    console.print()
-    console.print(Panel(
+    ctx.print()
+    ctx.print(Panel(
         f"[cyan]Output file:[/cyan]\n{output_file}",
         title="[bold]Output File[/bold]",
         border_style="cyan"
@@ -504,25 +502,25 @@ def plot_its_command(
 
     # Exit in preview mode
     if preview:
-        console.print()
-        console.print("[bold green]✓ Preview complete - no files generated[/bold green]")
-        console.print("[dim]  Run without --preview to generate plot[/dim]")
+        ctx.print()
+        ctx.print("[bold green]✓ Preview complete - no files generated[/bold green]")
+        ctx.print("[dim]  Run without --preview to generate plot[/dim]")
         raise typer.Exit(0)
 
     # Step 8: Detect if all ITS are dark and choose appropriate plotting function
     all_dark = _all_its_are_dark(history)
 
     if all_dark:
-        console.print("\n[dim]Detected: All ITS experiments are dark (no laser)[/dim]")
-        console.print("[dim]Using simplified dark plot (no light window shading)[/dim]")
+        ctx.print("\n[dim]Detected: All ITS experiments are dark (no laser)[/dim]")
+        ctx.print("[dim]Using simplified dark plot (no light window shading)[/dim]")
         # Update output filename for dark plots
         output_file = output_dir / f"encap{chip_number}_ITS_dark_{plot_tag}.png"
         # Adjust legend default for dark plots (vg is more useful than led_voltage)
         if legend_by == "led_voltage":
-            console.print("[dim]Tip: For dark measurements, --legend vg might be more useful[/dim]")
+            ctx.print("[dim]Tip: For dark measurements, --legend vg might be more useful[/dim]")
 
     # Step 9: Set FIG_DIR and call plotting function
-    console.print("\n[cyan]Generating plot...[/cyan]")
+    ctx.print("\n[cyan]Generating plot...[/cyan]")
     its.FIG_DIR = output_dir
 
     # NOTE: Plotting functions expect 'source_file' column which we created by renaming 'parquet_path'
@@ -560,15 +558,15 @@ def plot_its_command(
                 duration_tolerance=duration_tolerance
             )
     except Exception as e:
-        console.print(f"[red]Error generating plot:[/red] {e}")
+        ctx.print(f"[red]Error generating plot:[/red] {e}")
         import traceback
-        console.print(f"[dim]{traceback.format_exc()}[/dim]")
+        ctx.print(f"[dim]{traceback.format_exc()}[/dim]")
         raise typer.Exit(1)
 
     # Step 10: Display success with output file path
-    console.print()
+    ctx.print()
     display_plot_success(output_file)
-    console.print()
+    ctx.print()
 
 
 @cli_command(
@@ -669,21 +667,19 @@ def plot_its_sequential_command(
         python process_and_analyze.py plot-its-sequential 81 --seq 93,94,95,96 \\
             --plot-start 10.0 --no-boundaries --legend vg
     """
-    console.print()
-    console.print(Panel.fit(
+    ctx = get_context()
+
+    ctx.print()
+    ctx.print(Panel.fit(
         f"[bold cyan]ITS Sequential Plot: {chip_group}{chip_number}[/bold cyan]",
         border_style="cyan"
     ))
-    console.print()
-
-    # Load config for defaults
-    from src.cli.main import get_config
-    config = get_config()
+    ctx.print()
 
     if output_dir is None:
-        output_dir = config.output_dir
-        if config.verbose:
-            console.print(f"[dim]Using output directory from config: {output_dir}[/dim]")
+        output_dir = ctx.output_dir
+        if ctx.verbose:
+            ctx.print(f"[dim]Using output directory from config: {output_dir}[/dim]")
 
     # Auto-detect if we need enriched histories (for power legend)
     needs_enriched = legend_by.lower() in {"pow", "power", "irradiated_power", "led_power"}
@@ -691,39 +687,39 @@ def plot_its_sequential_command(
     if history_dir is None:
         if needs_enriched:
             # Use enriched histories for power legend
-            base_history_dir = Path(config.history_dir)
+            base_history_dir = Path(ctx.history_dir)
             # Navigate: data/02_stage/chip_histories/ -> data/03_derived/chip_histories_enriched/
             data_dir = base_history_dir.parent.parent
             history_dir = data_dir / "03_derived" / "chip_histories_enriched"
 
             if not history_dir.exists():
-                console.print(f"[red]Error:[/red] Enriched histories not found at {history_dir}")
-                console.print("[yellow]The 'power' legend option requires enriched chip histories.[/yellow]")
-                console.print("[cyan]Run these commands first:[/cyan]")
-                console.print("  1. [cyan]python3 process_and_analyze.py full-pipeline[/cyan]")
-                console.print("  2. [cyan]python3 process_and_analyze.py derive-all-metrics[/cyan]")
+                ctx.print(f"[red]Error:[/red] Enriched histories not found at {history_dir}")
+                ctx.print("[yellow]The 'power' legend option requires enriched chip histories.[/yellow]")
+                ctx.print("[cyan]Run these commands first:[/cyan]")
+                ctx.print("  1. [cyan]python3 process_and_analyze.py full-pipeline[/cyan]")
+                ctx.print("  2. [cyan]python3 process_and_analyze.py derive-all-metrics[/cyan]")
                 raise typer.Exit(1)
 
-            console.print(f"[dim]Using enriched histories for power data: {history_dir}[/dim]")
+            ctx.print(f"[dim]Using enriched histories for power data: {history_dir}[/dim]")
         else:
-            history_dir = config.history_dir
-            if config.verbose:
-                console.print(f"[dim]Using history directory from config: {history_dir}[/dim]")
+            history_dir = ctx.history_dir
+            if ctx.verbose:
+                ctx.print(f"[dim]Using history directory from config: {history_dir}[/dim]")
 
     # Step 1: Get seq numbers (manual or auto)
     mode_count = sum([bool(seq), auto])
     if mode_count > 1:
-        console.print("[red]Error:[/red] Can only use one of: --seq or --auto")
+        ctx.print("[red]Error:[/red] Can only use one of: --seq or --auto")
         raise typer.Exit(1)
 
     if mode_count == 0:
-        console.print("[red]Error:[/red] Must specify one of: --seq or --auto")
-        console.print("[yellow]Hint:[/yellow] Use --seq 93,94,95 or --auto")
+        ctx.print("[red]Error:[/red] Must specify one of: --seq or --auto")
+        ctx.print("[yellow]Hint:[/yellow] Use --seq 93,94,95 or --auto")
         raise typer.Exit(1)
 
     try:
         if auto:
-            console.print("[cyan]Auto-selecting ITS experiments...[/cyan]")
+            ctx.print("[cyan]Auto-selecting ITS experiments...[/cyan]")
             filters = {}
             if date is not None:
                 filters["date"] = date
@@ -736,17 +732,17 @@ def plot_its_sequential_command(
                 history_dir,
                 filters
             )
-            console.print(f"[green]✓[/green] Auto-selected {len(seq_numbers)} ITS experiment(s)")
+            ctx.print(f"[green]✓[/green] Auto-selected {len(seq_numbers)} ITS experiment(s)")
         else:
             seq_numbers = parse_seq_list(seq)
-            console.print(f"[cyan]Using specified seq numbers:[/cyan] {seq_numbers}")
+            ctx.print(f"[cyan]Using specified seq numbers:[/cyan] {seq_numbers}")
 
     except (ValueError, FileNotFoundError) as e:
-        console.print(f"[red]Error:[/red] {e}")
+        ctx.print(f"[red]Error:[/red] {e}")
         raise typer.Exit(1)
 
     # Step 2: Validate seq numbers exist
-    console.print("\n[cyan]Validating experiments...[/cyan]")
+    ctx.print("\n[cyan]Validating experiments...[/cyan]")
     from src.cli.helpers import validate_experiments_exist
     valid, errors = validate_experiments_exist(
         seq_numbers,
@@ -756,15 +752,15 @@ def plot_its_sequential_command(
     )
 
     if not valid:
-        console.print("[red]Validation failed:[/red]")
+        ctx.print("[red]Validation failed:[/red]")
         for error in errors:
-            console.print(f"  • {error}")
+            ctx.print(f"  • {error}")
         raise typer.Exit(1)
 
-    console.print(f"[green]✓[/green] All seq numbers valid")
+    ctx.print(f"[green]✓[/green] All seq numbers valid")
 
     # Step 3: Load history data
-    console.print("\n[cyan]Loading experiment history...[/cyan]")
+    ctx.print("\n[cyan]Loading experiment history...[/cyan]")
     try:
         from src.cli.helpers import load_history_for_plotting
         history = load_history_for_plotting(
@@ -774,11 +770,11 @@ def plot_its_sequential_command(
             history_dir
         )
     except Exception as e:
-        console.print(f"[red]Error loading history:[/red] {e}")
+        ctx.print(f"[red]Error loading history:[/red] {e}")
         raise typer.Exit(1)
 
     if history.height == 0:
-        console.print("[red]Error:[/red] No experiments loaded")
+        ctx.print("[red]Error:[/red] No experiments loaded")
         raise typer.Exit(1)
 
     # Use parquet_path (staged Parquet) if available
@@ -786,15 +782,15 @@ def plot_its_sequential_command(
         history = history.drop("source_file") if "source_file" in history.columns else history
         history = history.rename({"parquet_path": "source_file"})
     elif "source_file" not in history.columns:
-        console.print("[red]Error:[/red] History file missing both 'parquet_path' and 'source_file' columns")
+        ctx.print("[red]Error:[/red] History file missing both 'parquet_path' and 'source_file' columns")
         raise typer.Exit(1)
 
     # Step 4: Display selected experiments
-    console.print()
+    ctx.print()
     display_experiment_list(history, title="ITS Experiments (Sequential)")
 
     # Step 5: Display plot settings
-    console.print()
+    ctx.print()
     display_plot_settings({
         "Plot type": "ITS sequential (raw, concatenated in time)",
         "Experiments": f"{history.height} measurement(s)",
@@ -811,8 +807,8 @@ def plot_its_sequential_command(
     # Preview output filename
     output_file = output_dir / f"encap{chip_number}_ITS_sequential_{plot_tag}.png"
 
-    console.print()
-    console.print(Panel(
+    ctx.print()
+    ctx.print(Panel(
         f"[cyan]Output file:[/cyan]\n{output_file}",
         title="[bold]Output File[/bold]",
         border_style="cyan"
@@ -820,13 +816,13 @@ def plot_its_sequential_command(
 
     # Exit in preview mode
     if preview:
-        console.print()
-        console.print("[bold green]✓ Preview complete - no files generated[/bold green]")
-        console.print("[dim]  Run without --preview to generate plot[/dim]")
+        ctx.print()
+        ctx.print("[bold green]✓ Preview complete - no files generated[/bold green]")
+        ctx.print("[dim]  Run without --preview to generate plot[/dim]")
         raise typer.Exit(0)
 
     # Step 7: Generate plot
-    console.print("\n[cyan]Generating sequential plot...[/cyan]")
+    ctx.print("\n[cyan]Generating sequential plot...[/cyan]")
     its.FIG_DIR = output_dir
     base_dir = Path(".")  # Not used (parquet_path has absolute paths)
 
@@ -841,12 +837,12 @@ def plot_its_sequential_command(
             padding=padding
         )
     except Exception as e:
-        console.print(f"[red]Error generating plot:[/red] {e}")
+        ctx.print(f"[red]Error generating plot:[/red] {e}")
         import traceback
-        console.print(f"[dim]{traceback.format_exc()}[/dim]")
+        ctx.print(f"[dim]{traceback.format_exc()}[/dim]")
         raise typer.Exit(1)
 
     # Step 8: Display success
-    console.print()
+    ctx.print()
     display_plot_success(output_file)
-    console.print()
+    ctx.print()

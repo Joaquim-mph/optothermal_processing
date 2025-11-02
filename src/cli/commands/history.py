@@ -4,7 +4,6 @@ import typer
 from src.cli.plugin_system import cli_command
 from pathlib import Path
 from typing import Optional
-from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 from rich.columns import Columns
@@ -12,6 +11,7 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich import box
 import polars as pl
 
+from src.cli.context import get_context
 from src.core.history_builder import (
     build_chip_history_from_manifest,
     generate_chip_name,
@@ -23,8 +23,6 @@ from src.cli.history_utils import (
     summarize_history,
     HistoryFilterError,
 )
-
-console = Console()
 
 
 @cli_command(
@@ -67,6 +65,12 @@ def show_history_command(
         "-n",
         help="Show only last N experiments"
     ),
+    mode: str = typer.Option(
+        "default",
+        "--mode",
+        "-m",
+        help="Display mode: 'default' (all columns), 'metrics' (focus on derived metrics), 'compact' (minimal columns)"
+    ),
 ):
     """
     Display the complete experiment history for a specific chip.
@@ -74,38 +78,48 @@ def show_history_command(
     Shows a beautiful, paginated view of all experiments with details
     including date, time, procedure type, and parameters.
 
+    Display modes:
+        - default: Show all available columns (parameters + metrics)
+        - metrics: Focus on derived metrics (CNP, photoresponse, power)
+        - compact: Minimal view (seq, date, time, proc only)
+
     Example:
         python process_and_analyze.py show-history 67
         python process_and_analyze.py show-history 72 --proc ITS --limit 20
+        python process_and_analyze.py show-history 67 --mode metrics
     """
-    # Load config for defaults
-    from src.cli.main import get_config
-    config = get_config()
+    ctx = get_context()
+
+    # Validate mode
+    valid_modes = ["default", "metrics", "compact"]
+    if mode not in valid_modes:
+        ctx.print_error(f"Invalid mode '{mode}'")
+        ctx.print(f"[yellow]Valid modes:[/yellow] {', '.join(valid_modes)}")
+        raise typer.Exit(1)
 
     if history_dir is None:
-        history_dir = config.history_dir
-        if config.verbose:
-            console.print(f"[dim]Using history directory from config: {history_dir}[/dim]")
+        history_dir = ctx.history_dir
+        ctx.print_verbose(f"Using history directory from config: {history_dir}")
 
     chip_name = f"{chip_group}{chip_number}"
     history_file = history_dir / f"{chip_name}_history.parquet"
 
     # Check if file exists
     if not history_file.exists():
-        console.print(f"[red]Error:[/red] History file not found: {history_file}")
-        console.print(f"\n[yellow]Hint:[/yellow] Run [cyan]build-all-histories[/cyan] command first to generate history files.")
-        console.print(f"Available files in {history_dir}:")
+        ctx.print(f"[red]Error:[/red] History file not found: {history_file}")
+        ctx.print(f"\n[yellow]Hint:[/yellow] Run [cyan]build-all-histories[/cyan] command first to generate history files.")
+        ctx.print(f"Available files in {history_dir}:")
         if history_dir.exists():
             for f in sorted(history_dir.glob("*_history.parquet")):
-                console.print(f"  • {f.name}")
+                ctx.print(f"  • {f.name}")
         else:
-            console.print(f"  [dim](directory does not exist)[/dim]")
+            ctx.print(f"  [dim](directory does not exist)[/dim]")
         raise typer.Exit(1)
 
     # Try to load enriched history from Stage 3 first (has calibration data)
     # If not available, fall back to Stage 2 and try to join with metrics
-    enriched_history_file = config.stage_dir.parent / "03_derived" / "chip_histories_enriched" / f"{chip_name}_history.parquet"
-    metrics_file = config.stage_dir.parent / "03_derived" / "_metrics" / "metrics.parquet"
+    enriched_history_file = ctx.stage_dir.parent / "03_derived" / "chip_histories_enriched" / f"{chip_name}_history.parquet"
+    metrics_file = ctx.stage_dir.parent / "03_derived" / "_metrics" / "metrics.parquet"
 
     try:
         if enriched_history_file.exists():
@@ -150,15 +164,15 @@ def show_history_command(
                     ])
                     history = history.join(delta_v_df, on="run_id", how="left")
 
-            if config.verbose:
-                console.print(f"[dim]Loaded enriched history with derived metrics[/dim]")
+            if ctx.verbose:
+                ctx.print(f"[dim]Loaded enriched history with derived metrics[/dim]")
         else:
             # Fall back to Stage 2 base history
             history = pl.read_parquet(history_file)
-            if config.verbose:
-                console.print(f"[dim]Loaded base history (no derived metrics)[/dim]")
+            if ctx.verbose:
+                ctx.print(f"[dim]Loaded base history (no derived metrics)[/dim]")
     except Exception as e:
-        console.print(f"[red]Error:[/red] Failed to read history file: {e}")
+        ctx.print(f"[red]Error:[/red] Failed to read history file: {e}")
         raise typer.Exit(1)
 
     try:
@@ -172,21 +186,21 @@ def show_history_command(
     except HistoryFilterError as exc:
         message = str(exc)
         if exc.exit_code == 0:
-            console.print(f"[yellow]{message}[/yellow]")
+            ctx.print(f"[yellow]{message}[/yellow]")
         else:
-            console.print(f"[red]Error:[/red] {message}")
+            ctx.print(f"[red]Error:[/red] {message}")
         raise typer.Exit(exc.exit_code)
 
     summary = summarize_history(history)
 
     # Display header
-    console.print()
-    console.print(Panel.fit(
+    ctx.print()
+    ctx.print(Panel.fit(
         f"[bold cyan]{chip_name} Experiment History[/bold cyan]\n"
         f"Total experiments: [yellow]{summary['total']}[/yellow]",
         border_style="cyan"
     ))
-    console.print()
+    ctx.print()
 
     # Summary statistics
     date_range = summary["date_range"]
@@ -232,8 +246,8 @@ def show_history_command(
         if has_rows:
             summary_items.append(Panel(light_table, title="[green]Light Status[/green]", border_style="green"))
 
-    console.print(Columns(summary_items, equal=True, expand=True))
-    console.print()
+    ctx.print(Columns(summary_items, equal=True, expand=True))
+    ctx.print()
 
     # Experiment table (expand to full terminal width for all the columns)
     table = Table(
@@ -257,6 +271,29 @@ def show_history_command(
     has_wavelength = "wavelength_nm" in history.columns
     has_laser_period = "laser_period_s" in history.columns
 
+    # Apply mode-specific column filtering
+    if mode == "metrics":
+        # Metrics mode: hide VDS and Vg range, focus on derived metrics
+        show_vds = False
+        show_vg_range = False
+        show_vg_fixed = has_vg_fixed
+        show_wavelength = has_wavelength
+        show_period = has_laser_period
+    elif mode == "compact":
+        # Compact mode: only basic info
+        show_vds = False
+        show_vg_range = False
+        show_vg_fixed = False
+        show_wavelength = False
+        show_period = False
+    else:  # default mode
+        # Default mode: show everything available
+        show_vds = has_vds
+        show_vg_range = has_vg_range
+        show_vg_fixed = has_vg_fixed
+        show_wavelength = has_wavelength
+        show_period = has_laser_period
+
     # Build table columns
     if has_light_col:
         table.add_column("💡", style="bold", justify="center", no_wrap=True)
@@ -267,29 +304,41 @@ def show_history_command(
     table.add_column("Proc", style="yellow", no_wrap=True)
 
     # Experimental parameters (before derived metrics for logical flow)
-    if has_vds:
+    if show_vds:
         table.add_column("VDS", style="cyan", justify="right", no_wrap=True)
-    if has_vg_fixed:
+    if show_vg_fixed:
         table.add_column("Vg", style="cyan", justify="right", no_wrap=True)
-    if has_vg_range:
+    if show_vg_range:
         table.add_column("Vg range", style="cyan", justify="center", no_wrap=True)
-    if has_wavelength:
+    if show_wavelength:
         table.add_column("λ", style="bright_yellow", justify="right", no_wrap=True)
-    if has_laser_period:
+    if show_period:
         table.add_column("Period", style="yellow", justify="right", no_wrap=True)
 
-    # Derived metrics columns
+    # Derived metrics columns (with units for clarity)
     if has_cnp:
-        table.add_column("CNP", style="magenta", justify="right", no_wrap=True)
+        cnp_header = "CNP (V)" if mode == "metrics" else "CNP"
+        table.add_column(cnp_header, style="magenta", justify="right", no_wrap=True)
     if has_delta_current:
-        table.add_column("ΔI", style="blue", justify="right", no_wrap=True)
+        delta_i_header = "ΔI (μA)" if mode == "metrics" else "ΔI"
+        table.add_column(delta_i_header, style="blue", justify="right", no_wrap=True)
     if has_delta_voltage:
-        table.add_column("ΔV", style="blue", justify="right", no_wrap=True)
+        delta_v_header = "ΔV (mV)" if mode == "metrics" else "ΔV"
+        table.add_column(delta_v_header, style="blue", justify="right", no_wrap=True)
     if has_power:
-        table.add_column("Power", style="bright_yellow", justify="right", no_wrap=True)
+        power_header = "Power (μW)" if mode == "metrics" else "Power"
+        table.add_column(power_header, style="bright_yellow", justify="right", no_wrap=True)
 
     # Only add description if we don't have many parameter columns
-    show_description = not (has_vds and has_vg_range and has_wavelength and has_laser_period)
+    # In metrics mode, we show description since we're hiding VDS and Vg range
+    # In compact mode, we show description to give some context
+    if mode == "compact":
+        show_description = True
+    elif mode == "metrics":
+        show_description = True
+    else:  # default mode
+        show_description = not (show_vds and show_vg_range and show_wavelength and show_period)
+
     if show_description:
         table.add_column("Notes", style="white", overflow="fold")
 
@@ -362,7 +411,7 @@ def show_history_command(
         ])
 
         # Add experimental parameters
-        if has_vds:
+        if show_vds:
             vds = row.get("vds_v")
             if vds is not None and vds != "":
                 try:
@@ -376,7 +425,7 @@ def show_history_command(
             else:
                 row_data.append("—")
 
-        if has_vg_fixed:
+        if show_vg_fixed:
             vg = row.get("vg_fixed_v")
             if vg is not None and vg != "":
                 try:
@@ -390,7 +439,7 @@ def show_history_command(
             else:
                 row_data.append("—")
 
-        if has_vg_range:
+        if show_vg_range:
             vg_start = row.get("vg_start_v")
             vg_end = row.get("vg_end_v")
             if vg_start is not None and vg_end is not None:
@@ -406,7 +455,7 @@ def show_history_command(
             else:
                 row_data.append("—")
 
-        if has_wavelength:
+        if show_wavelength:
             wl = row.get("wavelength_nm")
             if wl is not None and wl != "":
                 try:
@@ -420,7 +469,7 @@ def show_history_command(
             else:
                 row_data.append("—")
 
-        if has_laser_period:
+        if show_period:
             period = row.get("laser_period_s")
             if period is not None and period != "":
                 try:
@@ -497,19 +546,19 @@ def show_history_command(
 
         table.add_row(*row_data)
 
-    console.print(table)
-    console.print()
+    ctx.print(table)
+    ctx.print()
 
     # Footer with file info
-    console.print(f"[dim]Data source: {history_file}[/dim]")
+    ctx.print(f"[dim]Data source: {history_file}[/dim]")
 
     # Show active filters
     applied_filters = [f for f in applied_filters if not f.startswith("limit=")]
     if applied_filters:
-        console.print(f"[dim]Filters: {', '.join(applied_filters)}[/dim]")
+        ctx.print(f"[dim]Filters: {', '.join(applied_filters)}[/dim]")
 
     if limit:
-        console.print(f"[yellow]Note:[/yellow] Showing only last {limit} experiments. Remove --limit to see all.")
+        ctx.print(f"[yellow]Note:[/yellow] Showing only last {limit} experiments. Remove --limit to see all.")
 
 
 @cli_command(
@@ -554,44 +603,40 @@ def build_history_command(
         # Build history for chip 72 with custom manifest
         process_and_analyze build-history 72 -m /path/to/manifest.parquet
     """
-    # Load config for defaults
-    from src.cli.main import get_config
-    config = get_config()
+    ctx = get_context()
 
     if manifest_path is None:
-        manifest_path = config.stage_dir / "raw_measurements" / "_manifest" / "manifest.parquet"
-        if config.verbose:
-            console.print(f"[dim]Using manifest path from config: {manifest_path}[/dim]")
+        manifest_path = ctx.stage_dir / "raw_measurements" / "_manifest" / "manifest.parquet"
+        ctx.print_verbose(f"Using manifest path from config: {manifest_path}")
 
     if output_dir is None:
-        output_dir = config.history_dir
-        if config.verbose:
-            console.print(f"[dim]Using output directory from config: {output_dir}[/dim]")
+        output_dir = ctx.history_dir
+        ctx.print_verbose(f"Using output directory from config: {output_dir}")
 
-    console.print()
-    console.print(Panel.fit(
+    ctx.print()
+    ctx.print(Panel.fit(
         "[bold cyan]Build Chip History from Staged Data[/bold cyan]",
         border_style="cyan"
     ))
-    console.print()
+    ctx.print()
 
     # Check manifest exists
     if not manifest_path.exists():
-        console.print(f"[red]Error:[/red] Manifest not found: {manifest_path}")
-        console.print(f"\n[yellow]Hint:[/yellow] Run [cyan]stage-all[/cyan] first to create the manifest.")
+        ctx.print(f"[red]Error:[/red] Manifest not found: {manifest_path}")
+        ctx.print(f"\n[yellow]Hint:[/yellow] Run [cyan]stage-all[/cyan] first to create the manifest.")
         raise typer.Exit(1)
 
     chip_name = f"{chip_group}{chip_number}"
 
     try:
         # Build history
-        console.print(f"[cyan]Building history for:[/cyan] {chip_name}")
-        console.print(f"[cyan]Reading manifest:[/cyan] {manifest_path}")
+        ctx.print(f"[cyan]Building history for:[/cyan] {chip_name}")
+        ctx.print(f"[cyan]Reading manifest:[/cyan] {manifest_path}")
 
         with Progress(
             SpinnerColumn(),
             TextColumn("[progress.description]{task.description}"),
-            console=console,
+            console=ctx.console,
             transient=True
         ) as progress:
             task = progress.add_task("Building history...", total=None)
@@ -605,25 +650,25 @@ def build_history_command(
             progress.update(task, completed=True)
 
         if len(history) == 0:
-            console.print(f"\n[yellow]Warning:[/yellow] No experiments found for {chip_name}")
-            console.print()
+            ctx.print(f"\n[yellow]Warning:[/yellow] No experiments found for {chip_name}")
+            ctx.print()
             raise typer.Exit(0)
 
         # Save history
         output_path = save_chip_history(history, output_dir, chip_name)
 
-        console.print()
-        console.print(Panel.fit(
+        ctx.print()
+        ctx.print(Panel.fit(
             f"[bold green]✓ History Built Successfully[/bold green]\n\n"
             f"Chip: {chip_name}\n"
             f"Experiments: {len(history)}\n"
             f"Output: {output_path}",
             border_style="green"
         ))
-        console.print()
+        ctx.print()
 
         # Show preview
-        console.print(f"[cyan]Preview (first 10 experiments):[/cyan]")
+        ctx.print(f"[cyan]Preview (first 10 experiments):[/cyan]")
         preview_table = Table(box=box.SIMPLE)
         preview_table.add_column("Seq", justify="right")
         preview_table.add_column("Date")
@@ -638,17 +683,17 @@ def build_history_command(
                 row.get("summary", "")[:60] + "..." if len(row.get("summary", "")) > 60 else row.get("summary", "")
             )
 
-        console.print(preview_table)
-        console.print()
+        ctx.print(preview_table)
+        ctx.print()
 
     except Exception as e:
-        console.print()
-        console.print(Panel.fit(
+        ctx.print()
+        ctx.print(Panel.fit(
             f"[bold red]✗ Build Failed[/bold red]\n\n"
             f"Error: {str(e)}",
             border_style="red"
         ))
-        console.print()
+        ctx.print()
         raise typer.Exit(1)
 
 
@@ -696,45 +741,41 @@ def build_all_histories_command(
         # Build only for Alisson chips with at least 10 experiments
         process_and_analyze build-all-histories -g Alisson -n 10
     """
-    # Load config for defaults
-    from src.cli.main import get_config
-    config = get_config()
+    ctx = get_context()
 
     if manifest_path is None:
-        manifest_path = config.stage_dir / "raw_measurements" / "_manifest" / "manifest.parquet"
-        if config.verbose:
-            console.print(f"[dim]Using manifest path from config: {manifest_path}[/dim]")
+        manifest_path = ctx.stage_dir / "raw_measurements" / "_manifest" / "manifest.parquet"
+        ctx.print_verbose(f"Using manifest path from config: {manifest_path}")
 
     if output_dir is None:
-        output_dir = config.history_dir
-        if config.verbose:
-            console.print(f"[dim]Using output directory from config: {output_dir}[/dim]")
+        output_dir = ctx.history_dir
+        ctx.print_verbose(f"Using output directory from config: {output_dir}")
 
-    console.print()
-    console.print(Panel.fit(
+    ctx.print()
+    ctx.print(Panel.fit(
         "[bold cyan]Build All Chip Histories from Staged Data[/bold cyan]",
         border_style="cyan"
     ))
-    console.print()
+    ctx.print()
 
     # Check manifest exists
     if not manifest_path.exists():
-        console.print(f"[red]Error:[/red] Manifest not found: {manifest_path}")
-        console.print(f"\n[yellow]Hint:[/yellow] Run [cyan]stage-all[/cyan] first to create the manifest.")
+        ctx.print(f"[red]Error:[/red] Manifest not found: {manifest_path}")
+        ctx.print(f"\n[yellow]Hint:[/yellow] Run [cyan]stage-all[/cyan] first to create the manifest.")
         raise typer.Exit(1)
 
     try:
-        console.print(f"[cyan]Reading manifest:[/cyan] {manifest_path}")
+        ctx.print(f"[cyan]Reading manifest:[/cyan] {manifest_path}")
         if chip_group:
-            console.print(f"[cyan]Filtering by group:[/cyan] {chip_group}")
-        console.print(f"[cyan]Minimum experiments:[/cyan] {min_experiments}")
-        console.print()
+            ctx.print(f"[cyan]Filtering by group:[/cyan] {chip_group}")
+        ctx.print(f"[cyan]Minimum experiments:[/cyan] {min_experiments}")
+        ctx.print()
 
         # Generate histories
         with Progress(
             SpinnerColumn(),
             TextColumn("[progress.description]{task.description}"),
-            console=console,
+            console=ctx.console,
             transient=True
         ) as progress:
             task = progress.add_task("Discovering chips and building histories...", total=None)
@@ -749,21 +790,21 @@ def build_all_histories_command(
             progress.update(task, completed=True)
 
         if not histories:
-            console.print(f"[yellow]Warning:[/yellow] No chips found with at least {min_experiments} experiments")
-            console.print()
+            ctx.print(f"[yellow]Warning:[/yellow] No chips found with at least {min_experiments} experiments")
+            ctx.print()
             raise typer.Exit(0)
 
         # Show results
-        console.print(Panel.fit(
+        ctx.print(Panel.fit(
             f"[bold green]✓ Histories Built Successfully[/bold green]\n\n"
             f"Chips processed: {len(histories)}\n"
             f"Output directory: {output_dir}",
             border_style="green"
         ))
-        console.print()
+        ctx.print()
 
         # List generated files
-        console.print(f"[cyan]Generated history files:[/cyan]")
+        ctx.print(f"[cyan]Generated history files:[/cyan]")
         result_table = Table(box=box.SIMPLE)
         result_table.add_column("Chip Name", style="yellow")
         result_table.add_column("File Path", style="white")
@@ -771,20 +812,20 @@ def build_all_histories_command(
         for chip_name, file_path in sorted(histories.items()):
             result_table.add_row(chip_name, str(file_path))
 
-        console.print(result_table)
-        console.print()
+        ctx.print(result_table)
+        ctx.print()
 
-        console.print(f"[dim]Tip: Use [cyan]show-history <chip_number>[/cyan] to view a chip's history[/dim]")
-        console.print()
+        ctx.print(f"[dim]Tip: Use [cyan]show-history <chip_number>[/cyan] to view a chip's history[/dim]")
+        ctx.print()
 
     except Exception as e:
-        console.print()
-        console.print(Panel.fit(
+        ctx.print()
+        ctx.print(Panel.fit(
             f"[bold red]✗ Build Failed[/bold red]\n\n"
             f"Error: {str(e)}",
             border_style="red"
         ))
-        console.print()
+        ctx.print()
         raise typer.Exit(1)
 
 
@@ -882,48 +923,45 @@ def enrich_histories_command(
     """
     from src.derived.extractors import CalibrationMatcher, print_enrichment_report
 
-    # Load config for defaults
-    from src.cli.main import get_config
-    config = get_config()
+    ctx = get_context()
 
     if history_dir is None:
-        history_dir = config.history_dir
-        if config.verbose:
-            console.print(f"[dim]Using history directory from config: {history_dir}[/dim]")
+        history_dir = ctx.history_dir
+        ctx.print_verbose(f"Using history directory from config: {history_dir}")
 
     if output_dir is None:
         # Default: data/03_derived/chip_histories_enriched/ (Stage 3)
         # Derive from stage_dir: data/02_stage -> data/03_derived
-        output_dir = config.stage_dir.parent / "03_derived" / "chip_histories_enriched"
-        if config.verbose:
-            console.print(f"[dim]Using output directory: {output_dir}[/dim]")
+        output_dir = ctx.stage_dir.parent / "03_derived" / "chip_histories_enriched"
+        if ctx.verbose:
+            ctx.print(f"[dim]Using output directory: {output_dir}[/dim]")
 
     if manifest is None:
         # Default manifest location
-        manifest = config.stage_dir / "raw_measurements" / "_manifest" / "manifest.parquet"
-        if config.verbose:
-            console.print(f"[dim]Using manifest from: {manifest}[/dim]")
+        manifest = ctx.stage_dir / "raw_measurements" / "_manifest" / "manifest.parquet"
+        if ctx.verbose:
+            ctx.print(f"[dim]Using manifest from: {manifest}[/dim]")
 
     # Validate paths
     if not history_dir.exists():
-        console.print(f"[red]✗[/red] History directory not found: {history_dir}")
-        console.print("[yellow]→[/yellow] Run: [cyan]python3 process_and_analyze.py build-all-histories[/cyan]")
+        ctx.print(f"[red]✗[/red] History directory not found: {history_dir}")
+        ctx.print("[yellow]→[/yellow] Run: [cyan]python3 process_and_analyze.py build-all-histories[/cyan]")
         raise typer.Exit(1)
 
     if not manifest.exists():
-        console.print(f"[red]✗[/red] Manifest not found: {manifest}")
-        console.print("[yellow]→[/yellow] Run: [cyan]python3 process_and_analyze.py stage-all[/cyan]")
+        ctx.print(f"[red]✗[/red] Manifest not found: {manifest}")
+        ctx.print("[yellow]→[/yellow] Run: [cyan]python3 process_and_analyze.py stage-all[/cyan]")
         raise typer.Exit(1)
 
     # Find history files
     history_files = sorted(history_dir.glob("*_history.parquet"))
     if len(history_files) == 0:
-        console.print(f"[red]✗[/red] No chip history files found in {history_dir}")
-        console.print("[yellow]→[/yellow] Run: [cyan]python3 process_and_analyze.py build-all-histories[/cyan]")
+        ctx.print(f"[red]✗[/red] No chip history files found in {history_dir}")
+        ctx.print("[yellow]→[/yellow] Run: [cyan]python3 process_and_analyze.py build-all-histories[/cyan]")
         raise typer.Exit(1)
 
-    console.print()
-    console.print(Panel.fit(
+    ctx.print()
+    ctx.print(Panel.fit(
         "[bold cyan]Laser Calibration Enrichment[/bold cyan]\n\n"
         f"Input (Stage 2): {history_dir}\n"
         f"Output (Stage 3): {output_dir}\n"
@@ -934,24 +972,24 @@ def enrich_histories_command(
     ))
 
     if dry_run:
-        console.print()
-        console.print("[yellow]🔍 DRY RUN MODE - No files will be modified[/yellow]")
+        ctx.print()
+        ctx.print("[yellow]🔍 DRY RUN MODE - No files will be modified[/yellow]")
 
     # Initialize matcher
     try:
-        console.print()
-        console.print("[cyan]Loading laser calibrations from manifest...[/cyan]")
+        ctx.print()
+        ctx.print("[cyan]Loading laser calibrations from manifest...[/cyan]")
         matcher = CalibrationMatcher(manifest)
-        console.print(f"[green]✓[/green] Found {matcher.calibrations.height} laser calibrations")
-        console.print(f"[dim]Available wavelengths: {', '.join([f'{w:.0f}nm' for w in matcher.available_wavelengths])}[/dim]")
+        ctx.print(f"[green]✓[/green] Found {matcher.calibrations.height} laser calibrations")
+        ctx.print(f"[dim]Available wavelengths: {', '.join([f'{w:.0f}nm' for w in matcher.available_wavelengths])}[/dim]")
     except Exception as e:
-        console.print(f"[red]✗[/red] Failed to load calibrations: {str(e)}")
+        ctx.print(f"[red]✗[/red] Failed to load calibrations: {str(e)}")
         raise typer.Exit(1)
 
     # Process each chip history
-    console.print()
-    console.print(f"[cyan]Processing {len(history_files)} chip histories...[/cyan]")
-    console.print()
+    ctx.print()
+    ctx.print(f"[cyan]Processing {len(history_files)} chip histories...[/cyan]")
+    ctx.print()
 
     all_reports = []
     total_matched = 0
@@ -1002,21 +1040,21 @@ def enrich_histories_command(
                 total_missing += report.missing
 
             except Exception as e:
-                console.print(f"\n[red]✗[/red] Error processing {chip_name}: {str(e)}")
+                ctx.print(f"\n[red]✗[/red] Error processing {chip_name}: {str(e)}")
 
             progress.advance(task)
 
     # Display individual reports
-    console.print()
-    console.print("[bold cyan]═══ Individual Chip Reports ═══[/bold cyan]")
+    ctx.print()
+    ctx.print("[bold cyan]═══ Individual Chip Reports ═══[/bold cyan]")
 
     for report in all_reports:
         if report.total_light_exps > 0:  # Only show chips with light experiments
             print_enrichment_report(report, verbose=verbose_warnings)
 
     # Display summary
-    console.print()
-    console.print(Panel.fit(
+    ctx.print()
+    ctx.print(Panel.fit(
         f"[bold]Enrichment Summary[/bold]\n\n"
         f"Chips processed: {len(history_files)}\n"
         f"Total light experiments: {sum(r.total_light_exps for r in all_reports)}\n"
@@ -1027,10 +1065,10 @@ def enrich_histories_command(
     ))
 
     if not dry_run:
-        console.print()
-        console.print(f"[dim]💾 Enriched histories written to: {output_dir}[/dim]")
-        console.print(f"[dim]📂 Stage 2 files remain unchanged (immutable)[/dim]")
-        console.print()
+        ctx.print()
+        ctx.print(f"[dim]💾 Enriched histories written to: {output_dir}[/dim]")
+        ctx.print(f"[dim]📂 Stage 2 files remain unchanged (immutable)[/dim]")
+        ctx.print()
 
 
 @cli_command(
@@ -1061,28 +1099,27 @@ def validate_calibration_links_command(
         # Custom history directory
         validate-calibration-links --history-dir data/histories
     """
-    from src.cli.main import get_config
-    config = get_config()
+    ctx = get_context()
 
     if history_dir is None:
-        history_dir = config.history_dir
+        history_dir = ctx.history_dir
 
     if not history_dir.exists():
-        console.print(f"[red]✗[/red] History directory not found: {history_dir}")
+        ctx.print(f"[red]✗[/red] History directory not found: {history_dir}")
         raise typer.Exit(1)
 
     history_files = sorted(history_dir.glob("*_history.parquet"))
     if len(history_files) == 0:
-        console.print(f"[red]✗[/red] No chip history files found in {history_dir}")
+        ctx.print(f"[red]✗[/red] No chip history files found in {history_dir}")
         raise typer.Exit(1)
 
-    console.print()
-    console.print(Panel.fit(
+    ctx.print()
+    ctx.print(Panel.fit(
         "[bold cyan]Calibration Link Validation[/bold cyan]\n\n"
         f"Checking {len(history_files)} chip histories...",
         border_style="cyan"
     ))
-    console.print()
+    ctx.print()
 
     total_links = 0
     valid_links = 0
@@ -1094,7 +1131,7 @@ def validate_calibration_links_command(
         history = pl.read_parquet(history_path)
 
         if "calibration_parquet_path" not in history.columns:
-            console.print(f"[yellow]⚠[/yellow] {chip_name}: Not enriched (no calibration column)")
+            ctx.print(f"[yellow]⚠[/yellow] {chip_name}: Not enriched (no calibration column)")
             continue
 
         # Get all non-null calibration paths
@@ -1117,25 +1154,25 @@ def validate_calibration_links_command(
 
         if chip_broken:
             chips_with_issues.append((chip_name, chip_broken))
-            console.print(f"[red]✗[/red] {chip_name}: {len(chip_broken)} broken link(s)")
+            ctx.print(f"[red]✗[/red] {chip_name}: {len(chip_broken)} broken link(s)")
             for path in chip_broken[:3]:  # Show first 3
-                console.print(f"    [dim]{path}[/dim]")
+                ctx.print(f"    [dim]{path}[/dim]")
             if len(chip_broken) > 3:
-                console.print(f"    [dim]... and {len(chip_broken)-3} more[/dim]")
+                ctx.print(f"    [dim]... and {len(chip_broken)-3} more[/dim]")
         else:
-            console.print(f"[green]✓[/green] {chip_name}: All links valid")
+            ctx.print(f"[green]✓[/green] {chip_name}: All links valid")
 
     # Summary
-    console.print()
+    ctx.print()
     if broken_links == 0:
-        console.print(Panel.fit(
+        ctx.print(Panel.fit(
             f"[bold green]✓ All Calibration Links Valid[/bold green]\n\n"
             f"Total links checked: {total_links}\n"
             f"Valid: {valid_links}",
             border_style="green"
         ))
     else:
-        console.print(Panel.fit(
+        ctx.print(Panel.fit(
             f"[bold red]✗ Broken Calibration Links Found[/bold red]\n\n"
             f"Total links: {total_links}\n"
             f"Valid: {valid_links}\n"
@@ -1143,7 +1180,7 @@ def validate_calibration_links_command(
             f"Chips affected: {len(chips_with_issues)}",
             border_style="red"
         ))
-        console.print()
-        console.print("[yellow]→[/yellow] Re-run enrichment to fix: [cyan]enrich-histories-with-calibrations --force[/cyan]")
+        ctx.print()
+        ctx.print("[yellow]→[/yellow] Re-run enrichment to fix: [cyan]enrich-histories-with-calibrations --force[/cyan]")
 
-    console.print()
+    ctx.print()

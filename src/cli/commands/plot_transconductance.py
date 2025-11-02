@@ -58,15 +58,21 @@ def plot_transconductance_command(
         "-m",
         help="Derivative method: 'gradient' (numpy.gradient) or 'savgol' (Savitzky-Golay filter)"
     ),
-    window_length: int = typer.Option(
-        9,
-        "--window",
-        help="Savitzky-Golay window length (odd number, only used with --method savgol)"
+    quality: str = typer.Option(
+        "auto",
+        "--quality",
+        "-q",
+        help="Quality preset for savgol method: 'auto' (adaptive, default), 'ultra' (max detail), 'high' (preserve features), 'medium' (balanced), 'low' (very smooth). Overridden by manual --window/--polyorder."
     ),
-    polyorder: int = typer.Option(
-        3,
+    window_length: Optional[int] = typer.Option(
+        None,
+        "--window",
+        help="Savitzky-Golay window length (odd number, only used with --method savgol). If not specified, uses --quality preset."
+    ),
+    polyorder: Optional[int] = typer.Option(
+        None,
         "--polyorder",
-        help="Savitzky-Golay polynomial order (only used with --method savgol)"
+        help="Savitzky-Golay polynomial order (only used with --method savgol). If not specified, uses --quality preset."
     ),
     tag: Optional[str] = typer.Option(
         None,
@@ -126,18 +132,22 @@ def plot_transconductance_command(
         # Plot transconductance with default gradient method
         python process_and_analyze.py plot-transconductance 67 --seq 2,8,14
 
-        # Interactive selection (TUI)
-        python process_and_analyze.py plot-transconductance 67 --interactive
-
-        # Use Savitzky-Golay filter for smoother curves
+        # Use Savitzky-Golay filter with automatic parameter selection
         python process_and_analyze.py plot-transconductance 67 --seq 2,8,14 --method savgol
 
-        # Auto-select all IVg with custom window
-        python process_and_analyze.py plot-transconductance 67 --auto --method savgol --window 11
+        # Use quality preset for noisy data (preserve features)
+        python process_and_analyze.py plot-transconductance 67 --seq 2,8,14 --method savgol --quality high
+
+        # Very smooth output for clean data
+        python process_and_analyze.py plot-transconductance 67 --auto --method savgol --quality low
+
+        # Manual parameter override (expert users)
+        python process_and_analyze.py plot-transconductance 67 --seq 2,8,14 --method savgol --window 11 --polyorder 4
 
         # Filter by date
         python process_and_analyze.py plot-transconductance 67 --auto --date 2025-10-15
     """
+    ctx = get_context()
     ctx.print()
     ctx.print(Panel.fit(
         f"[bold magenta]Transconductance Plot: {chip_group}{chip_number}[/bold magenta]",
@@ -312,6 +322,73 @@ def plot_transconductance_command(
         ctx.print("[dim]Proceeding anyway, but results may fail if non-IVg data is present[/dim]")
 
     ctx.print(f"[green]✓[/green] All {history.height} experiment(s) are IVg type")
+
+    # Step 5.5: Auto-select Savitzky-Golay parameters if using savgol method
+    if method == "savgol":
+        # Determine if we should use auto-selection
+        # Priority: manual window/poly > quality preset
+        use_auto_selection = (window_length is None or polyorder is None)
+
+        if use_auto_selection:
+            ctx.print("\n[cyan]Auto-selecting Savitzky-Golay parameters...[/cyan]")
+
+            # Load a sample measurement to analyze data characteristics
+            try:
+                sample_row = history.row(0, named=True)
+                sample_path = Path(sample_row["source_file"])
+
+                if not sample_path.exists():
+                    ctx.print(f"[yellow]Warning:[/yellow] Sample file not found, using defaults")
+                    window_length = 9
+                    polyorder = 3
+                else:
+                    from src.core.utils import read_measurement_parquet
+                    sample_data = read_measurement_parquet(sample_path)
+
+                    # Normalize column names
+                    if "Vg (V)" in sample_data.columns:
+                        vg_col = "Vg (V)"
+                    elif "VG (V)" in sample_data.columns:
+                        vg_col = "VG (V)"
+                    else:
+                        raise ValueError("No Vg column found")
+
+                    if "I (A)" not in sample_data.columns:
+                        raise ValueError("No I (A) column found")
+
+                    vg = sample_data[vg_col].to_numpy()
+                    i = sample_data["I (A)"].to_numpy()
+
+                    # Auto-select parameters using the new function
+                    from src.plotting.transconductance import auto_select_savgol_params
+                    auto_window, auto_poly = auto_select_savgol_params(vg, i, quality)
+
+                    # Use auto-selected values for None parameters
+                    if window_length is None:
+                        window_length = auto_window
+                    if polyorder is None:
+                        polyorder = auto_poly
+
+                    # Report selection
+                    if quality == "auto":
+                        ctx.print(f"[green]✓[/green] Auto-selected: window={window_length}, polyorder={polyorder}")
+                        ctx.print(f"[dim]  Based on: {len(vg)} data points, quality='{quality}'[/dim]")
+                    else:
+                        ctx.print(f"[green]✓[/green] Using quality preset '{quality}': window={window_length}, polyorder={polyorder}")
+
+            except Exception as e:
+                ctx.print(f"[yellow]Warning:[/yellow] Auto-selection failed ({e}), using defaults")
+                window_length = 9 if window_length is None else window_length
+                polyorder = 3 if polyorder is None else polyorder
+        else:
+            # Manual parameters provided
+            ctx.print(f"[dim]Using manual parameters: window={window_length}, polyorder={polyorder}[/dim]")
+
+    # Ensure defaults for gradient method (shouldn't be used, but for safety)
+    if window_length is None:
+        window_length = 9
+    if polyorder is None:
+        polyorder = 3
 
     # Step 6: Display selected experiments
     ctx.print()

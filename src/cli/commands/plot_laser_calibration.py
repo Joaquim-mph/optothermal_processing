@@ -38,6 +38,7 @@ def _display_calibration_experiments(df: pl.DataFrame, title: str = "Calibration
     title : str
         Table title
     """
+    ctx = get_context()
     ctx.print()
     ctx.print(Panel.fit(
         f"[bold cyan]{title}[/bold cyan]",
@@ -185,6 +186,7 @@ def plot_laser_calibration_command(
     Output:
         Saves plot to: figs/laser_calibrations/laser_calibration_*.png
     """
+    ctx = get_context()
 
     if output_dir is None:
         output_dir = ctx.output_dir / "laser_calibrations"

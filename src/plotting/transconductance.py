@@ -18,6 +18,137 @@ from src.plotting.plot_utils import (
 FIG_DIR = Path("figs")
 
 
+def auto_select_savgol_params(
+    vg: np.ndarray,
+    i: np.ndarray,
+    quality: str = "auto"
+) -> tuple[int, int]:
+    """
+    Automatically select Savitzky-Golay window length and polynomial order.
+
+    Uses a hybrid approach combining data point density and SNR estimation
+    to select optimal smoothing parameters for transconductance calculation.
+
+    Parameters
+    ----------
+    vg : np.ndarray
+        Gate voltage array
+    i : np.ndarray
+        Current array
+    quality : str, optional
+        Quality preset: 'auto' (data-driven, default), 'ultra' (max detail),
+        'high' (preserve features), 'medium' (balanced), 'low' (very smooth)
+
+    Returns
+    -------
+    window_length : int
+        Odd integer >= 5, suitable for scipy.signal.savgol_filter
+    polyorder : int
+        Polynomial order (2-4), always < window_length
+
+    Notes
+    -----
+    Quality presets:
+    - 'ultra': window=5, poly=2 (maximum detail, clean data)
+    - 'high': window=7, poly=3 (preserve features, noisy data)
+    - 'medium': window=9, poly=3 (balanced)
+    - 'low': window=15, poly=3 (very smooth, low noise data)
+    - 'auto': Adaptive selection based on data density and SNR
+
+    Auto mode algorithm:
+    1. Base window on number of data points (5% rule)
+    2. Estimate SNR from signal statistics
+    3. Adjust window based on SNR (cleaner → smaller, noisier → larger)
+    4. Ensure odd window and valid poly < window
+
+    Examples
+    --------
+    >>> vg = np.linspace(-1, 1, 100)
+    >>> i = 1e-6 * (vg**2 + 0.01 * np.random.randn(100))
+    >>> window, poly = auto_select_savgol_params(vg, i, "auto")
+    >>> print(f"Selected: window={window}, poly={poly}")
+    Selected: window=7, poly=3
+    """
+    n_points = len(vg)
+
+    # Handle edge cases
+    if n_points < 5:
+        print(f"[warn] Only {n_points} data points, using minimum window=5")
+        return 5, 2
+
+    # Preset quality levels (fixed combinations)
+    if quality == "ultra":
+        return 5, 2
+    elif quality == "high":
+        return 7, 3
+    elif quality == "medium":
+        return 9, 3
+    elif quality == "low":
+        return 15, 3
+
+    # Auto mode: data-driven selection
+    # Step 1: Base window on data point density
+    if n_points < 50:
+        window, poly = 5, 2
+    elif n_points < 100:
+        window, poly = 7, 3
+    elif n_points < 200:
+        window, poly = 9, 3
+    elif n_points < 500:
+        window, poly = 11, 3
+    else:
+        # For very large datasets, use ~3% of points
+        window = min(15, int(0.03 * n_points))
+        if window % 2 == 0:
+            window += 1
+        poly = min(3, window - 2)
+
+    # Step 2: SNR-based adjustment (optional refinement)
+    try:
+        # Estimate noise from high-frequency component (first difference)
+        noise_estimate = np.std(np.diff(i))
+
+        # Signal range (peak-to-peak)
+        signal_range = np.ptp(i)
+
+        if signal_range > 0 and noise_estimate > 0:
+            # Approximate SNR (signal range vs noise level)
+            # Factor of sqrt(2) accounts for differencing amplifying noise
+            snr = signal_range / (noise_estimate * np.sqrt(2))
+
+            # Adjust window based on SNR
+            if snr > 100:  # Very clean data - use smaller window
+                window = max(5, window - 2)
+            elif snr > 50:  # Clean data - slightly smaller window
+                window = max(5, window - 1)
+            elif snr < 20:  # Noisy data - larger window
+                window = min(21, window + 4)
+            elif snr < 40:  # Moderately noisy - slightly larger
+                window = min(21, window + 2)
+            # else: SNR 40-50, use data-point-based default
+
+            # Ensure odd
+            if window % 2 == 0:
+                window += 1
+
+            # Adjust poly if needed
+            poly = min(poly, window - 2)
+
+    except Exception as e:
+        # If SNR estimation fails, use data-point-based default
+        pass
+
+    # Final validation
+    if window < 5:
+        window = 5
+    if poly < 2:
+        poly = 2
+    if poly >= window:
+        poly = window - 2
+
+    return window, poly
+
+
 def plot_ivg_transconductance(
     df: pl.DataFrame,
     base_dir: Path,

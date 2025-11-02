@@ -124,6 +124,7 @@ def plot_vvg_command(
         # Custom output location
         python process_and_analyze.py plot-vvg 72 --seq 5,10,15 --output results/
     """
+    ctx = get_context()
     ctx.print()
     ctx.print(Panel.fit(
         f"[bold green]VVg Sequence Plot: {chip_group}{chip_number}[/bold green]",

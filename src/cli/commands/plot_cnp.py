@@ -67,6 +67,7 @@ def plot_cnp_time_command(
         # Custom figure size (width, height in inches)
         python process_and_analyze.py plot-cnp-time 81 --figsize 16,8
     """
+    ctx = get_context()
     import polars as pl
     from src.plotting.cnp_time import plot_cnp_vs_time
 

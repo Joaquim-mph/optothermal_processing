@@ -35,14 +35,22 @@ def _calculate_auto_baseline(df: pl.DataFrame, divisor: float = 2.0) -> float:
     float
         Calculated baseline time, or 60.0 if period not found
     """
-    if "Laser ON+OFF period" not in df.columns:
+    # Check both old and new column names for backward compatibility
+    # New: laser_period_s (manifest column name from procedures.yml)
+    # Old: "Laser ON+OFF period" (original parameter name)
+    period_col = None
+    if "laser_period_s" in df.columns:
+        period_col = "laser_period_s"
+    elif "Laser ON+OFF period" in df.columns:
+        period_col = "Laser ON+OFF period"
+    else:
         print("[warn] Could not auto-detect LED period (column missing), using baseline_t=60.0")
         return 60.0
 
     periods = []
     for row in df.iter_rows(named=True):
         try:
-            period = float(row["Laser ON+OFF period"])
+            period = float(row[period_col])
             if np.isfinite(period) and period > 0:
                 periods.append(period)
         except Exception:

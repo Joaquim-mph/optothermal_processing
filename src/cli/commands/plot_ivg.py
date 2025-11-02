@@ -124,6 +124,7 @@ def plot_ivg_command(
         # Custom output location
         python process_and_analyze.py plot-ivg 72 --seq 5,10,15 --output results/
     """
+    ctx = get_context()
     ctx.print()
     ctx.print(Panel.fit(
         f"[bold green]IVg Sequence Plot: {chip_group}{chip_number}[/bold green]",

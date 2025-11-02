@@ -109,6 +109,7 @@ def plot_photoresponse_command(
         # Filter to power range
         python process_and_analyze.py plot-photoresponse 81 wavelength --power-min 1e-6 --power-max 1e-3
     """
+    ctx = get_context()
     import polars as pl
     from src.plotting.photoresponse import plot_photoresponse
 

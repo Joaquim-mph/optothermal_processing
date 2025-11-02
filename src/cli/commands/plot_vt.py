@@ -56,7 +56,7 @@ def plot_vt_command(
         "wavelength",
         "--legend",
         "-l",
-        help="Legend grouping: 'wavelength', 'vg', 'led_voltage', or 'datetime'"
+        help="Legend grouping: 'wavelength' (default), 'vg', 'led_voltage', 'irradiated_power', 'datetime'. Aliases: 'wl'→wavelength, 'gate'→vg, 'led'→led_voltage, 'power'/'pow'→irradiated_power"
     ),
     tag: Optional[str] = typer.Option(
         None,
@@ -130,14 +130,17 @@ def plot_vt_command(
     filenames based on the experiments selected.
 
     Examples:
-        # Plot specific experiments
+        # Plot specific experiments with wavelength legend (default)
         python process_and_analyze.py plot-vt 67 --seq 52,57,58
 
         # Interactive selection (TUI)
         python process_and_analyze.py plot-vt 67 --interactive
 
-        # Auto-select all Vt with custom legend
-        python process_and_analyze.py plot-vt 67 --auto --legend wavelength
+        # Use LED voltage legend
+        python process_and_analyze.py plot-vt 67 --auto --legend led_voltage
+
+        # Use irradiated power legend (requires enriched history from derive-all-metrics)
+        python process_and_analyze.py plot-vt 67 --auto --legend irradiated_power
 
         # Filter by gate voltage
         python process_and_analyze.py plot-vt 67 --auto --vg -0.4
@@ -147,7 +150,12 @@ def plot_vt_command(
 
         # No baseline correction (raw data)
         python process_and_analyze.py plot-vt 67 --seq 10,11,12 --baseline-mode none
+
+    Note:
+        The 'irradiated_power'/'power' legend option requires enriched chip histories
+        with calibration data. Run 'derive-all-metrics' to generate these.
     """
+    ctx = get_context()
     ctx.print()
     ctx.print(Panel.fit(
         f"[bold cyan]Vt Overlay Plot: {chip_group}{chip_number}[/bold cyan]",
@@ -161,10 +169,30 @@ def plot_vt_command(
         if ctx.verbose:
             ctx.print(f"[dim]Using output directory from config: {output_dir}[/dim]")
 
+    # Auto-detect if we need enriched histories (for power legend)
+    needs_enriched = legend_by.lower() in {"pow", "power", "irradiated_power", "led_power"}
+
     if history_dir is None:
-        history_dir = ctx.history_dir
-        if ctx.verbose:
-            ctx.print(f"[dim]Using history directory from config: {history_dir}[/dim]")
+        if needs_enriched:
+            # Use enriched histories for power legend
+            base_history_dir = Path(ctx.history_dir)
+            # Navigate: data/02_stage/chip_histories/ -> data/03_derived/chip_histories_enriched/
+            data_dir = base_history_dir.parent.parent
+            history_dir = data_dir / "03_derived" / "chip_histories_enriched"
+
+            if not history_dir.exists():
+                ctx.print(f"[red]Error:[/red] Enriched histories not found at {history_dir}")
+                ctx.print("[yellow]The 'power' legend option requires enriched chip histories.[/yellow]")
+                ctx.print("[cyan]Run these commands first:[/cyan]")
+                ctx.print("  1. [cyan]python3 process_and_analyze.py full-pipeline[/cyan]")
+                ctx.print("  2. [cyan]python3 process_and_analyze.py derive-all-metrics[/cyan]")
+                raise typer.Exit(1)
+
+            ctx.print(f"[dim]Using enriched histories for power data: {history_dir}[/dim]")
+        else:
+            history_dir = ctx.history_dir
+            if ctx.verbose:
+                ctx.print(f"[dim]Using history directory from config: {history_dir}[/dim]")
 
     # Step 1: Get seq numbers (manual, auto, or interactive)
     mode_count = sum([bool(seq), auto, interactive])

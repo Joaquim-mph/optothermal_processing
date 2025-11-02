@@ -149,7 +149,7 @@ def plot_its_command(
         "led_voltage",
         "--legend",
         "-l",
-        help="Legend grouping: 'led_voltage', 'power', 'wavelength', or 'vg'"
+        help="Legend grouping: 'led_voltage' (default), 'wavelength', 'vg', 'irradiated_power', 'datetime'. Aliases: 'wl'→wavelength, 'gate'→vg, 'led'→led_voltage, 'power'/'pow'→irradiated_power"
     ),
     tag: Optional[str] = typer.Option(
         None,
@@ -224,17 +224,17 @@ def plot_its_command(
     filenames based on the experiments selected.
 
     Examples:
-        # Plot specific experiments
+        # Plot specific experiments with LED voltage legend (default)
         python process_and_analyze.py plot-its 67 --seq 52,57,58
 
         # Interactive selection (TUI)
         python process_and_analyze.py plot-its 67 --interactive
 
-        # Auto-select all ITS with custom legend
+        # Auto-select all ITS with wavelength legend
         python process_and_analyze.py plot-its 67 --auto --legend wavelength
 
-        # Use LED power from calibration (requires enriched history)
-        python process_and_analyze.py plot-its 67 --auto --legend power
+        # Use irradiated power legend (requires enriched history from derive-all-metrics)
+        python process_and_analyze.py plot-its 67 --auto --legend irradiated_power
 
         # Filter by gate voltage
         python process_and_analyze.py plot-its 67 --auto --vg -0.4
@@ -243,8 +243,8 @@ def plot_its_command(
         python process_and_analyze.py plot-its 67 --seq 52,57,58 --output results/
 
     Note:
-        The 'power' legend option requires enriched chip histories with
-        calibration data. Run 'derive-all-metrics' to generate these.
+        The 'irradiated_power'/'power' legend option requires enriched chip histories
+        with calibration data. Run 'derive-all-metrics' to generate these.
     """
     ctx = get_context()
 
@@ -622,7 +622,7 @@ def plot_its_sequential_command(
         "datetime",
         "--legend",
         "-l",
-        help="Legend grouping: 'datetime' (default), 'wavelength', 'vg', 'led_voltage', or 'power'"
+        help="Legend grouping: 'datetime' (default), 'wavelength', 'vg', 'led_voltage', 'irradiated_power'. Aliases: 'wl'→wavelength, 'gate'→vg, 'led'→led_voltage, 'power'/'pow'→irradiated_power"
     ),
     padding: float = typer.Option(
         0.02,
@@ -660,10 +660,13 @@ def plot_its_sequential_command(
         # Use wavelength labels
         python process_and_analyze.py plot-its-sequential 81 --seq 93,94,95,96 -l wavelength
 
-        # Auto-select all ITS experiments with LED voltage labels
+        # Use LED voltage labels (laser control voltage)
         python process_and_analyze.py plot-its-sequential 81 --auto --legend led_voltage
 
-        # With custom settings (no boundaries)
+        # Use irradiated power labels (requires enriched histories from derive-all-metrics)
+        python process_and_analyze.py plot-its-sequential 81 --auto --legend irradiated_power
+
+        # With custom settings (no boundaries, gate voltage legend)
         python process_and_analyze.py plot-its-sequential 81 --seq 93,94,95,96 \\
             --plot-start 10.0 --no-boundaries --legend vg
     """

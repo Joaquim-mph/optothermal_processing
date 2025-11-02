@@ -35,14 +35,22 @@ def _calculate_auto_baseline(df: pl.DataFrame, divisor: float = 2.0) -> float:
     float
         Calculated baseline time, or 60.0 if period not found
     """
-    if "Laser ON+OFF period" not in df.columns:
+    # Check both old and new column names for backward compatibility
+    # New: laser_period_s (manifest column name from procedures.yml)
+    # Old: "Laser ON+OFF period" (original parameter name)
+    period_col = None
+    if "laser_period_s" in df.columns:
+        period_col = "laser_period_s"
+    elif "Laser ON+OFF period" in df.columns:
+        period_col = "Laser ON+OFF period"
+    else:
         print("[warn] Could not auto-detect LED period (column missing), using baseline_t=60.0")
         return 60.0
 
     periods = []
     for row in df.iter_rows(named=True):
         try:
-            period = float(row["Laser ON+OFF period"])
+            period = float(row[period_col])
             if np.isfinite(period) and period > 0:
                 periods.append(period)
         except Exception:
@@ -106,7 +114,7 @@ def plot_vt_overlay(
     baseline_mode: str = "fixed",  # "fixed", "auto", or "none"
     baseline_auto_divisor: float = 2.0,  # Used when baseline_mode="auto"
     plot_start_time: float = PLOT_START_TIME,  # Configurable start time
-    legend_by: str = "wavelength",  # "wavelength" (default), "vg", or "led_voltage"
+    legend_by: str = "wavelength",  # "wavelength" (default), "vg", "led_voltage", "power", or "datetime"
     padding: float = 0.02,  # fraction of data range to add as padding (0.02 = 2%)
 ):
     """
@@ -134,9 +142,14 @@ def plot_vt_overlay(
         Default: 2.0 (baseline at half the period)
     plot_start_time : float
         Start time for x-axis in seconds. Default: PLOT_START_TIME constant (20.0s)
-    legend_by : {"wavelength","vg","led_voltage","datetime"}
+    legend_by : {"wavelength","vg","led_voltage","power","datetime"}
         Use wavelength labels like "365 nm" (default), gate voltage labels like "3 V",
-        LED/laser voltage labels like "2.5 V", or datetime labels.
+        LED/laser voltage labels like "2.5 V", power labels like "1.2 mW", or
+        datetime labels like "2025-10-14 15:03".
+        Aliases accepted: "wl","lambda" -> wavelength; "gate","vg","vgs" -> vg;
+        "led","laser","led_voltage","laser_voltage" -> led_voltage;
+        "pow","irradiated_power","led_power" -> power;
+        "datetime","date","time","dt" -> datetime.
     padding : float, optional
         Fraction of data range to add as padding on y-axis (default: 0.02 = 2%).
 
@@ -184,6 +197,8 @@ def plot_vt_overlay(
         lb = "vg"
     elif lb in {"led", "laser", "led_voltage", "laser_voltage"}:
         lb = "led_voltage"
+    elif lb in {"pow", "power", "irradiated_power", "led_power"}:
+        lb = "power"
     elif lb in {"datetime", "date", "time", "dt"}:
         lb = "datetime"
     else:
@@ -234,6 +249,36 @@ def plot_vt_overlay(
                 except Exception:
                     pass
         return None
+
+    def _get_power_formatted(row: dict) -> tuple[float | None, str]:
+        """Extract irradiated power from enriched history and format for display."""
+        power_keys = [
+            "irradiated_power_w",
+            "irradiated_power",
+            "power_w",
+            "power"
+        ]
+
+        for k in power_keys:
+            if k in row:
+                try:
+                    power_w = float(row[k])
+                    if np.isfinite(power_w) and power_w > 0:
+                        # Format nicely: choose appropriate unit (W, mW, µW, nW)
+                        if power_w >= 1.0:
+                            return power_w, f"{power_w:g} W"
+                        elif power_w >= 1e-3:
+                            return power_w, f"{power_w*1e3:g} mW"
+                        elif power_w >= 1e-6:
+                            return power_w, f"{power_w*1e6:g} µW"
+                        elif power_w >= 1e-9:
+                            return power_w, f"{power_w*1e9:g} nW"
+                        else:
+                            return power_w, f"{power_w:g} W"
+                except (ValueError, TypeError):
+                    pass
+
+        return None, "N/A"
 
     vt = df.filter(pl.col("proc") == "Vt").sort("file_idx")
     if vt.height == 0:
@@ -317,6 +362,14 @@ def plot_vt_overlay(
             else:
                 lbl = f"#{int(row.get('seq', row.get('file_idx', 0)))}"
                 legend_title = "Experiment"
+        elif lb == "power":
+            power_val, power_str = _get_power_formatted(row)
+            if power_val is not None:
+                lbl = power_str
+                legend_title = "Irradiated Power"
+            else:
+                lbl = f"#{int(row['file_idx'])}"
+                legend_title = "Trace"
         else:  # lb == "led_voltage"
             led_v = _get_led_voltage_V(row)
             if led_v is not None:
@@ -349,9 +402,16 @@ def plot_vt_overlay(
             except Exception:
                 pass
 
-        if "Laser ON+OFF period" in vt.columns:
+        # Check both old and new column names for backward compatibility
+        period_col = None
+        if "laser_period_s" in vt.columns:
+            period_col = "laser_period_s"
+        elif "Laser ON+OFF period" in vt.columns:
+            period_col = "Laser ON+OFF period"
+
+        if period_col is not None:
             try:
-                on_durations_meta.append(float(row["Laser ON+OFF period"]))
+                on_durations_meta.append(float(row[period_col]))
             except Exception:
                 pass
 

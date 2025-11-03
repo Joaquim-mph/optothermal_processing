@@ -2,27 +2,26 @@
 
 from __future__ import annotations
 from pathlib import Path
+from typing import Literal, Optional
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 from matplotlib.ticker import MaxNLocator
 import polars as pl
 import numpy as np
-from typing import Literal
 
-# Configuration (will be overridden by CLI)
-FIG_DIR = Path("figs")
+from src.plotting.config import PlotConfig
 
 
 def plot_photoresponse(
     history: pl.DataFrame,
     chip_name: str,
     x_variable: Literal["power", "wavelength", "gate_voltage", "time"],
-    output_dir: Path = None,
     y_metric: Literal["delta_current", "delta_voltage"] = "delta_current",
     procedures: list[str] = None,
     filter_wavelength: float = None,
     filter_vg: float = None,
     filter_power_range: tuple[float, float] = None,
+    config: Optional[PlotConfig] = None,
 ) -> Path:
     """
     Plot photoresponse as a function of power, wavelength, gate voltage, or time.
@@ -35,8 +34,6 @@ def plot_photoresponse(
         Name of the chip (e.g., "Alisson81")
     x_variable : {"power", "wavelength", "gate_voltage", "time"}
         Independent variable for x-axis
-    output_dir : Path, optional
-        Output directory for plots (default: figs/)
     y_metric : {"delta_current", "delta_voltage"}, default="delta_current"
         Which photoresponse metric to plot (current or voltage change)
     procedures : list[str], optional
@@ -48,18 +45,20 @@ def plot_photoresponse(
         Filter to specific gate voltage (V)
     filter_power_range : tuple[float, float], optional
         Filter to power range (min, max) in watts
+    config : PlotConfig, optional
+        Plot configuration (theme, DPI, output paths, etc.)
 
     Returns
     -------
     Path
         Path to saved figure
     """
-    from src.plotting.styles import set_plot_style
-    set_plot_style("prism_rain")
+    # Initialize config with defaults
+    config = config or PlotConfig()
 
-    if output_dir is None:
-        output_dir = FIG_DIR
-    output_dir.mkdir(parents=True, exist_ok=True)
+    # Apply plot style from config
+    from src.plotting.styles import set_plot_style
+    set_plot_style(config.theme)
 
     # Select metric column name (metrics use delta_current/delta_voltage)
     metric_col = y_metric
@@ -155,7 +154,7 @@ def plot_photoresponse(
         y_label = "Δ Voltage (V)"
 
     # Create figure
-    fig, ax = plt.subplots(figsize=(36, 20))
+    fig, ax = plt.subplots(figsize=config.figsize_derived)
 
     # Group by wavelength if plotting vs power/gate (for color coding)
     if x_variable in ["power", "gate_voltage"] and "wavelength_nm" in photo_data.columns:
@@ -256,8 +255,9 @@ def plot_photoresponse(
     if filter_vg is not None:
         filename_parts.append(f"vg{filter_vg:.2f}V".replace(".", "p"))
 
-    output_file = output_dir / ("_".join(filename_parts) + ".png")
-    plt.savefig(output_file, dpi=300, bbox_inches='tight')
+    filename = "_".join(filename_parts) + ".png"
+    output_file = config.get_output_path(filename, procedure="Photoresponse")
+    plt.savefig(output_file, dpi=config.dpi, bbox_inches='tight')
     plt.close()
 
     return output_file

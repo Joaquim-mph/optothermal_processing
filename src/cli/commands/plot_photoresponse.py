@@ -72,6 +72,21 @@ def plot_photoresponse_command(
         "--power-max",
         help="Maximum irradiated power (W)"
     ),
+    theme: Optional[str] = typer.Option(
+        None,
+        "--theme",
+        help="Plot theme override (prism_rain, paper, presentation, minimal). Overrides global --plot-theme."
+    ),
+    format: Optional[str] = typer.Option(
+        None,
+        "--format",
+        help="Output format override (png, pdf, svg, jpg). Overrides global --plot-format."
+    ),
+    dpi: Optional[int] = typer.Option(
+        None,
+        "--dpi",
+        help="DPI override (72-1200). Overrides global --plot-dpi."
+    ),
 ):
     """
     Plot photoresponse as a function of experimental parameters.
@@ -226,6 +241,25 @@ def plot_photoresponse_command(
 
     ctx.print(f"[green]✓[/green] Found {photo_count} It measurements with photoresponse data")
 
+    # Get plot config and apply command-specific overrides
+    from src.cli.main import get_plot_config
+    plot_config = get_plot_config()
+
+    # Apply command-specific overrides
+    plot_overrides = {}
+    if theme is not None:
+        plot_overrides["theme"] = theme
+    if format is not None:
+        plot_overrides["format"] = format
+    if dpi is not None:
+        plot_overrides["dpi"] = dpi
+
+    if plot_overrides:
+        plot_config = plot_config.copy(**plot_overrides)
+        if ctx.verbose:
+            overrides_str = ", ".join([f"{k}={v}" for k, v in plot_overrides.items()])
+            ctx.print(f"[dim]Plot config overrides: {overrides_str}[/dim]")
+
     # Generate plot
     ctx.print(f"[cyan]Generating photoresponse vs {x_variable} plot...[/cyan]")
 
@@ -242,12 +276,12 @@ def plot_photoresponse_command(
             history=history,
             chip_name=chip_name,
             x_variable=x_variable,
-            output_dir=output_dir,
             y_metric=metric,
             procedures=procs_list,
             filter_wavelength=wavelength,
             filter_vg=gate_voltage,
             filter_power_range=power_range,
+            config=plot_config,
         )
 
         ctx.print()

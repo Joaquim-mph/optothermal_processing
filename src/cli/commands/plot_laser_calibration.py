@@ -148,6 +148,21 @@ def plot_laser_calibration_command(
         "--comparison",
         help="Generate comparison plot with subplots per wavelength"
     ),
+    theme: Optional[str] = typer.Option(
+        None,
+        "--theme",
+        help="Plot theme override (prism_rain, paper, presentation, minimal). Overrides global --plot-theme."
+    ),
+    format: Optional[str] = typer.Option(
+        None,
+        "--format",
+        help="Output format override (png, pdf, svg, jpg). Overrides global --plot-format."
+    ),
+    dpi: Optional[int] = typer.Option(
+        None,
+        "--dpi",
+        help="DPI override (72-1200). Overrides global --plot-dpi."
+    ),
 ):
     """
     Generate laser calibration plots.
@@ -194,6 +209,8 @@ def plot_laser_calibration_command(
             ctx.print(f"[dim]Using output directory: {output_dir}[/dim]")
 
     if manifest is None:
+        from src.cli.main import get_config
+        config = get_config()
         manifest = config.stage_dir / "raw_measurements" / "_manifest" / "manifest.parquet"
         if ctx.verbose:
             ctx.print(f"[dim]Using manifest from config: {manifest}[/dim]")
@@ -298,9 +315,28 @@ def plot_laser_calibration_command(
     # Generate plot
     plot_tag = "calibrations"
 
-    # Set output directory for plotting module
-    from src.plotting import laser_calibration
-    laser_calibration.FIG_DIR = output_dir
+    # Get plot config and apply command-specific overrides
+    from src.cli.main import get_plot_config
+    plot_config = get_plot_config()
+
+    # Apply command-specific overrides
+    plot_overrides = {}
+    if theme is not None:
+        plot_overrides["theme"] = theme
+    if format is not None:
+        plot_overrides["format"] = format
+    if dpi is not None:
+        plot_overrides["dpi"] = dpi
+
+    # Override output_dir from command line
+    if output_dir is not None:
+        plot_overrides["output_dir"] = output_dir
+
+    if plot_overrides:
+        plot_config = plot_config.copy(**plot_overrides)
+        if ctx.verbose:
+            overrides_str = ", ".join([f"{k}={v}" for k, v in plot_overrides.items()])
+            ctx.print(f"[dim]Plot config overrides: {overrides_str}[/dim]")
 
     if comparison:
         # Generate comparison plot (subplots)
@@ -309,7 +345,8 @@ def plot_laser_calibration_command(
             selected,
             Path("."),  # Base dir not used (we have parquet_paths)
             plot_tag,
-            group_by="wavelength"
+            group_by="wavelength",
+            config=plot_config
         )
     else:
         # Generate standard overlay plot
@@ -321,6 +358,7 @@ def plot_laser_calibration_command(
             group_by_wavelength=group_by_wavelength,
             show_markers=show_markers,
             power_unit=power_unit,
+            config=plot_config
         )
 
     if output_file:
@@ -365,6 +403,21 @@ def plot_laser_calibration_comparison_command(
         "-o",
         help="Output directory (default: figs/laser_calibrations)"
     ),
+    theme: Optional[str] = typer.Option(
+        None,
+        "--theme",
+        help="Plot theme override (prism_rain, paper, presentation, minimal). Overrides global --plot-theme."
+    ),
+    format: Optional[str] = typer.Option(
+        None,
+        "--format",
+        help="Output format override (png, pdf, svg, jpg). Overrides global --plot-format."
+    ),
+    dpi: Optional[int] = typer.Option(
+        None,
+        "--dpi",
+        help="DPI override (72-1200). Overrides global --plot-dpi."
+    ),
 ):
     """
     Generate laser calibration comparison plot with subplots.
@@ -397,4 +450,7 @@ def plot_laser_calibration_comparison_command(
         show_markers=True,
         preview=False,
         comparison=True,
+        theme=theme,
+        format=format,
+        dpi=dpi,
     )

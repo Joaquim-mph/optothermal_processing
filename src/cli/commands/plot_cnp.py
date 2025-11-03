@@ -39,6 +39,21 @@ def plot_cnp_time_command(
         "--light/--no-light",
         help="Distinguish light/dark measurements (default: True)"
     ),
+    theme: Optional[str] = typer.Option(
+        None,
+        "--theme",
+        help="Plot theme override (prism_rain, paper, presentation, minimal). Overrides global --plot-theme."
+    ),
+    format: Optional[str] = typer.Option(
+        None,
+        "--format",
+        help="Output format override (png, pdf, svg, jpg). Overrides global --plot-format."
+    ),
+    dpi: Optional[int] = typer.Option(
+        None,
+        "--dpi",
+        help="DPI override (72-1200). Overrides global --plot-dpi."
+    ),
 ):
     """
     Plot CNP (Charge Neutrality Point / Dirac point) voltage vs time.
@@ -150,6 +165,25 @@ def plot_cnp_time_command(
 
     ctx.print(f"[green]✓[/green] Found {cnp_count} IVg measurements with CNP data")
 
+    # Get plot config and apply command-specific overrides
+    from src.cli.main import get_plot_config
+    plot_config = get_plot_config()
+
+    # Apply command-specific overrides
+    plot_overrides = {}
+    if theme is not None:
+        plot_overrides["theme"] = theme
+    if format is not None:
+        plot_overrides["format"] = format
+    if dpi is not None:
+        plot_overrides["dpi"] = dpi
+
+    if plot_overrides:
+        plot_config = plot_config.copy(**plot_overrides)
+        if ctx.verbose:
+            overrides_str = ", ".join([f"{k}={v}" for k, v in plot_overrides.items()])
+            ctx.print(f"[dim]Plot config overrides: {overrides_str}[/dim]")
+
     # Generate plot
     ctx.print("[cyan]Generating CNP vs time plot...[/cyan]")
 
@@ -157,8 +191,8 @@ def plot_cnp_time_command(
         output_file = plot_cnp_vs_time(
             history=history,
             chip_name=chip_name,
-            output_dir=output_dir,
             show_light=show_light,
+            config=plot_config,
         )
 
         ctx.print()

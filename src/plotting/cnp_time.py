@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 from pathlib import Path
+from typing import Optional
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 from matplotlib.ticker import MaxNLocator
@@ -9,15 +10,14 @@ import polars as pl
 import numpy as np
 from datetime import datetime
 
-# Configuration (will be overridden by CLI)
-FIG_DIR = Path("figs")
+from src.plotting.config import PlotConfig
 
 
 def plot_cnp_vs_time(
     history: pl.DataFrame,
     chip_name: str,
-    output_dir: Path = None,
-    show_light: bool = True
+    show_light: bool = True,
+    config: Optional[PlotConfig] = None,
 ) -> Path:
     """
     Plot CNP voltage vs time to track Dirac point evolution.
@@ -28,24 +28,22 @@ def plot_cnp_vs_time(
         Chip history with CNP and time columns (must include 'cnp_voltage' and datetime)
     chip_name : str
         Name of the chip (e.g., "Alisson81")
-    output_dir : Path, optional
-        Output directory for plots (default: figs/)
     show_light : bool
         If True, show different markers for light/dark measurements
-    figsize : tuple
-        Figure size (width, height) in inches
+    config : PlotConfig, optional
+        Plot configuration (theme, DPI, output paths, etc.)
 
     Returns
     -------
     Path
         Path to saved figure
     """
-    from src.plotting.styles import set_plot_style
-    set_plot_style("prism_rain")
+    # Initialize config with defaults
+    config = config or PlotConfig()
 
-    if output_dir is None:
-        output_dir = FIG_DIR
-    output_dir.mkdir(parents=True, exist_ok=True)
+    # Apply plot style from config
+    from src.plotting.styles import set_plot_style
+    set_plot_style(config.theme)
 
     # Filter to only IVg measurements with CNP values
     cnp_data = history.filter(
@@ -75,7 +73,7 @@ def plot_cnp_vs_time(
     has_light = "has_light" in cnp_data.columns
 
     # Create figure
-    fig, ax = plt.subplots(figsize=(36,20))
+    fig, ax = plt.subplots(figsize=config.figsize_derived)
 
     if has_light and show_light:
         # Split by light status
@@ -153,8 +151,9 @@ def plot_cnp_vs_time(
     plt.tight_layout()
 
     # Save figure
-    output_file = output_dir / f"{chip_name}_cnp_vs_time.png"
-    plt.savefig(output_file, dpi=300, bbox_inches='tight')
+    filename = f"{chip_name}_cnp_vs_time.png"
+    output_file = config.get_output_path(filename, procedure="CNP")
+    plt.savefig(output_file, dpi=config.dpi, bbox_inches='tight')
     plt.close()
 
     return output_file

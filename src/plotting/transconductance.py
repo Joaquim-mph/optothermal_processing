@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 from pathlib import Path
+from typing import Optional
 import numpy as np
 import matplotlib.pyplot as plt
 import polars as pl
 
 from src.core.utils import read_measurement_parquet
+from src.plotting.config import PlotConfig
 from src.plotting.plot_utils import (
     get_chip_label,
     segment_voltage_sweep,
@@ -14,9 +16,6 @@ from src.plotting.plot_utils import (
     _raw_derivative,
     ensure_standard_columns
 )
-
-# Configuration (will be overridden by CLI)
-FIG_DIR = Path("figs")
 
 
 def auto_select_savgol_params(
@@ -157,6 +156,7 @@ def plot_ivg_transconductance(
     *,
     smoothing_window: int = 5,       # kept for signature compatibility (unused here)
     min_segment_length: int = 10,
+    config: Optional[PlotConfig] = None,
 ):
     """
     Plot transconductance (dI/dVg) for all IVg measurements.
@@ -177,6 +177,8 @@ def plot_ivg_transconductance(
         Kept for signature compatibility (unused in gradient method)
     min_segment_length : int
         Minimum points per segment before computing derivative
+    config : PlotConfig, optional
+        Plot configuration (theme, DPI, output paths, etc.)
 
     Notes
     -----
@@ -184,16 +186,19 @@ def plot_ivg_transconductance(
     - Duplicate VG values in a segment are removed before gradient to avoid div-by-zero.
     - Output units: gm shown in µS.
     """
-    # Apply plot style (lazy initialization for thread-safety)
+    # Initialize config with defaults
+    config = config or PlotConfig()
+
+    # Apply plot style from config
     from src.plotting.styles import set_plot_style
-    set_plot_style("prism_rain")
+    set_plot_style(config.theme)
 
     ivg = df.filter(pl.col("proc") == "IVg").sort("file_idx")
     if ivg.height == 0:
         print("[info] no IVg measurements to plot")
         return
 
-    fig, ax = plt.subplots()
+    fig, ax = plt.subplots(figsize=config.figsize_voltage_sweep)
     curves_plotted = 0
 
     for meas_idx, row in enumerate(ivg.iter_rows(named=True)):
@@ -274,8 +279,9 @@ def plot_ivg_transconductance(
     ax.axhline(y=0, color='k', linestyle=':')
 
     plt.tight_layout()
-    out = FIG_DIR / f"encap{chipnum}_gm_{tag}.png"
-    plt.savefig(out)
+    filename = f"encap{chipnum}_gm_{tag}.png"
+    out = config.get_output_path(filename, procedure="IVg")
+    plt.savefig(out, dpi=config.dpi)
     print(f"saved {out}")
     plt.close(fig)
 
@@ -290,6 +296,7 @@ def plot_ivg_transconductance_savgol(
     polyorder: int = 3,
     show_raw: bool = True,
     raw_alpha: float = 0.5,
+    config: Optional[PlotConfig] = None,
 ):
     """
     Plot transconductance (dI/dVg) using Savitzky-Golay derivative.
@@ -314,17 +321,22 @@ def plot_ivg_transconductance_savgol(
         If True, show raw derivative as transparent background
     raw_alpha : float
         Transparency for raw derivative (0-1)
+    config : PlotConfig, optional
+        Plot configuration (theme, DPI, output paths, etc.)
     """
-    # Apply plot style (lazy initialization for thread-safety)
+    # Initialize config with defaults
+    config = config or PlotConfig()
+
+    # Apply plot style from config
     from src.plotting.styles import set_plot_style
-    set_plot_style("prism_rain")
+    set_plot_style(config.theme)
 
     ivg = df.filter(pl.col("proc") == "IVg").sort("file_idx")
     if ivg.height == 0:
         print("[info] no IVg measurements to plot")
         return
 
-    fig, ax = plt.subplots()
+    fig, ax = plt.subplots(figsize=config.figsize_voltage_sweep)
     curves_plotted = 0
 
     # Let matplotlib handle colors (respects your color cycle configuration)
@@ -440,7 +452,8 @@ def plot_ivg_transconductance_savgol(
 
     plt.tight_layout()
 
-    out = FIG_DIR / f"encap{chipnum}_gm_savgol_{tag}.png"
-    plt.savefig(out)
+    filename = f"encap{chipnum}_gm_savgol_{tag}.png"
+    out = config.get_output_path(filename, procedure="IVg")
+    plt.savefig(out, dpi=config.dpi)
     print(f"saved {out}")
     plt.close(fig)

@@ -2,20 +2,19 @@
 
 from __future__ import annotations
 from pathlib import Path
+from typing import Optional
 import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
 import polars as pl
 
 from src.core.utils import read_measurement_parquet
+from src.plotting.config import PlotConfig
 
 try:
     import imageio.v3 as iio
 except ImportError:
     import imageio as iio
-
-# Configuration (will be overridden by CLI)
-FIG_DIR = Path("figs")
 
 
 def ivg_sequence_gif(
@@ -26,7 +25,8 @@ def ivg_sequence_gif(
     fps: float = 2.0,            # frames per second
     cumulative: bool = False,    # False = one curve per frame; True = overlay grows
     y_unit_uA: bool = True,      # plot in µA
-    show_grid: bool = True
+    show_grid: bool = True,
+    config: Optional[PlotConfig] = None,
 ):
     """
     Create an animated GIF from all IVg curves in the DataFrame.
@@ -47,7 +47,12 @@ def ivg_sequence_gif(
         If True, plot current in µA; if False, in A
     show_grid : bool
         If True, show grid on plots
+    config : PlotConfig, optional
+        Plot configuration (theme, DPI, output paths, etc.)
     """
+    # Initialize config with defaults
+    config = config or PlotConfig()
+
     matplotlib.use('Agg')  # Use non-interactive backend
 
     ivg = df.filter(pl.col("proc") == "IVg").sort("file_idx")
@@ -153,7 +158,8 @@ def ivg_sequence_gif(
         plt.close(fig)
 
     # -------- write GIF --------
-    out = FIG_DIR / f"{chip_txt}_IVg_sequence_{tag}.gif"
+    filename = f"{chip_txt}_IVg_sequence_{tag}.gif"
+    out = config.get_output_path(filename, procedure="IVg")
     out.parent.mkdir(parents=True, exist_ok=True)
 
     try:
@@ -164,6 +170,7 @@ def ivg_sequence_gif(
         print(f"[warn] GIF save failed with imageio: {e}")
         # Fallback: save individual frames as PNGs
         for i, frame in enumerate(frames):
-            frame_out = FIG_DIR / f"{chip_txt}_IVg_sequence_{tag}_frame_{i:03d}.png"
+            frame_filename = f"{chip_txt}_IVg_sequence_{tag}_frame_{i:03d}.png"
+            frame_out = config.get_output_path(frame_filename, procedure="IVg")
             iio.imwrite(frame_out, frame)
         print(f"[info] saved {len(frames)} individual frames instead")

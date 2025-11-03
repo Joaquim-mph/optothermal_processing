@@ -100,6 +100,21 @@ def plot_ivg_command(
         "--show-cnp",
         help="Show detected CNP points in bright yellow"
     ),
+    theme: Optional[str] = typer.Option(
+        None,
+        "--theme",
+        help="Plot theme override (prism_rain, paper, presentation, minimal). Overrides global --plot-theme."
+    ),
+    format: Optional[str] = typer.Option(
+        None,
+        "--format",
+        help="Output format override (png, pdf, svg, jpg). Overrides global --plot-format."
+    ),
+    dpi: Optional[int] = typer.Option(
+        None,
+        "--dpi",
+        help="DPI override (72-1200). Overrides global --plot-dpi."
+    ),
 ):
     """
     Generate IVg sequence plots from terminal.
@@ -310,9 +325,31 @@ def plot_ivg_command(
         ctx.print("[dim]  Run without --preview to generate plot[/dim]")
         raise typer.Exit(0)
 
-    # Step 9: Set FIG_DIR and call plotting function
+    # Step 9: Get plot config and apply command-specific overrides
+    from src.cli.main import get_plot_config
+    plot_config = get_plot_config()
+
+    # Apply command-specific overrides
+    plot_overrides = {}
+    if theme is not None:
+        plot_overrides["theme"] = theme
+    if format is not None:
+        plot_overrides["format"] = format
+    if dpi is not None:
+        plot_overrides["dpi"] = dpi
+
+    # Override output_dir from command line
+    if output_dir is not None:
+        plot_overrides["output_dir"] = output_dir
+
+    if plot_overrides:
+        plot_config = plot_config.copy(**plot_overrides)
+        if ctx.verbose:
+            overrides_str = ", ".join([f"{k}={v}" for k, v in plot_overrides.items()])
+            ctx.print(f"[dim]Plot config overrides: {overrides_str}[/dim]")
+
+    # Step 10: Call plotting function
     ctx.print("\n[cyan]Generating plot...[/cyan]")
-    ivg.FIG_DIR = output_dir
 
     # NOTE: Plotting functions expect 'source_file' column which we created by renaming 'parquet_path'
     # The plotting functions now read from staged Parquet files (fast!)
@@ -324,7 +361,8 @@ def plot_ivg_command(
             history,
             base_dir,
             plot_tag,
-            show_cnp=show_cnp
+            show_cnp=show_cnp,
+            config=plot_config
         )
     except Exception as e:
         ctx.print(f"[red]Error generating plot:[/red] {e}")
@@ -332,7 +370,7 @@ def plot_ivg_command(
         ctx.print(f"[dim]{traceback.format_exc()}[/dim]")
         raise typer.Exit(1)
 
-    # Step 10: Display success with output file path
+    # Step 11: Display success with output file path
     ctx.print()
     display_plot_success(output_file)
     ctx.print()

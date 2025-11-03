@@ -13,9 +13,7 @@ import polars as pl
 from typing import Optional
 
 from src.core.utils import read_measurement_parquet
-
-# Configuration
-FIG_DIR = Path("figs")
+from src.plotting.config import PlotConfig
 
 
 def plot_laser_calibration(
@@ -26,6 +24,7 @@ def plot_laser_calibration(
     group_by_wavelength: bool = True,
     show_markers: bool = False,
     power_unit: str = "uW",
+    config: Optional[PlotConfig] = None,
 ) -> Path:
     """
     Generate laser calibration plot (Power vs Laser Voltage).
@@ -49,6 +48,8 @@ def plot_laser_calibration(
         If True, show data point markers (default: True)
     power_unit : str, optional
         Power unit for y-axis: "uW", "mW", or "W" (default: "uW")
+    config : PlotConfig, optional
+        Plot configuration (theme, DPI, output paths, etc.)
 
     Returns
     -------
@@ -69,13 +70,12 @@ def plot_laser_calibration(
     - Legend includes wavelength, fiber, and seq number for identification
     - Grid is enabled for easy voltage/power reading
     """
-    # Load config and apply plot style from config
-    from src.cli.main import get_config
-    from src.plotting.styles import set_plot_style, THEMES
+    # Initialize config with defaults
+    config = config or PlotConfig()
 
-    config = get_config()
-    theme_name = config.plot_theme
-    set_plot_style(theme_name)
+    # Apply plot style from config
+    from src.plotting.styles import set_plot_style, THEMES
+    set_plot_style(config.theme)
 
     # Filter and sort by seq number (chronological order)
     data = df.filter(pl.col("proc") == "LaserCalibration").sort("seq")
@@ -100,7 +100,7 @@ def plot_laser_calibration(
         wavelengths = data["wavelength_nm"].unique().sort() if "wavelength_nm" in data.columns else []
         # Get color palette from theme
         if len(wavelengths) > 0:
-            theme = THEMES[theme_name]
+            theme = THEMES[config.theme]
             color_cycle = theme["rc"]["axes.prop_cycle"]
             colors = [c['color'] for c in color_cycle]
             wl_colors = {wl: colors[i % len(colors)] for i, wl in enumerate(wavelengths)}
@@ -205,12 +205,11 @@ def plot_laser_calibration(
     # Tight layout
     plt.tight_layout()
 
-    # Save figure (using config DPI)
-    output_dir = FIG_DIR / tag
-    output_dir.mkdir(parents=True, exist_ok=True)
-    output_file = output_dir / f"laser_calibration_{tag}.{config.default_plot_format}"
+    # Save figure
+    filename = f"laser_calibration_{tag}.png"
+    output_file = config.get_output_path(filename, procedure="LaserCalibration")
 
-    fig.savefig(output_file, dpi=config.plot_dpi, bbox_inches='tight')
+    fig.savefig(output_file, dpi=config.dpi, bbox_inches='tight')
     plt.close(fig)
 
     print(f"[info] Saved {output_file}")
@@ -223,6 +222,7 @@ def plot_laser_calibration_comparison(
     tag: str,
     *,
     group_by: str = "wavelength",
+    config: Optional[PlotConfig] = None,
 ) -> Path:
     """
     Generate comparison plot with subplots for different wavelengths or fibers.
@@ -240,6 +240,8 @@ def plot_laser_calibration_comparison(
         Tag for output filename
     group_by : str, optional
         Grouping variable: "wavelength" or "fiber" (default: "wavelength")
+    config : PlotConfig, optional
+        Plot configuration (theme, DPI, output paths, etc.)
 
     Returns
     -------
@@ -252,13 +254,12 @@ def plot_laser_calibration_comparison(
     >>> cal_data = history.filter(pl.col("proc") == "LaserCalibration")
     >>> output = plot_laser_calibration_comparison(cal_data, Path("."), "Alisson67")
     """
-    # Load config and apply plot style from config
-    from src.cli.main import get_config
-    from src.plotting.styles import set_plot_style
+    # Initialize config with defaults
+    config = config or PlotConfig()
 
-    config = get_config()
-    theme_name = config.plot_theme
-    set_plot_style(theme_name)
+    # Apply plot style from config
+    from src.plotting.styles import set_plot_style
+    set_plot_style(config.theme)
 
     data = df.filter(pl.col("proc") == "LaserCalibration").sort("seq")
     if data.height == 0:
@@ -348,12 +349,11 @@ def plot_laser_calibration_comparison(
 
     plt.tight_layout()
 
-    # Save figure (using config settings)
-    output_dir = FIG_DIR / tag
-    output_dir.mkdir(parents=True, exist_ok=True)
-    output_file = output_dir / f"laser_calibration_comparison_{tag}.{config.default_plot_format}"
+    # Save figure
+    filename = f"laser_calibration_comparison_{tag}.png"
+    output_file = config.get_output_path(filename, procedure="LaserCalibration")
 
-    fig.savefig(output_file, dpi=config.plot_dpi, bbox_inches='tight')
+    fig.savefig(output_file, dpi=config.dpi, bbox_inches='tight')
     plt.close(fig)
 
     print(f"[info] Saved {output_file}")

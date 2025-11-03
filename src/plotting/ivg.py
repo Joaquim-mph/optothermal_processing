@@ -29,7 +29,7 @@ def plot_ivg_sequence(df: pl.DataFrame, base_dir: Path, tag: str, show_cnp: bool
     """
     # Apply plot style (lazy initialization for thread-safety)
     from src.plotting.styles import set_plot_style
-    from src.plotting.plot_utils import extract_cnp_for_plotting
+    from src.plotting.plot_utils import extract_cnp_for_plotting, ensure_standard_columns
     set_plot_style("prism_rain")
 
     ivg = df.filter(pl.col("proc") == "IVg").sort("file_idx")
@@ -46,15 +46,7 @@ def plot_ivg_sequence(df: pl.DataFrame, base_dir: Path, tag: str, show_cnp: bool
         d = read_measurement_parquet(path)
 
         # Normalize column names (handle both formats)
-        col_map = {}
-        if "VG (V)" in d.columns:
-            col_map["VG (V)"] = "VG"
-        elif "Vg (V)" in d.columns:
-            col_map["Vg (V)"] = "VG"
-        if "I (A)" in d.columns:
-            col_map["I (A)"] = "I"
-        if col_map:
-            d = d.rename(col_map)
+        d = ensure_standard_columns(d)
 
         # Expect columns: VG, I (standardized)
         if not {"VG", "I"} <= set(d.columns):

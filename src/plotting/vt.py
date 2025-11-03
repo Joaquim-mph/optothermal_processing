@@ -1,13 +1,25 @@
 """Vt (voltage vs time) plotting functions."""
 
 from __future__ import annotations
+
 from pathlib import Path
-import numpy as np
-import matplotlib.pyplot as plt
-import polars as pl
 from typing import Tuple
+
+import matplotlib.pyplot as plt
+import numpy as np
+import polars as pl
+
 from src.core.utils import read_measurement_parquet
-from src.plotting.plot_utils import interpolate_baseline
+from src.plotting.plot_utils import (
+    interpolate_baseline,
+    ensure_standard_columns,
+    get_wavelength_nm,   # kept for backward compatibility / other callers
+    get_gate_voltage,    # kept for backward compatibility / other callers
+    get_led_voltage,     # kept for backward compatibility / other callers
+    ensure_output_directory,
+    print_info,
+    print_warning,
+)
 
 # Constants
 LIGHT_WINDOW_ALPHA = 0.15
@@ -114,7 +126,7 @@ def plot_vt_overlay(
     baseline_mode: str = "fixed",  # "fixed", "auto", or "none"
     baseline_auto_divisor: float = 2.0,  # Used when baseline_mode="auto"
     plot_start_time: float = PLOT_START_TIME,  # Configurable start time
-    legend_by: str = "wavelength",  # "wavelength" (default), "vg", "led_voltage", "power", or "datetime"
+    legend_by: str = "wavelength",  # "wavelength", "vg", "led_voltage", "power", or "datetime"
     padding: float = 0.02,  # fraction of data range to add as padding (0.02 = 2%)
 ):
     """
@@ -152,16 +164,6 @@ def plot_vt_overlay(
         "datetime","date","time","dt" -> datetime.
     padding : float, optional
         Fraction of data range to add as padding on y-axis (default: 0.02 = 2%).
-
-    Examples
-    --------
-    >>> # Dark experiments (no baseline)
-    >>> plot_vt_overlay(df, Path("raw_data"), "dark", baseline_mode="none",
-    ...                  plot_start_time=1.0, legend_by="vg")
-
-    >>> # Auto baseline from LED period
-    >>> plot_vt_overlay(df, Path("raw_data"), "power_sweep", baseline_mode="auto",
-    ...                  legend_by="led_voltage")
     """
     # Apply plot style (lazy initialization for thread-safety)
     from src.plotting.styles import set_plot_style
@@ -205,11 +207,18 @@ def plot_vt_overlay(
         print(f"[info] legend_by='{legend_by}' not recognized; using wavelength")
         lb = "wavelength"
 
-    # --- Helper functions to extract metadata ---
+    # --- Helper functions to extract metadata (upstream block) ---
     def _get_wavelength_nm(row: dict) -> float | None:
         candidates = [
-            "Laser wavelength", "lambda", "lambda_nm", "wavelength", "wavelength_nm",
-            "Wavelength", "Wavelength (nm)", "Laser wavelength (nm)", "Laser λ (nm)"
+            "Laser wavelength",
+            "lambda",
+            "lambda_nm",
+            "wavelength",
+            "wavelength_nm",
+            "Wavelength",
+            "Wavelength (nm)",
+            "Laser wavelength (nm)",
+            "Laser λ (nm)",
         ]
         for k in candidates:
             if k in row:
@@ -223,8 +232,16 @@ def plot_vt_overlay(
 
     def _get_vg_V(row: dict, d: "pl.DataFrame | dict | None" = None) -> float | None:
         vg_keys = [
-            "VG", "Vg", "VGS", "Vgs", "Gate voltage", "Gate Voltage",
-            "VG (V)", "Vg (V)", "VGS (V)", "Gate voltage (V)",
+            "VG",
+            "Vg",
+            "VGS",
+            "Vgs",
+            "Gate voltage",
+            "Gate Voltage",
+            "VG (V)",
+            "Vg (V)",
+            "VGS (V)",
+            "Gate voltage (V)",
         ]
         for k in vg_keys:
             if k in row:
@@ -238,7 +255,10 @@ def plot_vt_overlay(
 
     def _get_led_voltage_V(row: dict) -> float | None:
         led_keys = [
-            "Laser voltage", "LED voltage", "Laser voltage (V)", "LED voltage (V)",
+            "Laser voltage",
+            "LED voltage",
+            "Laser voltage (V)",
+            "LED voltage (V)",
         ]
         for k in led_keys:
             if k in row:
@@ -256,7 +276,7 @@ def plot_vt_overlay(
             "irradiated_power_w",
             "irradiated_power",
             "power_w",
-            "power"
+            "power",
         ]
 
         for k in power_keys:
@@ -268,11 +288,11 @@ def plot_vt_overlay(
                         if power_w >= 1.0:
                             return power_w, f"{power_w:g} W"
                         elif power_w >= 1e-3:
-                            return power_w, f"{power_w*1e3:g} mW"
+                            return power_w * 1e3, f"{power_w*1e3:g} mW"
                         elif power_w >= 1e-6:
-                            return power_w, f"{power_w*1e6:g} µW"
+                            return power_w * 1e6, f"{power_w*1e6:g} µW"
                         elif power_w >= 1e-9:
-                            return power_w, f"{power_w*1e9:g} nW"
+                            return power_w * 1e9, f"{power_w*1e9:g} nW"
                         else:
                             return power_w, f"{power_w:g} W"
                 except (ValueError, TypeError):
@@ -280,20 +300,25 @@ def plot_vt_overlay(
 
         return None, "N/A"
 
+    # Filter only Vt rows
     vt = df.filter(pl.col("proc") == "Vt").sort("file_idx")
     if vt.height == 0:
         print("[warn] no Vt rows in metadata")
         return
 
+    # Make sure figs dir exists
+    ensure_output_directory(FIG_DIR)
+
     plt.figure(figsize=FIGSIZE)
     curves_plotted = 0
 
-    t_totals = []
-    starts_vl, ends_vl = [], []
-    on_durations_meta = []
+    t_totals: list[float] = []
+    starts_vl: list[float] = []
+    ends_vl: list[float] = []
+    on_durations_meta: list[float] = []
 
     # Track y-values for manual limit calculation
-    all_y_values = []
+    all_y_values: list[float] = []
 
     for row in vt.iter_rows(named=True):
         path = base_dir / row["source_file"]
@@ -304,13 +329,7 @@ def plot_vt_overlay(
         d = read_measurement_parquet(path)
 
         # Normalize column names (handle both "t" and "t (s)" formats)
-        col_map = {}
-        if "t (s)" in d.columns:
-            col_map["t (s)"] = "t"
-        if "VDS (V)" in d.columns:
-            col_map["VDS (V)"] = "VDS"
-        if col_map:
-            d = d.rename(col_map)
+        d = ensure_standard_columns(d)
 
         if not {"t", "VDS"} <= set(d.columns):
             print(f"[warn] {path} lacks t/VDS; got {d.columns}")
@@ -323,7 +342,8 @@ def plot_vt_overlay(
             continue
         if not np.all(np.diff(tt) >= 0):
             idx = np.argsort(tt)
-            tt = tt[idx]; yy = yy[idx]
+            tt = tt[idx]
+            yy = yy[idx]
 
         # baseline correction (three modes)
         if apply_baseline == "interpolate":
@@ -339,21 +359,24 @@ def plot_vt_overlay(
 
         # --- label based on legend_by ---
         if lb == "wavelength":
-            wl = _get_wavelength_nm(row)
+            wl = _get_wavelength_nm(row) or get_wavelength_nm(row)
             if wl is not None:
                 lbl = f"{wl:g} nm"
                 legend_title = "Wavelength"
             else:
                 lbl = f"#{int(row['file_idx'])}"
                 legend_title = "Trace"
+
         elif lb == "vg":
-            vg = _get_vg_V(row, d)
+            # try local helper first, then plotting utils
+            vg = _get_vg_V(row, d) or get_gate_voltage(row, d)
             if vg is not None:
                 lbl = f"{vg:g} V"
                 legend_title = "Vg"
             else:
                 lbl = f"#{int(row['file_idx'])}"
                 legend_title = "Trace"
+
         elif lb == "datetime":
             datetime_str = row.get("datetime_local")
             if datetime_str:
@@ -362,6 +385,7 @@ def plot_vt_overlay(
             else:
                 lbl = f"#{int(row.get('seq', row.get('file_idx', 0)))}"
                 legend_title = "Experiment"
+
         elif lb == "power":
             power_val, power_str = _get_power_formatted(row)
             if power_val is not None:
@@ -370,8 +394,13 @@ def plot_vt_overlay(
             else:
                 lbl = f"#{int(row['file_idx'])}"
                 legend_title = "Trace"
+
         else:  # lb == "led_voltage"
+            # prefer the upstream helper (it’s more flexible on names)
             led_v = _get_led_voltage_V(row)
+            if led_v is None:
+                # fallback to project-wide utility
+                led_v = get_led_voltage(row)
             if led_v is not None:
                 lbl = f"{led_v:g} V"
                 legend_title = "LED Voltage"
@@ -392,6 +421,7 @@ def plot_vt_overlay(
         except Exception:
             pass
 
+        # detect light-on window from VL
         if "VL" in d.columns:
             try:
                 vl = np.asarray(d["VL"])
@@ -428,28 +458,37 @@ def plot_vt_overlay(
             # Enable scientific notation for long-duration measurements (> 1000s)
             if T_total > 1000:
                 ax = plt.gca()
-                ax.ticklabel_format(style='scientific', axis='x', scilimits=(0,0))
+                ax.ticklabel_format(style="scientific", axis="x", scilimits=(0, 0))
 
     # Calculate light window shading
     t0 = t1 = None
     if starts_vl and ends_vl:
-        t0 = float(np.median(starts_vl)); t1 = float(np.median(ends_vl))
+        t0 = float(np.median(starts_vl))
+        t1 = float(np.median(ends_vl))
     if (t0 is None or t1 is None) and on_durations_meta and t_totals:
         on_dur = float(np.median(on_durations_meta))
         T_total = float(np.median(t_totals))
         if np.isfinite(on_dur) and np.isfinite(T_total) and T_total > 0:
             pre_off = max(0.0, (T_total - on_dur) / 2.0)
-            t0 = pre_off; t1 = pre_off + on_dur
+            t0 = pre_off
+            t1 = pre_off + on_dur
     if (t0 is None or t1 is None) and t_totals:
         T_total = float(np.median(t_totals))
         if np.isfinite(T_total) and T_total > 0:
-            t0 = T_total / 3.0; t1 = 2.0 * T_total / 3.0
+            t0 = T_total / 3.0
+            t1 = 2.0 * T_total / 3.0
     if (t0 is not None) and (t1 is not None) and (t1 > t0):
         plt.axvspan(t0, t1, alpha=LIGHT_WINDOW_ALPHA)
 
     plt.xlabel(r"$t\ (\mathrm{s})$")
     plt.ylabel(r"$\Delta V_{ds}\ (\mathrm{mV})$")
-    chipnum = int(df["chip_number"][0])
+
+    # Safeguard chip number
+    try:
+        chipnum = int(df["chip_number"][0])
+    except Exception:
+        chipnum = 0
+
     plt.legend(title=legend_title)
 
     # Auto-adjust y-axis to data range with padding

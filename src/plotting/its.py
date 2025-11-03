@@ -7,7 +7,17 @@ import matplotlib.pyplot as plt
 import polars as pl
 from typing import Tuple
 from src.core.utils import read_measurement_parquet
-from src.plotting.plot_utils import interpolate_baseline
+from src.plotting.plot_utils import (
+    interpolate_baseline,
+    ensure_standard_columns,
+    get_wavelength_nm,
+    get_gate_voltage,
+    get_led_voltage,
+    get_irradiated_power,
+    ensure_output_directory,
+    print_info,
+    print_warning
+)
 
 # Constants
 LIGHT_WINDOW_ALPHA = 0.15
@@ -303,154 +313,8 @@ def plot_its_overlay(
     elif lb in {"datetime", "date", "time", "dt"}:
         lb = "datetime"
     else:
-        print(f"[info] legend_by='{legend_by}' not recognized; using wavelength")
+        print_info(f"legend_by='{legend_by}' not recognized; using wavelength")
         lb = "wavelength"
-
-    # --- small helper to extract wavelength in nm from a metadata row ---
-    def _get_wavelength_nm(row: dict) -> float | None:
-        candidates = [
-            "Laser wavelength", "lambda", "lambda_nm", "wavelength", "wavelength_nm",
-            "Wavelength", "Wavelength (nm)", "Laser wavelength (nm)", "Laser λ (nm)"
-        ]
-        for k in candidates:
-            if k in row:
-                try:
-                    val = float(row[k])
-                    if np.isfinite(val):
-                        return val
-                except Exception:
-                    pass
-        # Sometimes wavelength is stored as meters:
-        for k in ["Wavelength (m)", "lambda_m"]:
-            if k in row:
-                try:
-                    val = float(row[k]) * 1e9
-                    if np.isfinite(val):
-                        return val
-                except Exception:
-                    pass
-        return None
-
-    # --- helper to extract Vg in volts from metadata row or from the data trace if constant ---
-    def _get_vg_V(row: dict, d: "pl.DataFrame | dict | None" = None) -> float | None:
-        # 1) Try metadata with common key variants
-        vg_keys = [
-            "VG", "Vg", "VGS", "Vgs", "Gate voltage", "Gate Voltage",
-            "VG (V)", "Vg (V)", "VGS (V)", "Gate voltage (V)",
-            "VG setpoint", "Vg setpoint", "Gate setpoint (V)", "VG bias (V)"
-        ]
-        # direct numeric first
-        for k in vg_keys:
-            if k in row:
-                try:
-                    val = float(row[k])
-                    if np.isfinite(val):
-                        return val
-                except Exception:
-                    pass
-        # permissive: numeric when key contains 'vg' or 'gate'
-        for k, v in row.items():
-            kl = str(k).lower()
-            if ("vg" in kl or "gate" in kl):
-                try:
-                    val = float(v)
-                    if np.isfinite(val):
-                        return val
-                except Exception:
-                    # maybe a string like "VG=3.0 V"
-                    try:
-                        import re
-                        m = re.search(r"([-+]?\d+(\.\d+)?)", str(v))
-                        if m:
-                            return float(m.group(1))
-                    except Exception:
-                        pass
-        # 2) Try the data trace: if there's a nearly-constant VG column, use its median
-        if d is not None and "VG" in d.columns:
-            try:
-                arr = np.asarray(d["VG"], dtype=float)
-                if arr.size:
-                    if np.nanstd(arr) < 1e-6:  # basically constant
-                        return float(np.nanmedian(arr))
-            except Exception:
-                pass
-        return None
-
-    # --- helper to extract LED/Laser voltage in volts from metadata row ---
-    def _get_led_voltage_V(row: dict) -> float | None:
-        # Try metadata with common key variants
-        led_keys = [
-            "Laser voltage", "LED voltage", "Laser voltage (V)", "LED voltage (V)",
-            "Laser V", "LED V", "Laser bias", "LED bias", "Laser bias (V)", "LED bias (V)",
-            "Laser supply", "LED supply", "Laser supply (V)", "LED supply (V)"
-        ]
-        # direct numeric first
-        for k in led_keys:
-            if k in row:
-                try:
-                    val = float(row[k])
-                    if np.isfinite(val):
-                        return val
-                except Exception:
-                    pass
-        # permissive: numeric when key contains 'laser' and 'voltage' or 'led' and 'voltage'
-        for k, v in row.items():
-            kl = str(k).lower()
-            if (("laser" in kl or "led" in kl) and "voltage" in kl):
-                try:
-                    val = float(v)
-                    if np.isfinite(val):
-                        return val
-                except Exception:
-                    # maybe a string like "Laser voltage: 2.5 V"
-                    try:
-                        import re
-                        m = re.search(r"([-+]?\d+(\.\d+)?)", str(v))
-                        if m:
-                            return float(m.group(1))
-                    except Exception:
-                        pass
-        return None
-
-    # --- helper to extract irradiated power in watts from metadata row and format nicely ---
-    def _get_power_formatted(row: dict) -> tuple[float | None, str]:
-        """
-        Extract irradiated power from enriched history and format for display.
-
-        Returns
-        -------
-        tuple[float or None, str]
-            (power_in_watts, formatted_string)
-            e.g., (0.0012, "1.20 mW") or (None, "#seq")
-        """
-        # Try enriched history column first (from calibration matching)
-        power_keys = [
-            "irradiated_power_w",
-            "irradiated_power",
-            "power_w",
-            "power"
-        ]
-
-        for k in power_keys:
-            if k in row:
-                try:
-                    power_w = float(row[k])
-                    if np.isfinite(power_w) and power_w > 0:
-                        # Format nicely: choose appropriate unit (W, mW, µW, nW) with 2 decimals
-                        if power_w >= 1.0:
-                            return power_w, f"{power_w:.2f} W"
-                        elif power_w >= 1e-3:
-                            return power_w, f"{power_w*1e3:.2f} mW"
-                        elif power_w >= 1e-6:
-                            return power_w, f"{power_w*1e6:.2f} µW"
-                        elif power_w >= 1e-9:
-                            return power_w, f"{power_w*1e9:.2f} nW"
-                        else:
-                            return power_w, f"{power_w:.2f} W"
-                except (ValueError, TypeError):
-                    pass
-
-        return None, None
 
     its = df.filter(pl.col("proc") == "It").sort("file_idx")
     if its.height == 0:
@@ -476,13 +340,7 @@ def plot_its_overlay(
         d = read_measurement_parquet(path)
 
         # Normalize column names (handle both "t" and "t (s)" formats)
-        col_map = {}
-        if "t (s)" in d.columns:
-            col_map["t (s)"] = "t"
-        if "I (A)" in d.columns:
-            col_map["I (A)"] = "I"
-        if col_map:
-            d = d.rename(col_map)
+        d = ensure_standard_columns(d)
 
         if not {"t", "I"} <= set(d.columns):
             print(f"[warn] {path} lacks t/I; got {d.columns}")
@@ -511,7 +369,7 @@ def plot_its_overlay(
 
         # --- label based on legend_by ---
         if lb == "wavelength":
-            wl = _get_wavelength_nm(row)
+            wl = get_wavelength_nm(row)
             if wl is not None:
                 lbl = f"{wl:g} nm"
                 legend_title = "Wavelength"
@@ -519,7 +377,7 @@ def plot_its_overlay(
                 lbl = f"#{int(row['file_idx'])}"
                 legend_title = "Trace"
         elif lb == "vg":
-            vg = _get_vg_V(row, d)
+            vg = get_gate_voltage(row, d)
             if vg is not None:
                 # Compact formatting: 3.0 → "3 V", 0.25 → "0.25 V"
                 # Use :g to avoid trailing zeros, then add unit.
@@ -529,7 +387,7 @@ def plot_its_overlay(
                 lbl = f"#{int(row['file_idx'])}"
                 legend_title = "Trace"
         elif lb == "power":
-            power_w, power_str = _get_power_formatted(row)
+            power_w, power_str = get_irradiated_power(row)
             if power_str is not None:
                 lbl = power_str
                 legend_title = "LED Power"
@@ -548,7 +406,7 @@ def plot_its_overlay(
                 lbl = f"#{int(row.get('seq', row.get('file_idx', 0)))}"
                 legend_title = "Experiment"
         else:  # lb == "led_voltage"
-            led_v = _get_led_voltage_V(row)
+            led_v = get_led_voltage(row)
             if led_v is not None:
                 # Compact formatting: 2.5 → "2.5 V", 3.0 → "3 V"
                 lbl = f"{led_v:g} V"
@@ -601,20 +459,33 @@ def plot_its_overlay(
                 ax = plt.gca()
                 ax.ticklabel_format(style='scientific', axis='x', scilimits=(0,0))
 
-    # Calculate light window shading
+    # Calculate light window shading (only for experiments with light)
+    # Check if ANY experiment has light (has_light column or light condition)
+    has_any_light = False
+    if "has_light" in its.columns:
+        has_any_light = its["has_light"].any()
+    elif "light" in its.columns:
+        has_any_light = its["light"].str.contains("light", case=False).any()
+
+    # Only add light window if we detected light in the experiments
     t0 = t1 = None
-    if starts_vl and ends_vl:
-        t0 = float(np.median(starts_vl)); t1 = float(np.median(ends_vl))
-    if (t0 is None or t1 is None) and on_durations_meta and t_totals:
-        on_dur = float(np.median(on_durations_meta))
-        T_total = float(np.median(t_totals))
-        if np.isfinite(on_dur) and np.isfinite(T_total) and T_total > 0:
-            pre_off = max(0.0, (T_total - on_dur) / 2.0)
-            t0 = pre_off; t1 = pre_off + on_dur
-    if (t0 is None or t1 is None) and t_totals:
-        T_total = float(np.median(t_totals))
-        if np.isfinite(T_total) and T_total > 0:
-            t0 = T_total / 3.0; t1 = 2.0 * T_total / 3.0
+    if has_any_light:
+        if starts_vl and ends_vl:
+            t0 = float(np.median(starts_vl)); t1 = float(np.median(ends_vl))
+        if (t0 is None or t1 is None) and on_durations_meta and t_totals:
+            on_dur = float(np.median(on_durations_meta))
+            T_total = float(np.median(t_totals))
+            if np.isfinite(on_dur) and np.isfinite(T_total) and T_total > 0:
+                pre_off = max(0.0, (T_total - on_dur) / 2.0)
+                t0 = pre_off; t1 = pre_off + on_dur
+        # Only use fallback guess if we KNOW there's light
+        if (t0 is None or t1 is None) and t_totals:
+            T_total = float(np.median(t_totals))
+            if np.isfinite(T_total) and T_total > 0:
+                t0 = T_total / 3.0; t1 = 2.0 * T_total / 3.0
+                print_info(f"Light window estimated at {t0:.1f}s - {t1:.1f}s (no VL data, using fallback)")
+
+    # Draw light window if we have valid bounds
     if (t0 is not None) and (t1 is not None) and (t1 > t0):
         plt.axvspan(t0, t1, alpha=LIGHT_WINDOW_ALPHA)
 
@@ -763,115 +634,6 @@ def plot_its_dark(
         print(f"[info] legend_by='{legend_by}' not recognized; using vg")
         lb = "vg"
 
-    # --- small helper to extract wavelength in nm from a metadata row ---
-    def _get_wavelength_nm(row: dict) -> float | None:
-        candidates = [
-            "Laser wavelength", "lambda", "lambda_nm", "wavelength", "wavelength_nm",
-            "Wavelength", "Wavelength (nm)", "Laser wavelength (nm)", "Laser λ (nm)"
-        ]
-        for k in candidates:
-            if k in row:
-                try:
-                    val = float(row[k])
-                    if np.isfinite(val):
-                        return val
-                except Exception:
-                    pass
-        return None
-
-    # --- helper to extract Vg in volts from metadata row or from the data trace if constant ---
-    def _get_vg_V(row: dict, d: "pl.DataFrame | dict | None" = None) -> float | None:
-        # 1) Try metadata with common key variants
-        vg_keys = [
-            "VG", "Vg", "VGS", "Vgs", "Gate voltage", "Gate Voltage",
-            "VG (V)", "Vg (V)", "VGS (V)", "Gate voltage (V)",
-            "VG setpoint", "Vg setpoint", "Gate setpoint (V)", "VG bias (V)"
-        ]
-        # direct numeric first
-        for k in vg_keys:
-            if k in row:
-                try:
-                    val = float(row[k])
-                    if np.isfinite(val):
-                        return val
-                except Exception:
-                    pass
-        # permissive: numeric when key contains 'vg' or 'gate'
-        for k, v in row.items():
-            kl = str(k).lower()
-            if ("vg" in kl or "gate" in kl):
-                try:
-                    val = float(v)
-                    if np.isfinite(val):
-                        return val
-                except Exception:
-                    # maybe a string like "VG=3.0 V"
-                    try:
-                        import re
-                        m = re.search(r"([-+]?\d+(\.\d+)?)", str(v))
-                        if m:
-                            return float(m.group(1))
-                    except Exception:
-                        pass
-        # 2) Try the data trace: if there's a nearly-constant VG column, use its median
-        if d is not None and "VG" in d.columns:
-            try:
-                arr = np.asarray(d["VG"], dtype=float)
-                if arr.size:
-                    if np.nanstd(arr) < 1e-6:  # basically constant
-                        return float(np.nanmedian(arr))
-            except Exception:
-                pass
-        return None
-
-    # --- helper to extract LED/Laser voltage in volts from metadata row ---
-    def _get_led_voltage_V(row: dict) -> float | None:
-        led_keys = [
-            "Laser voltage", "LED voltage", "Laser voltage (V)", "LED voltage (V)",
-            "Laser V", "LED V", "Laser bias", "LED bias", "Laser bias (V)", "LED bias (V)",
-            "Laser supply", "LED supply", "Laser supply (V)", "LED supply (V)"
-        ]
-        for k in led_keys:
-            if k in row:
-                try:
-                    val = float(row[k])
-                    if np.isfinite(val):
-                        return val
-                except Exception:
-                    pass
-        return None
-
-    # --- helper to extract irradiated power in watts from metadata row and format nicely ---
-    def _get_power_formatted(row: dict) -> tuple[float | None, str]:
-        """Extract irradiated power from enriched history and format for display."""
-        power_keys = [
-            "irradiated_power_w",
-            "irradiated_power",
-            "power_w",
-            "power"
-        ]
-
-        for k in power_keys:
-            if k in row:
-                try:
-                    power_w = float(row[k])
-                    if np.isfinite(power_w) and power_w > 0:
-                        # Format nicely: choose appropriate unit (W, mW, µW, nW) with 2 decimals
-                        if power_w >= 1.0:
-                            return power_w, f"{power_w:.2f} W"
-                        elif power_w >= 1e-3:
-                            return power_w, f"{power_w*1e3:.2f} mW"
-                        elif power_w >= 1e-6:
-                            return power_w, f"{power_w*1e6:.2f} µW"
-                        elif power_w >= 1e-9:
-                            return power_w, f"{power_w*1e9:.2f} nW"
-                        else:
-                            return power_w, f"{power_w:.2f} W"
-                except (ValueError, TypeError):
-                    pass
-
-        return None, None
-
     its = df.filter(pl.col("proc") == "It").sort("file_idx")
     if its.height == 0:
         print("[warn] no ITS rows in metadata")
@@ -892,13 +654,7 @@ def plot_its_dark(
         d = read_measurement_parquet(path)
 
         # Normalize column names (handle both "t" and "t (s)" formats)
-        col_map = {}
-        if "t (s)" in d.columns:
-            col_map["t (s)"] = "t"
-        if "I (A)" in d.columns:
-            col_map["I (A)"] = "I"
-        if col_map:
-            d = d.rename(col_map)
+        d = ensure_standard_columns(d)
 
         if not {"t", "I"} <= set(d.columns):
             print(f"[warn] {path} lacks t/I; got {d.columns}")
@@ -927,7 +683,7 @@ def plot_its_dark(
 
         # --- label based on legend_by ---
         if lb == "wavelength":
-            wl = _get_wavelength_nm(row)
+            wl = get_wavelength_nm(row)
             if wl is not None:
                 lbl = f"{wl:g} nm"
                 legend_title = "Wavelength"
@@ -935,7 +691,7 @@ def plot_its_dark(
                 lbl = f"#{int(row['file_idx'])}"
                 legend_title = "Trace"
         elif lb == "vg":
-            vg = _get_vg_V(row, d)
+            vg = get_gate_voltage(row, d)
             if vg is not None:
                 lbl = f"{vg:g} V"
                 legend_title = "Vg"
@@ -943,7 +699,7 @@ def plot_its_dark(
                 lbl = f"#{int(row['file_idx'])}"
                 legend_title = "Trace"
         elif lb == "power":
-            power_w, power_str = _get_power_formatted(row)
+            power_w, power_str = get_irradiated_power(row)
             if power_str is not None:
                 lbl = power_str
                 legend_title = "LED Power"
@@ -962,7 +718,7 @@ def plot_its_dark(
                 lbl = f"#{int(row.get('seq', row.get('file_idx', 0)))}"
                 legend_title = "Experiment"
         else:  # lb == "led_voltage"
-            led_v = _get_led_voltage_V(row)
+            led_v = get_led_voltage(row)
             if led_v is not None:
                 lbl = f"{led_v:g} V"
                 legend_title = "LED Voltage"
@@ -1111,82 +867,6 @@ def plot_its_sequential(
         print(f"[info] legend_by='{legend_by}' not recognized; using datetime")
         lb = "datetime"
 
-    # --- Helper functions for label extraction (reused from plot_its_overlay) ---
-    def _get_wavelength_nm(row: dict) -> float | None:
-        candidates = [
-            row.get("Wavelength (nm)"),
-            row.get("wavelength_nm"),
-            row.get("Wavelength"),
-        ]
-        for c in candidates:
-            if c is not None:
-                try:
-                    return float(c)
-                except (ValueError, TypeError):
-                    pass
-        return None
-
-    def _get_vg_V(row: dict, d: pl.DataFrame) -> float | None:
-        # Try metadata columns first
-        vg_meta = row.get("VGS (V)") or row.get("vg_fixed_v")
-        if vg_meta is not None:
-            try:
-                return float(vg_meta)
-            except (ValueError, TypeError):
-                pass
-        # Try data column if available
-        if d is not None and "VG" in d.columns:
-            try:
-                vg_data = d["VG"].to_numpy()
-                return float(np.median(vg_data[np.isfinite(vg_data)]))
-            except Exception:
-                pass
-        return None
-
-    def _get_led_voltage_V(row: dict) -> float | None:
-        candidates = [
-            row.get("Laser voltage"),
-            row.get("laser_voltage_V"),
-            row.get("VL_meta"),
-        ]
-        for c in candidates:
-            if c is not None:
-                try:
-                    return float(c)
-                except (ValueError, TypeError):
-                    pass
-        return None
-
-    def _get_power_formatted(row: dict) -> tuple[float | None, str]:
-        """Extract irradiated power from enriched history and format for display."""
-        power_keys = [
-            "irradiated_power_w",
-            "irradiated_power",
-            "power_w",
-            "power"
-        ]
-
-        for k in power_keys:
-            if k in row:
-                try:
-                    power_w = float(row[k])
-                    if np.isfinite(power_w) and power_w > 0:
-                        # Format nicely: choose appropriate unit (W, mW, µW, nW)
-                        if power_w >= 1.0:
-                            return power_w, f"{power_w:g} W"
-                        elif power_w >= 1e-3:
-                            return power_w, f"{power_w*1e3:g} mW"
-                        elif power_w >= 1e-6:
-                            return power_w, f"{power_w*1e6:g} µW"
-                        elif power_w >= 1e-9:
-                            return power_w, f"{power_w*1e9:g} nW"
-                        else:
-                            return power_w, f"{power_w:g} W"
-                except (ValueError, TypeError):
-                    pass
-
-        return None, None
-
     # Storage for plotting
     all_y_values = []  # For auto y-scaling
     experiment_segments = []  # Store (time_array, current_array, label, color) for each experiment
@@ -1223,13 +903,7 @@ def plot_its_sequential(
             continue
 
         # Normalize column names (handle both "t" and "t (s)" formats)
-        col_map = {}
-        if "t (s)" in d.columns:
-            col_map["t (s)"] = "t"
-        if "I (A)" in d.columns:
-            col_map["I (A)"] = "I"
-        if col_map:
-            d = d.rename(col_map)
+        d = ensure_standard_columns(d)
 
         # Extract time and current
         if "t" not in d.columns or "I" not in d.columns:
@@ -1256,7 +930,7 @@ def plot_its_sequential(
 
         # --- Generate label based on legend_by ---
         if lb == "wavelength":
-            wl = _get_wavelength_nm(row)
+            wl = get_wavelength_nm(row)
             if wl is not None:
                 lbl = f"{wl:g} nm"
                 legend_title = "Wavelength"
@@ -1264,7 +938,7 @@ def plot_its_sequential(
                 lbl = f"#{int(row.get('seq', i))}"
                 legend_title = "Experiment"
         elif lb == "vg":
-            vg = _get_vg_V(row, d)
+            vg = get_gate_voltage(row, d)
             if vg is not None:
                 lbl = f"{vg:g} V"
                 legend_title = "Vg"
@@ -1272,7 +946,7 @@ def plot_its_sequential(
                 lbl = f"#{int(row.get('seq', i))}"
                 legend_title = "Experiment"
         elif lb == "power":
-            power_w, power_str = _get_power_formatted(row)
+            power_w, power_str = get_irradiated_power(row)
             if power_str is not None:
                 lbl = power_str
                 legend_title = "LED Power"
@@ -1288,7 +962,7 @@ def plot_its_sequential(
                 lbl = f"#{int(row.get('seq', i))}"
                 legend_title = "Experiment"
         else:  # lb == "led_voltage"
-            led_v = _get_led_voltage_V(row)
+            led_v = get_led_voltage(row)
             if led_v is not None:
                 lbl = f"{led_v:g} V"
                 legend_title = "LED Voltage"

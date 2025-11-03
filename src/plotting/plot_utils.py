@@ -1,14 +1,22 @@
 from __future__ import annotations
 from pathlib import Path
 import numpy as np
-from typing import List, Tuple
+import polars as pl
+from typing import List, Tuple, Optional, Dict, Any
+from contextlib import contextmanager
 from scipy.signal import savgol_filter
 from src.core.utils import _proc_from_path, _file_index
-import polars as pl
 
-from src.plotting.styles import set_plot_style
-# Note: set_plot_style() is now called at the start of each plotting function
-# instead of at module import time for thread-safety in TUI applications
+# Lazy import for rich console to avoid circular dependencies
+_console = None
+
+def get_console():
+    """Get or create rich console singleton."""
+    global _console
+    if _console is None:
+        from rich.console import Console
+        _console = Console()
+    return _console
 
 
 DEFAULT_VL_THRESHOLD = 0.0
@@ -586,4 +594,531 @@ def extract_cnp_for_plotting(
         # Silently fail - CNP extraction is optional for plotting
         print(f"[debug] CNP extraction failed: {e}")
         return None, None, None, None
+
+
+# ========================
+# COLUMN NORMALIZATION
+# ========================
+
+def ensure_standard_columns(
+    data: pl.DataFrame,
+    column_mapping: Optional[Dict[str, str]] = None
+) -> pl.DataFrame:
+    """
+    Normalize column names to standard format, removing the need for repeated col_map blocks.
+
+    Parameters
+    ----------
+    data : pl.DataFrame
+        Measurement data with potentially non-standard column names
+    column_mapping : dict, optional
+        Custom mapping of {actual_column_name: standard_name}.
+        If None, uses sensible defaults for common patterns.
+
+    Returns
+    -------
+    pl.DataFrame
+        Data with normalized column names
+
+    Examples
+    --------
+    >>> # Automatic normalization (handles common variants)
+    >>> data = ensure_standard_columns(data)
+    >>> # Now use "t", "I", "VG", "VDS" consistently
+
+    >>> # Custom mapping
+    >>> data = ensure_standard_columns(data, {"Time (s)": "t", "Current": "I"})
+
+    Notes
+    -----
+    Standard column names used throughout plotting modules:
+    - "t": time in seconds
+    - "I": current in amperes
+    - "VG": gate voltage in volts
+    - "VDS": drain-source voltage in volts
+    - "VL": laser/LED voltage in volts
+    """
+    if column_mapping is None:
+        # Default mapping for common variants
+        column_mapping = {}
+
+        # Time column variants
+        if "t (s)" in data.columns:
+            column_mapping["t (s)"] = "t"
+
+        # Current column variants
+        if "I (A)" in data.columns:
+            column_mapping["I (A)"] = "I"
+        elif "Ids (A)" in data.columns:
+            column_mapping["Ids (A)"] = "I"
+
+        # Gate voltage variants
+        if "VG (V)" in data.columns:
+            column_mapping["VG (V)"] = "VG"
+        elif "Vg (V)" in data.columns:
+            column_mapping["Vg (V)"] = "VG"
+
+        # Drain-source voltage variants
+        if "VDS (V)" in data.columns:
+            column_mapping["VDS (V)"] = "VDS"
+        elif "Vds (V)" in data.columns:
+            column_mapping["Vds (V)"] = "VDS"
+
+        # Laser voltage variants
+        if "VL (V)" in data.columns:
+            column_mapping["VL (V)"] = "VL"
+
+    # Apply mapping if we have any
+    if column_mapping:
+        return data.rename(column_mapping)
+
+    return data
+
+
+# ========================
+# METADATA EXTRACTORS
+# ========================
+
+def get_wavelength_nm(row: dict) -> Optional[float]:
+    """
+    Extract wavelength in nanometers from metadata row.
+
+    Handles various column name formats and units (nm or m).
+
+    Parameters
+    ----------
+    row : dict
+        Metadata row (from iter_rows(named=True))
+
+    Returns
+    -------
+    float or None
+        Wavelength in nanometers, or None if not found/invalid
+    """
+    # Try common column names
+    candidates = [
+        "Laser wavelength", "lambda", "lambda_nm", "wavelength", "wavelength_nm",
+        "Wavelength", "Wavelength (nm)", "Laser wavelength (nm)", "Laser λ (nm)"
+    ]
+
+    for k in candidates:
+        if k in row:
+            try:
+                val = float(row[k])
+                if np.isfinite(val) and val > 0:
+                    return val
+            except (ValueError, TypeError):
+                pass
+
+    # Try wavelength in meters (convert to nm)
+    for k in ["Wavelength (m)", "lambda_m"]:
+        if k in row:
+            try:
+                val = float(row[k]) * 1e9
+                if np.isfinite(val) and val > 0:
+                    return val
+            except (ValueError, TypeError):
+                pass
+
+    return None
+
+
+def get_gate_voltage(row: dict, data: Optional[pl.DataFrame] = None) -> Optional[float]:
+    """
+    Extract gate voltage in volts from metadata row or constant data column.
+
+    Parameters
+    ----------
+    row : dict
+        Metadata row (from iter_rows(named=True))
+    data : pl.DataFrame, optional
+        Measurement data. If provided and has constant VG column, uses that.
+
+    Returns
+    -------
+    float or None
+        Gate voltage in volts, or None if not found/invalid
+    """
+    # Try metadata with common key variants
+    vg_keys = [
+        "VG", "Vg", "VGS", "Vgs", "Gate voltage", "Gate Voltage",
+        "VG (V)", "Vg (V)", "VGS (V)", "Gate voltage (V)",
+        "VG setpoint", "Vg setpoint", "Gate setpoint (V)", "VG bias (V)",
+        "vg_fixed_v"  # From chip history
+    ]
+
+    # Try direct numeric first
+    for k in vg_keys:
+        if k in row:
+            try:
+                val = float(row[k])
+                if np.isfinite(val):
+                    return val
+            except (ValueError, TypeError):
+                pass
+
+    # Try permissive search (any key containing 'vg' or 'gate')
+    for k, v in row.items():
+        kl = str(k).lower()
+        if ("vg" in kl or "gate" in kl):
+            try:
+                val = float(v)
+                if np.isfinite(val):
+                    return val
+            except (ValueError, TypeError):
+                # Maybe it's a string like "VG=3.0 V"
+                try:
+                    import re
+                    m = re.search(r"([-+]?\d+(\.\d+)?)", str(v))
+                    if m:
+                        return float(m.group(1))
+                except Exception:
+                    pass
+
+    # Try data trace: if there's a nearly-constant VG column, use its median
+    if data is not None and "VG" in data.columns:
+        try:
+            arr = np.asarray(data["VG"], dtype=float)
+            if arr.size:
+                if np.nanstd(arr) < 1e-6:  # basically constant
+                    return float(np.nanmedian(arr))
+        except Exception:
+            pass
+
+    return None
+
+
+def get_led_voltage(row: dict) -> Optional[float]:
+    """
+    Extract LED/laser voltage in volts from metadata row.
+
+    Parameters
+    ----------
+    row : dict
+        Metadata row (from iter_rows(named=True))
+
+    Returns
+    -------
+    float or None
+        LED/laser voltage in volts, or None if not found/invalid
+    """
+    led_keys = [
+        "Laser voltage", "LED voltage", "Laser voltage (V)", "LED voltage (V)",
+        "Laser V", "LED V", "Laser bias", "LED bias", "Laser bias (V)", "LED bias (V)",
+        "Laser supply", "LED supply", "Laser supply (V)", "LED supply (V)",
+        "laser_voltage_v"  # From chip history
+    ]
+
+    # Try direct numeric first
+    for k in led_keys:
+        if k in row:
+            try:
+                val = float(row[k])
+                if np.isfinite(val):
+                    return val
+            except (ValueError, TypeError):
+                pass
+
+    # Try permissive search
+    for k, v in row.items():
+        kl = str(k).lower()
+        if (("laser" in kl or "led" in kl) and "voltage" in kl):
+            try:
+                val = float(v)
+                if np.isfinite(val):
+                    return val
+            except (ValueError, TypeError):
+                # Maybe it's a string like "Laser voltage: 2.5 V"
+                try:
+                    import re
+                    m = re.search(r"([-+]?\d+(\.\d+)?)", str(v))
+                    if m:
+                        return float(m.group(1))
+                except Exception:
+                    pass
+
+    return None
+
+
+def get_irradiated_power(row: dict, format_display: bool = True) -> tuple[Optional[float], Optional[str]]:
+    """
+    Extract irradiated power from enriched history and optionally format for display.
+
+    Parameters
+    ----------
+    row : dict
+        Metadata row (from iter_rows(named=True))
+    format_display : bool
+        If True, returns formatted string with appropriate units (W, mW, µW, nW).
+        If False, returns just the value in watts.
+
+    Returns
+    -------
+    tuple[float or None, str or None]
+        (power_in_watts, formatted_string)
+        If format_display=False, formatted_string is None.
+        If power not found, returns (None, None).
+
+    Examples
+    --------
+    >>> power_w, power_str = get_irradiated_power(row, format_display=True)
+    >>> if power_str:
+    ...     label = power_str  # e.g., "5.98 µW"
+
+    >>> power_w, _ = get_irradiated_power(row, format_display=False)
+    >>> if power_w is not None:
+    ...     # Use raw value for calculations
+    ...     normalized = signal / power_w
+    """
+    power_keys = [
+        "irradiated_power_w",
+        "irradiated_power",
+        "power_w",
+        "power"
+    ]
+
+    for k in power_keys:
+        if k in row:
+            try:
+                power_w = float(row[k])
+                if np.isfinite(power_w) and power_w > 0:
+                    if format_display:
+                        # Format with 2 decimals and appropriate unit
+                        if power_w >= 1.0:
+                            return power_w, f"{power_w:.2f} W"
+                        elif power_w >= 1e-3:
+                            return power_w, f"{power_w*1e3:.2f} mW"
+                        elif power_w >= 1e-6:
+                            return power_w, f"{power_w*1e6:.2f} µW"
+                        elif power_w >= 1e-9:
+                            return power_w, f"{power_w*1e9:.2f} nW"
+                        else:
+                            return power_w, f"{power_w:.2f} W"
+                    else:
+                        return power_w, None
+            except (ValueError, TypeError):
+                pass
+
+    return None, None
+
+
+# ========================
+# PLOT CONTEXT MANAGER
+# ========================
+
+@contextmanager
+def plot_context(
+    theme: Optional[str] = None,
+    output_dir: Optional[Path] = None,
+    figure_name: Optional[str] = None,
+    auto_save: bool = True,
+    verbose: bool = False
+):
+    """
+    Context manager for plotting with configurable theme and output.
+
+    Handles theme setup, output directory creation, and automatic figure saving.
+    Replaces hardcoded set_plot_style("prism_rain") and FIG_DIR patterns.
+
+    Parameters
+    ----------
+    theme : str, optional
+        Theme name. If None, uses "prism_rain" default.
+    output_dir : Path, optional
+        Output directory. If None, uses "figs/" default.
+    figure_name : str, optional
+        Figure filename. If provided and auto_save=True, saves to output_dir/figure_name.
+    auto_save : bool
+        If True, automatically saves figure at context exit.
+    verbose : bool
+        If True, prints status messages.
+
+    Yields
+    ------
+    dict
+        Context dictionary with keys:
+        - "output_dir": Path to output directory
+        - "figure_path": Full path to figure (if figure_name provided)
+        - "console": Rich console instance
+
+    Examples
+    --------
+    >>> with plot_context(theme="prism_rain", output_dir=Path("figs/chip67")) as ctx:
+    ...     plt.figure()
+    ...     plt.plot([1, 2, 3], [1, 4, 9])
+    ...     plt.savefig(ctx["output_dir"] / "my_plot.png")
+
+    >>> # Auto-save mode
+    >>> with plot_context(figure_name="output.png", auto_save=True) as ctx:
+    ...     plt.figure()
+    ...     plt.plot([1, 2, 3], [1, 4, 9])
+    ...     # Figure automatically saved at context exit
+
+    >>> # Use console for rich output
+    >>> with plot_context() as ctx:
+    ...     ctx["console"].print("[cyan]Plotting...[/cyan]")
+    ...     # ... plotting code ...
+    """
+    import matplotlib.pyplot as plt
+    from src.plotting.styles import set_plot_style
+
+    # Set defaults
+    if theme is None:
+        theme = "prism_rain"
+    if output_dir is None:
+        output_dir = Path("figs")
+
+    console = get_console()
+
+    # Apply theme
+    try:
+        set_plot_style(theme)
+        if verbose:
+            console.print(f"[dim]✓ Applied '{theme}' theme[/dim]")
+    except Exception as e:
+        console.print(f"[yellow]Warning: Could not apply theme '{theme}': {e}[/yellow]")
+
+    # Create output directory
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Prepare context
+    ctx = {
+        "output_dir": output_dir,
+        "console": console
+    }
+
+    if figure_name:
+        ctx["figure_path"] = output_dir / figure_name
+
+    try:
+        yield ctx
+    finally:
+        # Auto-save if requested
+        if auto_save and figure_name:
+            try:
+                fig_path = output_dir / figure_name
+                plt.savefig(fig_path)
+                if verbose:
+                    console.print(f"[green]✓ Saved {fig_path}[/green]")
+            except Exception as e:
+                console.print(f"[red]Error saving figure: {e}[/red]")
+
+
+# ========================
+# FILESYSTEM UTILITIES
+# ========================
+
+def ensure_output_directory(path: Path, verbose: bool = False) -> Path:
+    """
+    Ensure output directory exists, creating it if necessary.
+
+    Standardizes filesystem handling across plotting modules.
+
+    Parameters
+    ----------
+    path : Path
+        Directory path to ensure exists
+    verbose : bool
+        If True, prints creation message
+
+    Returns
+    -------
+    Path
+        The path (guaranteed to exist)
+
+    Examples
+    --------
+    >>> out_dir = ensure_output_directory(Path("figs/chip67"))
+    >>> plt.savefig(out_dir / "plot.png")  # No need to worry about directory existing
+    """
+    path = Path(path)
+    if not path.exists():
+        path.mkdir(parents=True, exist_ok=True)
+        if verbose:
+            get_console().print(f"[dim]Created directory: {path}[/dim]")
+    return path
+
+
+# ========================
+# PARQUET CACHING
+# ========================
+
+class ParquetCache:
+    """
+    Simple in-memory cache for parquet files to avoid re-reading in overlay operations.
+
+    Usage
+    -----
+    >>> cache = ParquetCache()
+    >>> for row in experiments:
+    ...     data = cache.read(row["parquet_path"])
+    ...     # Use data... cache automatically stores it
+    """
+
+    def __init__(self):
+        self._cache: Dict[str, pl.DataFrame] = {}
+        self._hits = 0
+        self._misses = 0
+
+    def read(self, path: Path | str) -> pl.DataFrame:
+        """Read parquet file, using cache if available."""
+        path_str = str(path)
+
+        if path_str in self._cache:
+            self._hits += 1
+            return self._cache[path_str]
+
+        # Cache miss - read from disk
+        self._misses += 1
+        from src.core.utils import read_measurement_parquet
+        data = read_measurement_parquet(Path(path_str))
+        self._cache[path_str] = data
+        return data
+
+    def clear(self):
+        """Clear cache."""
+        self._cache.clear()
+        self._hits = 0
+        self._misses = 0
+
+    def stats(self) -> dict:
+        """Get cache statistics."""
+        total = self._hits + self._misses
+        hit_rate = self._hits / total if total > 0 else 0
+        return {
+            "hits": self._hits,
+            "misses": self._misses,
+            "hit_rate": hit_rate,
+            "cached_files": len(self._cache)
+        }
+
+    def __repr__(self) -> str:
+        stats = self.stats()
+        return (f"ParquetCache(hits={stats['hits']}, misses={stats['misses']}, "
+                f"hit_rate={stats['hit_rate']:.1%}, cached={stats['cached_files']})")
+
+
+# ========================
+# RICH CONSOLE WRAPPERS
+# ========================
+
+def print_info(message: str):
+    """Print info message with rich formatting."""
+    get_console().print(f"[cyan]{message}[/cyan]")
+
+
+def print_warning(message: str):
+    """Print warning message with rich formatting."""
+    get_console().print(f"[yellow]Warning: {message}[/yellow]")
+
+
+def print_error(message: str):
+    """Print error message with rich formatting."""
+    get_console().print(f"[red]Error: {message}[/red]")
+
+
+def print_success(message: str):
+    """Print success message with rich formatting."""
+    get_console().print(f"[green]✓ {message}[/green]")
 

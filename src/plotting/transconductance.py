@@ -11,7 +11,8 @@ from src.plotting.plot_utils import (
     get_chip_label,
     segment_voltage_sweep,
     _savgol_derivative_corrected,
-    _raw_derivative
+    _raw_derivative,
+    ensure_standard_columns
 )
 
 # Configuration (will be overridden by CLI)
@@ -204,15 +205,7 @@ def plot_ivg_transconductance(
         d = read_measurement_parquet(path)
 
         # Normalize column names (handle both formats)
-        col_map = {}
-        if "VG (V)" in d.columns:
-            col_map["VG (V)"] = "VG"
-        elif "Vg (V)" in d.columns:
-            col_map["Vg (V)"] = "VG"
-        if "I (A)" in d.columns:
-            col_map["I (A)"] = "I"
-        if col_map:
-            d = d.rename(col_map)
+        d = ensure_standard_columns(d)
 
         if not {"VG", "I"} <= set(d.columns):
             print(f"[warn] {path} lacks VG/I; got {d.columns}")
@@ -347,15 +340,7 @@ def plot_ivg_transconductance_savgol(
         d = read_measurement_parquet(path)
 
         # Normalize column names (handle both formats)
-        col_map = {}
-        if "VG (V)" in d.columns:
-            col_map["VG (V)"] = "VG"
-        elif "Vg (V)" in d.columns:
-            col_map["Vg (V)"] = "VG"
-        if "I (A)" in d.columns:
-            col_map["I (A)"] = "I"
-        if col_map:
-            d = d.rename(col_map)
+        d = ensure_standard_columns(d)
 
         if not {"VG", "I"} <= set(d.columns):
             print(f"[warn] {path} lacks VG/I; got {d.columns}")

@@ -111,7 +111,7 @@ class PlotConfig(BaseModel):
     # ============================================================================
 
     figsize_timeseries: Tuple[float, float] = Field(
-        default=(24.0, 17.0),
+        default=(35.0, 20.0),
         description="Figure size for time-series plots (ITS, Vt) in inches"
     )
 

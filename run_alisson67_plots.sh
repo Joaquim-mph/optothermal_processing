@@ -12,6 +12,25 @@ python process_and_analyze.py plot-transconductance 67 \
 
 # Plot ITS measurements
 
+python process_and_analyze.py plot-its 67 \
+  --seq 4-7 \
+  --legend irradiated_power
+
+# 1) 405 nm, negative gate
+python process_and_analyze.py plot-its-sequential 67 \
+  --seq 4-7 \
+  --legend irradiated_power
+
+python process_and_analyze.py plot-its 67 \
+  --seq 9-12 \
+  --legend irradiated_power
+
+# 1) 405 nm, negative gate
+python process_and_analyze.py plot-its-sequential 67 \
+  --seq 9-12 \
+  --legend irradiated_power
+
+
 # 1) 405 nm, negative gate
 python process_and_analyze.py plot-its 67 \
   --seq 15-18 \

@@ -215,6 +215,22 @@ def plot_its_command(
         "--dry-run",
         help="Dry run mode: validate experiments and show output filename only (fastest)"
     ),
+    # === Plotting style options (Phase 2: CLI Integration) ===
+    theme: Optional[str] = typer.Option(
+        None,
+        "--theme",
+        help="Plot theme override (prism_rain, paper, presentation, minimal). Overrides global --plot-theme."
+    ),
+    format: Optional[str] = typer.Option(
+        None,
+        "--format",
+        help="Output format override (png, pdf, svg, jpg). Overrides global --plot-format."
+    ),
+    dpi: Optional[int] = typer.Option(
+        None,
+        "--dpi",
+        help="DPI override (72-1200). Overrides global --plot-dpi."
+    ),
 ):
     """
     Generate ITS overlay plots from terminal.
@@ -247,6 +263,28 @@ def plot_its_command(
         with calibration data. Run 'derive-all-metrics' to generate these.
     """
     ctx = get_context()
+
+    # === Phase 2: Get PlotConfig with command-specific overrides ===
+    from src.cli.main import get_plot_config
+    plot_config = get_plot_config()
+
+    # Apply command-specific overrides (--theme, --format, --dpi)
+    plot_overrides = {}
+    if theme is not None:
+        plot_overrides["theme"] = theme
+    if format is not None:
+        plot_overrides["format"] = format
+    if dpi is not None:
+        plot_overrides["dpi"] = dpi
+
+    if plot_overrides:
+        plot_config = plot_config.copy(**plot_overrides)
+        if ctx.verbose:
+            overrides_str = ", ".join([f"{k}={v}" for k, v in plot_overrides.items()])
+            ctx.print(f"[dim]Plot config overrides: {overrides_str}[/dim]")
+
+    # Note: Full integration with plotting functions happens in Phase 3
+    # For now, we have the config ready for when plotting modules are refactored
 
     ctx.print()
     ctx.print(Panel.fit(
@@ -519,14 +557,17 @@ def plot_its_command(
         if legend_by == "led_voltage":
             ctx.print("[dim]Tip: For dark measurements, --legend vg might be more useful[/dim]")
 
-    # Step 9: Set FIG_DIR and call plotting function
+    # Step 9: Call plotting function with PlotConfig
     ctx.print("\n[cyan]Generating plot...[/cyan]")
-    its.FIG_DIR = output_dir
 
     # NOTE: Plotting functions expect 'source_file' column which we created by renaming 'parquet_path'
     # The plotting functions now read from staged Parquet files (fast!)
     # base_dir parameter is now ignored since paths are absolute in source_file column
     base_dir = Path(".")  # Not used, but kept for API compatibility
+
+    # Override output_dir in plot_config if specified via CLI
+    if output_dir != ctx.output_dir:
+        plot_config = plot_config.copy(output_dir=output_dir)
 
     try:
         if all_dark:
@@ -541,7 +582,8 @@ def plot_its_command(
                 legend_by=legend_by,
                 padding=padding,
                 check_duration_mismatch=check_duration_mismatch,
-                duration_tolerance=duration_tolerance
+                duration_tolerance=duration_tolerance,
+                config=plot_config  # Phase 3: Pass PlotConfig
             )
         else:
             its.plot_its_overlay(
@@ -555,7 +597,8 @@ def plot_its_command(
                 legend_by=legend_by,
                 padding=padding,
                 check_duration_mismatch=check_duration_mismatch,
-                duration_tolerance=duration_tolerance
+                duration_tolerance=duration_tolerance,
+                config=plot_config  # Phase 3: Pass PlotConfig
             )
     except Exception as e:
         ctx.print(f"[red]Error generating plot:[/red] {e}")
@@ -826,8 +869,15 @@ def plot_its_sequential_command(
 
     # Step 7: Generate plot
     ctx.print("\n[cyan]Generating sequential plot...[/cyan]")
-    its.FIG_DIR = output_dir
     base_dir = Path(".")  # Not used (parquet_path has absolute paths)
+
+    # Get PlotConfig from CLI (Phase 3 integration)
+    from src.cli.main import get_plot_config
+    plot_config = get_plot_config()
+
+    # Override output_dir if specified via CLI
+    if output_dir != ctx.output_dir:
+        plot_config = plot_config.copy(output_dir=output_dir)
 
     try:
         its.plot_its_sequential(
@@ -837,7 +887,8 @@ def plot_its_sequential_command(
             plot_start_time=plot_start_time,
             show_boundaries=show_boundaries,
             legend_by=legend_by,
-            padding=padding
+            padding=padding,
+            config=plot_config  # Phase 3: Pass PlotConfig
         )
     except Exception as e:
         ctx.print(f"[red]Error generating plot:[/red] {e}")

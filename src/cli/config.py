@@ -99,9 +99,15 @@ class CLIConfig(BaseModel):
         le=600,
         description="DPI for plot output"
     )
-    plot_theme: Literal["prism_rain"] = Field(
+    plot_theme: Literal["prism_rain", "paper", "presentation", "minimal"] = Field(
         default="prism_rain",
-        description="Default matplotlib theme for plots (from src/plotting/styles.py)"
+        description=(
+            "Default matplotlib theme for plots:\n"
+            "  - prism_rain: Lab notebooks (large fonts, colorful, current default)\n"
+            "  - paper: Publications (small serif fonts, high DPI, Nature/IEEE)\n"
+            "  - presentation: Slides/posters (extra large fonts, vivid colors)\n"
+            "  - minimal: Web dashboards (clean sans-serif, understated colors)"
+        )
     )
 
     # Config metadata (not user-configurable)

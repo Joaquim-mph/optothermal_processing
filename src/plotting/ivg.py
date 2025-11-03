@@ -2,17 +2,22 @@
 
 from __future__ import annotations
 from pathlib import Path
+from typing import Optional
 import matplotlib.pyplot as plt
 import polars as pl
 import numpy as np
 
 from src.core.utils import read_measurement_parquet
-
-# Configuration (will be overridden by CLI)
-FIG_DIR = Path("figs")
+from src.plotting.config import PlotConfig
 
 
-def plot_ivg_sequence(df: pl.DataFrame, base_dir: Path, tag: str, show_cnp: bool = False):
+def plot_ivg_sequence(
+    df: pl.DataFrame,
+    base_dir: Path,
+    tag: str,
+    show_cnp: bool = False,
+    config: Optional[PlotConfig] = None,
+):
     """
     Plot all IVg in chronological order (Id vs Vg).
 
@@ -26,17 +31,22 @@ def plot_ivg_sequence(df: pl.DataFrame, base_dir: Path, tag: str, show_cnp: bool
         Tag for output filename
     show_cnp : bool
         If True, overlay detected CNP points in bright yellow
+    config : PlotConfig, optional
+        Plot configuration (theme, DPI, output paths, etc.)
     """
-    # Apply plot style (lazy initialization for thread-safety)
+    # Initialize config with defaults
+    config = config or PlotConfig()
+
+    # Apply plot style from config
     from src.plotting.styles import set_plot_style
     from src.plotting.plot_utils import extract_cnp_for_plotting, ensure_standard_columns
-    set_plot_style("prism_rain")
+    set_plot_style(config.theme)
 
     ivg = df.filter(pl.col("proc") == "IVg").sort("file_idx")
     if ivg.height == 0:
         return
 
-    plt.figure()
+    plt.figure(figsize=config.figsize_voltage_sweep)
     cnp_markers_added = False
     for row in ivg.iter_rows(named=True):
         path = base_dir / row["source_file"]
@@ -85,6 +95,7 @@ def plot_ivg_sequence(df: pl.DataFrame, base_dir: Path, tag: str, show_cnp: bool
     plt.ylim(bottom=0)
     plt.tight_layout()
 
-    out = FIG_DIR / f"encap{chipnum}_IVg_{tag}.png"
-    plt.savefig(out)
+    filename = f"encap{chipnum}_IVg_{tag}.png"
+    out = config.get_output_path(filename, procedure="IVg")
+    plt.savefig(out, dpi=config.dpi)
     print(f"saved {out}")

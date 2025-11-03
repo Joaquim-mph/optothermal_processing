@@ -5,7 +5,7 @@ from pathlib import Path
 import numpy as np
 import matplotlib.pyplot as plt
 import polars as pl
-from typing import Tuple
+from typing import Optional
 from src.core.utils import read_measurement_parquet
 from src.plotting.plot_utils import (
     interpolate_baseline,
@@ -18,14 +18,8 @@ from src.plotting.plot_utils import (
     print_info,
     print_warning
 )
-
-# Constants
-LIGHT_WINDOW_ALPHA = 0.15
-PLOT_START_TIME = 20.0
-
-# Configuration (will be overridden by CLI)
-FIG_DIR = Path("figs")
-FIGSIZE: Tuple[float, float] = (24.0, 17.0)
+from src.plotting.config import PlotConfig
+from src.plotting.formatters import get_legend_formatter
 
 
 def _calculate_auto_baseline(df: pl.DataFrame, divisor: float = 2.0) -> float:
@@ -208,11 +202,12 @@ def plot_its_overlay(
     *,
     baseline_mode: str = "fixed",  # "fixed", "auto", or "none"
     baseline_auto_divisor: float = 2.0,  # Used when baseline_mode="auto"
-    plot_start_time: float = PLOT_START_TIME,  # Configurable start time
+    plot_start_time: float | None = None,  # Start time (None = use config default)
     legend_by: str = "wavelength",  # "wavelength" (default), "vg", or "led_voltage"
-    padding: float = 0.02,  # fraction of data range to add as padding (0.02 = 2%)
+    padding: float | None = None,  # Y-axis padding (None = use config default)
     check_duration_mismatch: bool = False,  # Enable duration check
     duration_tolerance: float = 0.10,  # Tolerance for duration warnings (10%)
+    config: Optional[PlotConfig] = None,  # Plot configuration (Phase 2 integration)
 ):
     """
     Overlay ITS traces with flexible baseline and preset support.
@@ -267,9 +262,18 @@ def plot_its_overlay(
     >>> plot_its_overlay(df, Path("raw_data"), "power_sweep", baseline_mode="auto",
     ...                  legend_by="led_voltage", check_duration_mismatch=True)
     """
-    # Apply plot style (lazy initialization for thread-safety)
+    # === Initialize config with defaults ===
+    config = config or PlotConfig()
+
+    # Apply defaults for None parameters
+    if plot_start_time is None:
+        plot_start_time = config.plot_start_time
+    if padding is None:
+        padding = config.padding_fraction
+
+    # Apply plot style from config
     from src.plotting.styles import set_plot_style
-    set_plot_style("prism_rain")
+    set_plot_style(config.theme)
 
     # --- Handle baseline mode ---
     if baseline_mode == "auto":
@@ -321,7 +325,7 @@ def plot_its_overlay(
         print("[warn] no ITS rows in metadata")
         return
 
-    plt.figure(figsize=FIGSIZE)
+    plt.figure(figsize=config.figsize_timeseries)
     curves_plotted = 0
 
     t_totals = []
@@ -487,7 +491,7 @@ def plot_its_overlay(
 
     # Draw light window if we have valid bounds
     if (t0 is not None) and (t1 is not None) and (t1 > t0):
-        plt.axvspan(t0, t1, alpha=LIGHT_WINDOW_ALPHA)
+        plt.axvspan(t0, t1, alpha=config.light_window_alpha)
 
     plt.xlabel(r"$t\ (\mathrm{s})$")
     plt.ylabel(r"$\Delta I_{ds}\ (\mu\mathrm{A})$")
@@ -528,8 +532,9 @@ def plot_its_overlay(
 
     # Add _raw suffix if baseline_mode is "none"
     raw_suffix = "_raw" if baseline_mode == "none" else ""
-    out = FIG_DIR / f"encap{chipnum}_ITS_{tag}{raw_suffix}.png"
-    plt.savefig(out)
+    filename = f"encap{chipnum}_ITS_{tag}{raw_suffix}"
+    out = config.get_output_path(filename, procedure="ITS")
+    plt.savefig(out, dpi=config.dpi)
     print(f"saved {out}")
 
 
@@ -541,11 +546,12 @@ def plot_its_dark(
     *,
     baseline_mode: str = "fixed",
     baseline_auto_divisor: float = 2.0,
-    plot_start_time: float = PLOT_START_TIME,
+    plot_start_time: float | None = None,  # Start time (None = use config default)
     legend_by: str = "vg",  # "vg" (default for dark), "wavelength", or "led_voltage"
-    padding: float = 0.02,  # fraction of data range to add as padding (0.02 = 2%)
+    padding: float | None = None,  # Y-axis padding (None = use config default)
     check_duration_mismatch: bool = False,
     duration_tolerance: float = 0.10,
+    config: Optional[PlotConfig] = None,  # Plot configuration (Phase 2 integration)
 ):
     """
     Overlay ITS traces for dark measurements (no laser) with baseline correction.
@@ -585,9 +591,18 @@ def plot_its_dark(
     - Simpler and cleaner plot for noise characterization experiments
     - Uses same baseline correction as plot_its_overlay
     """
-    # Apply plot style (lazy initialization for thread-safety)
+    # === Initialize config with defaults ===
+    config = config or PlotConfig()
+
+    # Apply defaults for None parameters
+    if plot_start_time is None:
+        plot_start_time = config.plot_start_time
+    if padding is None:
+        padding = config.padding_fraction
+
+    # Apply plot style from config
     from src.plotting.styles import set_plot_style
-    set_plot_style("prism_rain")
+    set_plot_style(config.theme)
 
     # --- Handle baseline mode ---
     if baseline_mode == "auto":
@@ -639,7 +654,7 @@ def plot_its_dark(
         print("[warn] no ITS rows in metadata")
         return
 
-    plt.figure(figsize=FIGSIZE)
+    plt.figure(figsize=config.figsize_timeseries)
     curves_plotted = 0
 
     t_totals = []
@@ -791,8 +806,9 @@ def plot_its_dark(
 
     # Add _raw suffix if baseline_mode is "none"
     raw_suffix = "_raw" if baseline_mode == "none" else ""
-    out = FIG_DIR / f"encap{chipnum}_ITS_dark_{tag}{raw_suffix}.png"
-    plt.savefig(out)
+    filename = f"encap{chipnum}_ITS_dark_{tag}{raw_suffix}"
+    out = config.get_output_path(filename, procedure="ITS")
+    plt.savefig(out, dpi=config.dpi)
     print(f"saved {out}")
 
 
@@ -801,10 +817,11 @@ def plot_its_sequential(
     base_dir: Path,
     tag: str,
     *,
-    plot_start_time: float = PLOT_START_TIME,
+    plot_start_time: float | None = None,  # Start time (None = use config default)
     show_boundaries: bool = True,
     legend_by: str = "datetime",
-    padding: float = 0.02,
+    padding: float | None = None,  # Y-axis padding (None = use config default)
+    config: Optional[PlotConfig] = None,  # Plot configuration (Phase 2 integration)
 ):
     """
     Plot ITS experiments sequentially on a continuous time axis (concatenated, not overlaid).
@@ -847,9 +864,18 @@ def plot_its_sequential(
     - Each experiment gets a different color from the palette
     - Best for visualizing temporal evolution across multiple experiments
     """
-    # Apply plot style
+    # === Initialize config with defaults ===
+    config = config or PlotConfig()
+
+    # Apply defaults for None parameters
+    if plot_start_time is None:
+        plot_start_time = config.plot_start_time
+    if padding is None:
+        padding = config.padding_fraction
+
+    # Apply plot style from config
     from src.plotting.styles import set_plot_style, PRISM_RAIN_PALETTE
-    set_plot_style("prism_rain")
+    set_plot_style(config.theme)
 
     # --- normalize legend_by to a canonical value ---
     lb = legend_by.strip().lower()
@@ -991,7 +1017,7 @@ def plot_its_sequential(
         return
 
     # Create figure
-    plt.figure(figsize=FIGSIZE)
+    plt.figure(figsize=config.figsize_timeseries)
 
     # Plot each experiment segment with its own color
     for tt_seg, yy_seg, label, color in experiment_segments:
@@ -1025,8 +1051,9 @@ def plot_its_sequential(
     plt.tight_layout()
 
     # Save figure
-    out = FIG_DIR / f"encap{chipnum}_ITS_sequential_{tag}.png"
-    plt.savefig(out)
+    filename = f"encap{chipnum}_ITS_sequential_{tag}"
+    out = config.get_output_path(filename, procedure="ITS")
+    plt.savefig(out, dpi=config.dpi)
     print(f"saved {out}")
 
     # Calculate total time from last segment

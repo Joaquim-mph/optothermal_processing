@@ -15,7 +15,7 @@ console = Console()
 @cli_command(
     name="enrich-all-histories",
     group="pipeline",
-    description="Enrich all chip histories with derived metrics"
+    description="Enrich all chip histories (use 'enrich-history -a' for new unified command)"
 )
 def enrich_all_histories_command(
     chip_group: Optional[str] = typer.Option(
@@ -44,12 +44,25 @@ def enrich_all_histories_command(
     """
     Enrich all chip histories with derived metrics.
 
+    📦 BATCH PROCESSOR: Orchestrates metric extraction and enrichment for all chips.
+
+    For single chip enrichment, use 'enrich-history <chip_number>' instead.
+
     This command:
     1. Checks if metrics exist, if not runs derive-all-metrics (unless --skip-derive)
     2. Enriches all chip histories with the derived metrics (CNP, photoresponse, etc.)
     3. Saves enriched histories to data/03_derived/chip_histories_enriched/
 
     The enriched histories include derived metrics as columns for easy analysis and plotting.
+
+    Pipeline workflow:
+        - Quick start: Run this command (handles everything)
+        - Manual control: derive-all-metrics → enrich-history (per chip)
+
+    See also:
+        - enrich-history: Enrich a single chip
+        - derive-all-metrics: Extract metrics only (no enrichment)
+        - enrich-histories-with-calibrations: Link laser calibrations
 
     Examples:
         # Enrich all chip histories (derives metrics if needed)
@@ -68,6 +81,20 @@ def enrich_all_histories_command(
         python process_and_analyze.py enrich-all-histories --skip-derive
     """
     console.print()
+
+    # Deprecation warning / tip
+    console.print(Panel.fit(
+        "[bold yellow]💡 TIP: Use the new unified command![/bold yellow]\n\n"
+        "Consider using the new unified enrich-history command:\n"
+        "[cyan]enrich-history -a[/cyan]  (or [cyan]--all-chips[/cyan])\n\n"
+        "It provides the same functionality with more flexibility:\n"
+        "• Control calibrations/metrics separately\n"
+        "• Filter by specific metrics\n"
+        "• Process specific chip ranges",
+        border_style="yellow"
+    ))
+    console.print()
+
     console.print(Panel.fit(
         "[bold green]Enrich All Chip Histories[/bold green]",
         border_style="green"

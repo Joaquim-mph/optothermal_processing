@@ -232,18 +232,29 @@ def discover_commands(
                 print(f"Skipped (explicitly disabled): {metadata.name}")
             continue
 
-        # Register command with Typer
-        app.command(name=metadata.name)(metadata.function)
+        # Map group to Rich help panel name
+        group_panels = {
+            "pipeline": "Pipeline Commands",
+            "history": "History Commands",
+            "plotting": "Plotting Commands",
+            "staging": "Staging Commands",
+            "utilities": "Utilities",
+            "general": "General Commands",
+        }
+        rich_help_panel = group_panels.get(metadata.group, f"{metadata.group.title()} Commands")
+
+        # Register command with Typer (with Rich help panel for grouping)
+        app.command(name=metadata.name, rich_help_panel=rich_help_panel)(metadata.function)
         registered_count += 1
 
         if verbose:
-            print(f"Registered: {metadata.name} [{metadata.group}]")
+            print(f"Registered: {metadata.name} [{metadata.group}] -> panel: {rich_help_panel}")
 
-        # Register aliases
+        # Register aliases (hidden from help output)
         for alias in metadata.aliases:
-            app.command(name=alias)(metadata.function)
+            app.command(name=alias, hidden=True, rich_help_panel=rich_help_panel)(metadata.function)
             if verbose:
-                print(f"  Alias: {alias} -> {metadata.name}")
+                print(f"  Alias: {alias} -> {metadata.name} [hidden]")
 
     if verbose:
         print(f"\nTotal commands registered: {registered_count}/{len(_COMMAND_REGISTRY)}")

@@ -84,6 +84,7 @@ def plot_its_photoresponse(
     filter_vg: float | None = None,
     filter_power_range: tuple[float, float] | None = None,
     plot_tag: str | None = None,
+    axtype: str | None = None,
     config: Optional[PlotConfig] = None,
 ) -> Path:
     """
@@ -109,6 +110,8 @@ def plot_its_photoresponse(
         Filter to power range (min, max) in watts
     plot_tag : str, optional
         Unique tag for filename (e.g., "seq_4_5_6_7"). If None, no tag added.
+    axtype : str, optional
+        Axis scale type: "linear" (default), "loglog", "semilogx", or "semilogy"
     config : PlotConfig, optional
         Plot configuration (theme, DPI, output paths, etc.)
 
@@ -245,7 +248,6 @@ def plot_its_photoresponse(
         if "irradiated_power_w" in its_data.columns:
             x_col = "irradiated_power_w"
             x_label = "Irradiated Power (μW)"
-            x_scale = "linear"
             x_unit_conversion = 1e6  # W to μW
         elif "laser_voltage_v" in its_data.columns:
             # Fallback: use laser voltage as proxy for power
@@ -253,7 +255,6 @@ def plot_its_photoresponse(
             print("[info] Run 'derive-all-metrics --calibrations' to get calibrated power values.")
             x_col = "laser_voltage_v"
             x_label = "Laser Voltage (V)"
-            x_scale = "linear"
             x_unit_conversion = 1.0  # No conversion
         else:
             raise ValueError(
@@ -263,17 +264,14 @@ def plot_its_photoresponse(
     elif x_variable == "wavelength":
         x_col = "wavelength_nm"
         x_label = "Wavelength (nm)"
-        x_scale = "linear"
         x_unit_conversion = 1.0  # No conversion
     elif x_variable == "gate_voltage":
         x_col = "vg_fixed_v"
         x_label = "Gate Voltage (V)"
-        x_scale = "linear"
         x_unit_conversion = 1.0  # No conversion
     elif x_variable == "time":
         x_col = "datetime_local"
         x_label = "Date & Time"
-        x_scale = "linear"
         x_unit_conversion = 1.0  # No conversion (datetime handled separately)
     else:
         raise ValueError(f"Unknown x_variable: {x_variable}")
@@ -345,9 +343,26 @@ def plot_its_photoresponse(
         # Single series
         ax.plot(x_values, np.abs(y_values) * 1e6, 'o-')
 
-    # Set x-axis scale
-    if x_scale == "log":
+    # Set axis scales based on axtype parameter
+    if axtype is None:
+        axtype = "linear"  # Default to linear
+
+    axtype = axtype.lower()
+
+    if axtype == "loglog":
         ax.set_xscale("log")
+        ax.set_yscale("log")
+    elif axtype == "semilogx":
+        ax.set_xscale("log")
+        ax.set_yscale("linear")
+    elif axtype == "semilogy":
+        ax.set_xscale("linear")
+        ax.set_yscale("log")
+    elif axtype == "linear":
+        ax.set_xscale("linear")
+        ax.set_yscale("linear")
+    else:
+        raise ValueError(f"Invalid axtype: {axtype}. Must be 'linear', 'loglog', 'semilogx', or 'semilogy'")
 
     # Configure date axis formatting for time plots
     if x_variable == "time":
@@ -360,6 +375,17 @@ def plot_its_photoresponse(
     # Labels and title
     ax.set_xlabel(x_label, fontweight='bold')
     ax.set_ylabel("Δ Current (µA)", fontweight='bold')
+
+    # Configure scientific notation formatting (like plot_its does)
+    # Note: ticklabel_format only works with linear scales, not log scales
+    if x_variable != "time":
+        # Only apply for linear X-axis (not log)
+        if axtype in ["linear", "semilogy", None]:
+            ax.ticklabel_format(style='scientific', axis='x', scilimits=(0, 0), useMathText=True)
+
+    # Only apply for linear Y-axis (not log)
+    if axtype in ["linear", "semilogx", None]:
+        ax.ticklabel_format(style='scientific', axis='y', scilimits=(0, 0), useMathText=True)
 
     # Build title with filter information
     title_parts = [f'{chip_name} - ITS Photoresponse vs {x_variable.replace("_", " ").title()}']

@@ -91,6 +91,11 @@ def plot_photoresponse_command(
     """
     Plot photoresponse as a function of experimental parameters.
 
+    ✨ GENERIC PLOTTER: Supports It (current), Vt (voltage), and ITt procedures.
+
+    For ITS-only measurements with a simpler interface, consider using
+    'plot-its-photoresponse' instead.
+
     This shows how the device responds to illumination by plotting:
     - Photoresponse vs Power: Response scaling with irradiance
     - Photoresponse vs Wavelength: Spectral response characteristics
@@ -101,6 +106,9 @@ def plot_photoresponse_command(
     - Photoresponse metrics extracted (run derive-all-metrics first)
     - Laser calibration power extraction (run derive-all-metrics --calibrations)
     - It/Vt/ITt measurements with illumination
+
+    See also:
+        - plot-its-photoresponse: Simplified ITS-only photoresponse plotter
 
     Examples:
         # Plot current change vs irradiated power for all wavelengths

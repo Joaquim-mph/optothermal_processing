@@ -118,9 +118,19 @@ def plot_its_photoresponse_command(
         "--dpi",
         help="DPI override (72-1200). Overrides global --plot-dpi."
     ),
+    axtype: Optional[str] = typer.Option(
+        None,
+        "--axtype",
+        help="Axis scale type: linear (default), loglog, semilogx, or semilogy"
+    ),
 ):
     """
     Plot ITS photoresponse: delta current vs power/wavelength/time/gate voltage.
+
+    ⚠️  SPECIALIZED FOR ITS (It procedure) MEASUREMENTS ONLY.
+
+    For more flexibility (including Vt, ITt procedures or voltage metrics),
+    use 'plot-photoresponse' instead.
 
     Extracts photoresponse (Δcurrent) from ITS measurements and plots against
     the specified independent variable. Perfect for analyzing how photoresponse
@@ -128,6 +138,9 @@ def plot_its_photoresponse_command(
 
     Uses enriched history if available (fast!), otherwise extracts delta_current
     on-the-fly from ITS measurements.
+
+    See also:
+        - plot-photoresponse: Generic photoresponse plotter (It, Vt, ITt)
 
     Examples:
         # Delta current vs irradiated power (seq 4-7)
@@ -388,6 +401,7 @@ def plot_its_photoresponse_command(
             filter_vg=filter_vg,
             filter_power_range=filter_power_range,
             plot_tag=plot_tag,
+            axtype=axtype,
             config=plot_config
         )
     except Exception as e:

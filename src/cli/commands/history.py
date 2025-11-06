@@ -832,7 +832,7 @@ def build_all_histories_command(
 @cli_command(
     name="enrich-histories-with-calibrations",
     group="history",
-    description="Associate light experiments with laser calibrations"
+    description="Associate calibrations (use 'enrich-history -a --calibrations-only' for new unified command)"
 )
 def enrich_histories_command(
     history_dir: Optional[Path] = typer.Option(
@@ -878,6 +878,12 @@ def enrich_histories_command(
     """
     Enrich chip histories with laser calibration associations.
 
+    🔗 CALIBRATION LINKING: Associates light experiments with laser calibrations
+    and interpolates irradiated power values.
+
+    This is a specialized enrichment step. For general metric enrichment (CNP,
+    photoresponse), use 'enrich-all-histories' which handles the full workflow.
+
     Reads chip histories from Stage 2 (data/02_stage/chip_histories/) and
     writes enriched versions to Stage 3 (data/03_derived/chip_histories_enriched/)
     with three new columns:
@@ -889,6 +895,11 @@ def enrich_histories_command(
     1. PREFERRED: Most recent calibration BEFORE experiment (same wavelength)
     2. FALLBACK: Nearest calibration AFTER experiment (same wavelength)
     3. WARNING: No calibration found for wavelength
+
+    See also:
+        - enrich-all-histories: Batch enrich all chips (includes calibrations)
+        - derive-all-metrics --calibrations: Extract calibration metrics
+        - enrich-history: Enrich single chip with metrics
 
     \\b
     Examples:
@@ -961,6 +972,17 @@ def enrich_histories_command(
         raise typer.Exit(1)
 
     ctx.print()
+
+    # Deprecation warning
+    ctx.print(Panel.fit(
+        "[bold yellow]💡 TIP: Use the new unified command![/bold yellow]\n\n"
+        "Consider using the new unified enrich-history command:\n"
+        "[cyan]enrich-history -a --calibrations-only[/cyan]\n\n"
+        "It provides the same functionality with more flexibility.",
+        border_style="yellow"
+    ))
+    ctx.print()
+
     ctx.print(Panel.fit(
         "[bold cyan]Laser Calibration Enrichment[/bold cyan]\n\n"
         f"Input (Stage 2): {history_dir}\n"

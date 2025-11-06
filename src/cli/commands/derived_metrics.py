@@ -351,9 +351,10 @@ def derive_all_metrics_command(
 
 
 @cli_command(
-    name="enrich-history",
+    name="enrich-history-old",
     group="pipeline",
-    description="Add derived metrics as columns to chip history"
+    description="[DEPRECATED] Use 'enrich-history <chip>' instead",
+    aliases=[]
 )
 def enrich_history_command(
     chip_number: int = typer.Argument(
@@ -379,10 +380,17 @@ def enrich_history_command(
     ),
 ):
     """
-    Enrich chip history with derived metrics as columns.
+    ⚠️  DEPRECATED: Use 'enrich-history <chip>' instead.
 
-    Joins derived metrics (CNP, photoresponse, etc.) to the chip history,
-    adding them as additional columns for easy analysis and plotting.
+    This command has been replaced by the unified 'enrich-history' command.
+
+    Old command:
+        enrich-history-single 75
+
+    New unified command (use this instead):
+        enrich-history 75
+
+    The new command provides the same functionality with more flexibility.
 
     Examples:
         # Enrich history for chip 75
@@ -394,7 +402,17 @@ def enrich_history_command(
         # Enrich and overwrite original
         python process_and_analyze.py enrich-history 75 --overwrite
     """
+    # Deprecation warning
     console.print()
+    console.print(Panel.fit(
+        "[bold yellow]⚠️  DEPRECATION WARNING[/bold yellow]\n\n"
+        "This command is deprecated. Use the unified command instead:\n"
+        f"[cyan]enrich-history {chip_number}[/cyan]\n\n"
+        "The new command provides the same functionality with more options.",
+        border_style="yellow"
+    ))
+    console.print()
+
     console.print(Panel.fit(
         f"[bold green]Enrich History: {chip_group}{chip_number}[/bold green]",
         border_style="green"

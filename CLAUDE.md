@@ -84,8 +84,14 @@ python3 process_and_analyze.py derive-all-metrics --dry-run
 # Force re-extraction (overwrite existing metrics)
 python3 process_and_analyze.py derive-all-metrics --force
 
-# Enrich chip history with derived metrics as columns
-python3 process_and_analyze.py enrich-history 75
+# Enrich chip histories with derived metrics (RECOMMENDED UNIFIED COMMAND)
+python3 process_and_analyze.py enrich-history 75        # Single chip
+python3 process_and_analyze.py enrich-history -a        # All chips
+python3 process_and_analyze.py enrich-history 67,81,75  # Multiple chips
+python3 process_and_analyze.py enrich-history -a --calibrations-only  # Only add power data
+
+# Alternative: Link calibrations only (advanced users)
+python3 process_and_analyze.py link-calibrations
 ```
 
 ### Plotting Commands
@@ -514,13 +520,24 @@ python3 process_and_analyze.py list-plugins
 - Functions in `src/core/parser.py` and `src/core/timeline.py` (kept for compatibility)
 - Some legacy functions still used by TUI, but being phased out
 
+**Deprecated Enrichment Commands (Still work, but hidden from help):**
+- `enrich-all-histories` → Use: `enrich-history -a`
+- `enrich-histories-with-calibrations` → Use: `link-calibrations` or `enrich-history -a --calibrations-only`
+- `enrich-history-old` → Use: `enrich-history <chip>`
+- These commands still function for backward compatibility but are hidden from `--help` output
+- Users are encouraged to migrate to the new unified `enrich-history` command
+
 ## Recent Additions & Features
 
 ### Version 3.0 - Derived Metrics Pipeline (October 2025)
 
 **New Commands:**
 - `derive-all-metrics`: Extract CNP, photoresponse, and laser calibration power
-- `enrich-history`: Join derived metrics to chip histories as columns
+- `enrich-history`: **UNIFIED COMMAND** - Join calibrations and metrics to chip histories
+  - Replaces: `enrich-all-histories`, `enrich-histories-with-calibrations` (now hidden)
+  - Examples: `enrich-history 75`, `enrich-history -a`, `enrich-history -a --calibrations-only`
+- `link-calibrations`: Associate light experiments with laser calibrations (advanced)
+  - Renamed from: `enrich-histories-with-calibrations` (kept as hidden alias)
 - `plot-cnp-time`: Plot CNP (Dirac point) evolution over time
 - `plot-photoresponse`: Plot photoresponse vs power, wavelength, gate voltage, or time
 - `plot-laser-calibration`: Visualize laser calibration curves
@@ -532,7 +549,8 @@ python3 process_and_analyze.py list-plugins
 **Workflow:**
 1. Stage data: `python3 process_and_analyze.py full-pipeline`
 2. Extract metrics: `python3 process_and_analyze.py derive-all-metrics`
-3. Plot derived quantities: `python3 process_and_analyze.py plot-cnp-time 81`
+3. **Enrich histories: `python3 process_and_analyze.py enrich-history -a`** ⭐ New unified command!
+4. Plot derived quantities: `python3 process_and_analyze.py plot-cnp-time 81`
 
 **Documentation:**
 - `docs/DERIVED_METRICS_ARCHITECTURE.md`: Complete architecture guide

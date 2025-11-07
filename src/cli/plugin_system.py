@@ -42,6 +42,9 @@ class CommandMetadata:
     priority: int = 0
     """Registration priority (higher = earlier)"""
 
+    hidden: bool = False
+    """Whether to hide the command from help output"""
+
 
 # Global registry of discovered commands
 _COMMAND_REGISTRY: Dict[str, CommandMetadata] = {}
@@ -53,6 +56,7 @@ def cli_command(
     description: str = "",
     aliases: Optional[List[str]] = None,
     priority: int = 0,
+    hidden: bool = False,
 ):
     """
     Decorator to register a function as a CLI command plugin.
@@ -69,6 +73,8 @@ def cli_command(
         Alternative command names
     priority : int
         Registration priority (higher = registered earlier)
+    hidden : bool
+        Whether to hide the command from help output (default: False)
 
     Examples
     --------
@@ -97,6 +103,7 @@ def cli_command(
             description=desc,
             aliases=aliases or [],
             priority=priority,
+            hidden=hidden,
         )
 
         # Register command
@@ -244,11 +251,12 @@ def discover_commands(
         rich_help_panel = group_panels.get(metadata.group, f"{metadata.group.title()} Commands")
 
         # Register command with Typer (with Rich help panel for grouping)
-        app.command(name=metadata.name, rich_help_panel=rich_help_panel)(metadata.function)
+        app.command(name=metadata.name, rich_help_panel=rich_help_panel, hidden=metadata.hidden)(metadata.function)
         registered_count += 1
 
         if verbose:
-            print(f"Registered: {metadata.name} [{metadata.group}] -> panel: {rich_help_panel}")
+            hidden_label = " [hidden]" if metadata.hidden else ""
+            print(f"Registered: {metadata.name} [{metadata.group}] -> panel: {rich_help_panel}{hidden_label}")
 
         # Register aliases (hidden from help output)
         for alias in metadata.aliases:

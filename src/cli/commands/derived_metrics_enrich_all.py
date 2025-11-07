@@ -15,7 +15,8 @@ console = Console()
 @cli_command(
     name="enrich-all-histories",
     group="pipeline",
-    description="Enrich all chip histories (use 'enrich-history -a' for new unified command)"
+    description="Enrich all chip histories (use 'enrich-history -a' for new unified command)",
+    hidden=True
 )
 def enrich_all_histories_command(
     chip_group: Optional[str] = typer.Option(

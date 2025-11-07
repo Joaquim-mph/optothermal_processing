@@ -354,7 +354,8 @@ def derive_all_metrics_command(
     name="enrich-history-old",
     group="pipeline",
     description="[DEPRECATED] Use 'enrich-history <chip>' instead",
-    aliases=[]
+    aliases=[],
+    hidden=True
 )
 def enrich_history_command(
     chip_number: int = typer.Argument(

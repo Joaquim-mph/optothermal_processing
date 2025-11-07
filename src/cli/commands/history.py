@@ -830,9 +830,10 @@ def build_all_histories_command(
 
 
 @cli_command(
-    name="enrich-histories-with-calibrations",
+    name="link-calibrations",
+    aliases=["enrich-histories-with-calibrations"],
     group="history",
-    description="Associate calibrations (use 'enrich-history -a --calibrations-only' for new unified command)"
+    description="Associate light experiments with laser calibrations"
 )
 def enrich_histories_command(
     history_dir: Optional[Path] = typer.Option(
@@ -876,13 +877,13 @@ def enrich_histories_command(
     ),
 ):
     """
-    Enrich chip histories with laser calibration associations.
+    Associate light experiments with laser calibrations and interpolate power.
 
-    🔗 CALIBRATION LINKING: Associates light experiments with laser calibrations
-    and interpolates irradiated power values.
+    🔗 CALIBRATION LINKING: Links each light experiment to the nearest laser
+    calibration curve and interpolates irradiated power values.
 
-    This is a specialized enrichment step. For general metric enrichment (CNP,
-    photoresponse), use 'enrich-all-histories' which handles the full workflow.
+    This is a specialized enrichment step. For complete enrichment (calibrations
+    + metrics), use the unified 'enrich-history -a' command instead.
 
     Reads chip histories from Stage 2 (data/02_stage/chip_histories/) and
     writes enriched versions to Stage 3 (data/03_derived/chip_histories_enriched/)
@@ -897,26 +898,26 @@ def enrich_histories_command(
     3. WARNING: No calibration found for wavelength
 
     See also:
-        - enrich-all-histories: Batch enrich all chips (includes calibrations)
-        - derive-all-metrics --calibrations: Extract calibration metrics
-        - enrich-history: Enrich single chip with metrics
+        - enrich-history -a: Unified command for complete enrichment (recommended)
+        - enrich-history -a --calibrations-only: Same as this command
+        - derive-all-metrics: Extract derived metrics (CNP, photoresponse)
 
     \\b
     Examples:
-        # Enrich all chip histories (writes to Stage 3)
-        enrich-histories-with-calibrations
+        # Link calibrations for all chip histories (writes to Stage 3)
+        link-calibrations
 
         # Dry run (preview changes)
-        enrich-histories-with-calibrations --dry-run
+        link-calibrations --dry-run
 
-        # Force re-enrichment
-        enrich-histories-with-calibrations --force
+        # Force re-linking
+        link-calibrations --force
 
         # Custom stale threshold (48 hours)
-        enrich-histories-with-calibrations --stale-threshold 48
+        link-calibrations --stale-threshold 48
 
         # Custom paths
-        enrich-histories-with-calibrations --history-dir data/02_stage/chip_histories --output-dir data/03_derived/custom
+        link-calibrations --history-dir data/02_stage/chip_histories --output-dir data/03_derived/custom
 
     \\b
     Output:
@@ -973,13 +974,13 @@ def enrich_histories_command(
 
     ctx.print()
 
-    # Deprecation warning
+    # Tip about unified command
     ctx.print(Panel.fit(
-        "[bold yellow]💡 TIP: Use the new unified command![/bold yellow]\n\n"
-        "Consider using the new unified enrich-history command:\n"
-        "[cyan]enrich-history -a --calibrations-only[/cyan]\n\n"
-        "It provides the same functionality with more flexibility.",
-        border_style="yellow"
+        "[bold cyan]💡 TIP: Consider the unified workflow![/bold cyan]\n\n"
+        "For complete enrichment (calibrations + metrics), use:\n"
+        "[cyan]enrich-history -a[/cyan]\n\n"
+        "This links calibrations AND adds derived metrics in one command.",
+        border_style="cyan"
     ))
     ctx.print()
 
@@ -1203,6 +1204,6 @@ def validate_calibration_links_command(
             border_style="red"
         ))
         ctx.print()
-        ctx.print("[yellow]→[/yellow] Re-run enrichment to fix: [cyan]enrich-histories-with-calibrations --force[/cyan]")
+        ctx.print("[yellow]→[/yellow] Re-run enrichment to fix: [cyan]link-calibrations --force[/cyan]")
 
     ctx.print()

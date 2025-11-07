@@ -6,6 +6,7 @@ scipy>=1.11.0  # For signal processing (Savitzky-Golay filtering in transconduct
 # Staging layer (Phase 1)
 pydantic>=2.0.0  # Schema validation for manifest and configuration
 pyarrow>=14.0.0  # Parquet support for Polars
+PyYAML>=6.0.0  # YAML configuration files (procedures.yml, chip_params.yaml, cli_plugins.yaml)
 
 # Plotting
 matplotlib>=3.7.0

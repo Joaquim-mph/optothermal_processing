@@ -1,0 +1,17 @@
+# Quick staging pipeline for fast validation
+# Stages data without building histories or extracting metrics
+
+name: quick-staging
+description: Fast staging validation without downstream processing
+
+steps:
+  - name: stage-raw-data
+    command: stage_all_command
+    kwargs:
+      raw_root: data/01_raw
+      stage_root: data/02_stage/raw_measurements
+      procedures_yaml: config/procedures.yml
+      workers: 16  # More workers for speed
+      force: true  # Overwrite existing data
+      strict: true  # Fail on validation errors
+    retry_count: 1

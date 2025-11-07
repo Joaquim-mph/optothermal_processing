@@ -1,0 +1,39 @@
+# Full pipeline definition - can be executed with:
+# python process_and_analyze.py run-pipeline-yaml config/pipelines/full-pipeline.yml
+
+name: full-pipeline
+description: Complete data processing from raw CSVs to derived metrics
+
+steps:
+  - name: stage-raw-data
+    command: stage_all_command
+    kwargs:
+      raw_root: data/01_raw
+      stage_root: data/02_stage/raw_measurements
+      procedures_yaml: config/procedures.yml
+      local_tz: America/Santiago
+      workers: 16
+      polars_threads: 4
+      force: false
+      strict: false
+    skip_on_error: false
+    retry_count: 0
+
+  - name: build-chip-histories
+    command: build_all_histories_command
+    kwargs:
+      manifest_path: data/02_stage/raw_measurements/_manifest/manifest.parquet
+      output_dir: data/02_stage/chip_histories
+      min_experiments: 1
+    skip_on_error: false
+    retry_count: 0
+
+  - name: extract-derived-metrics
+    command: derive_all_metrics_command
+    kwargs:
+      workers: 8
+      force: false
+      include_calibrations: true
+      stale_threshold: 24.0
+    skip_on_error: false
+    retry_count: 1  # Retry once on transient failures

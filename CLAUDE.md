@@ -20,7 +20,9 @@ This is a Python-based data processing and visualization pipeline for optotherma
 # Activate virtual environment (ALWAYS do this first)
 source .venv/bin/activate
 
-# Install dependencies
+# Install dependencies (use uv if available, or pip)
+uv pip install -r requirements.txt
+# OR
 pip install -r requirements.txt
 
 # Verify installation
@@ -456,8 +458,14 @@ Quick overview:
 # Activate environment first
 source .venv/bin/activate
 
-# Run config tests
+# Run all tests with pytest
+python3 -m pytest tests/ -v
+
+# Run specific test file
 python3 -m pytest tests/test_config.py -v
+
+# Run specific test function
+python3 -m pytest tests/test_config.py::test_function_name -v
 
 # Test staging on small dataset
 python3 process_and_analyze.py stage-all --dry-run  # Preview mode (if implemented)

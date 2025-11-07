@@ -1,0 +1,32 @@
+# Process only specific chip group (e.g., Alisson chips)
+
+name: chip-specific-pipeline
+description: Process data for specific chip group only
+
+steps:
+  - name: stage-alisson-chips
+    command: stage_all_command
+    kwargs:
+      raw_root: data/01_raw
+      stage_root: data/02_stage/raw_measurements
+      procedures_yaml: config/procedures.yml
+      workers: 8
+    skip_on_error: false
+
+  - name: build-alisson-histories
+    command: build_all_histories_command
+    kwargs:
+      manifest_path: data/02_stage/raw_measurements/_manifest/manifest.parquet
+      output_dir: data/02_stage/chip_histories
+      chip_group: Alisson  # Filter for Alisson group only
+      min_experiments: 5
+    skip_on_error: false
+
+  - name: extract-alisson-metrics
+    command: derive_all_metrics_command
+    kwargs:
+      chip_group: Alisson  # Only process Alisson chips
+      workers: 8
+      include_calibrations: true
+    skip_on_error: true  # Continue even if metrics fail
+    retry_count: 2

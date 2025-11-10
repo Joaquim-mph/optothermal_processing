@@ -94,7 +94,26 @@ def plot_vvg_sequence(
     plt.legend()
     plt.tight_layout()
     #plt.ylim(bottom=0)
-    filename = f"encap{chipnum}_VVg_{tag}.png"
-    out = config.get_output_path(filename, procedure="VVg")
+
+    # Determine illumination status for subcategory
+    illumination_metadata = None
+    if "has_light" in df.columns:
+        has_light_values = df["has_light"].unique().to_list()
+        has_light_values = [v for v in has_light_values if v is not None]
+
+        if len(has_light_values) == 1:
+            illumination_metadata = {"has_light": has_light_values[0]}
+        elif len(has_light_values) > 1:
+            from src.plotting.plot_utils import print_warning
+            print_warning("Mixed illumination experiments - saving to VVg root folder")
+
+    filename = f"encap{chipnum}_VVg_{tag}"
+    out = config.get_output_path(
+        filename,
+        chip_number=chipnum,
+        procedure="VVg",
+        metadata=illumination_metadata,
+        create_dirs=True
+    )
     plt.savefig(out, dpi=config.dpi)
     print(f"saved {out}")

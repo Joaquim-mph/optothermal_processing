@@ -370,9 +370,27 @@ def plot_vt_overlay(
                 y_pad = padding * y_range
                 plt.ylim(y_min - y_pad, y_max + y_pad)
 
+    # Determine illumination status for subcategory
+    illumination_metadata = None
+    if "has_light" in df.columns:
+        has_light_values = df["has_light"].unique().to_list()
+        has_light_values = [v for v in has_light_values if v is not None]
+
+        if len(has_light_values) == 1:
+            illumination_metadata = {"has_light": has_light_values[0]}
+        elif len(has_light_values) > 1:
+            from src.plotting.plot_utils import print_warning
+            print_warning("Mixed illumination experiments - saving to Vt root folder")
+
     # Add _raw suffix if baseline_mode is "none"
     raw_suffix = "_raw" if baseline_mode == "none" else ""
-    filename = f"encap{chipnum}_Vt_{tag}{raw_suffix}.png"
-    out = config.get_output_path(filename, procedure="Vt")
+    filename = f"encap{chipnum}_Vt_{tag}{raw_suffix}"
+    out = config.get_output_path(
+        filename,
+        chip_number=chipnum,
+        procedure="Vt",
+        metadata=illumination_metadata,
+        create_dirs=True
+    )
     plt.savefig(out, dpi=config.dpi)
     print(f"saved {out}")

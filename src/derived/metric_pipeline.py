@@ -136,10 +136,19 @@ class MetricPipeline:
         """
         from .extractors.cnp_extractor import CNPExtractor
         from .extractors.photoresponse_extractor import PhotoresponseExtractor
+        from .extractors.its_relaxation_extractor import ITSRelaxationExtractor
+        from .extractors.its_three_phase_fit_extractor import ITSThreePhaseFitExtractor
 
         return [
             CNPExtractor(cluster_threshold_v=0.5, prominence_factor=0.1),
             PhotoresponseExtractor(vl_threshold=0.1, min_samples_per_state=5),
+            ITSRelaxationExtractor(
+                vl_threshold=0.1,
+                min_led_on_time=10.0,
+                min_points_for_fit=50,
+                fit_segment="dark"  # Fit dark It measurements only
+            ),
+            ITSThreePhaseFitExtractor(vl_threshold=0.1, min_phase_duration=60.0, min_points_for_fit=50),
             # TODO: Add more extractors as they're implemented:
             # MobilityExtractor(),
         ]
@@ -257,6 +266,105 @@ class MetricPipeline:
 
         return metrics_path
 
+    def derive_all_metrics_tui(
+        self,
+        procedures: Optional[List[str]] = None,
+        chip_numbers: Optional[List[int]] = None,
+        workers: int = 6,
+        skip_existing: bool = False
+    ) -> Path:
+        """
+        Extract all metrics using ThreadPoolExecutor (safe for TUI on macOS).
+
+        This is a TUI-specific variant that uses threads instead of processes to avoid
+        multiprocessing issues when called from GUI frameworks like Textual.
+
+        Background
+        ----------
+        On macOS, Python uses 'spawn' for multiprocessing, which requires pickling
+        the entire environment. Textual apps contain unpickleable objects (Rich
+        console, thread locks, etc.), causing ProcessPoolExecutor to fail or hang.
+
+        ThreadPoolExecutor avoids this by sharing memory instead of spawning
+        subprocesses. Since metric extraction is mostly I/O-bound (reading Parquet
+        files), threads provide comparable performance to processes.
+
+        Parameters
+        ----------
+        procedures : Optional[List[str]]
+            Filter to specific procedures (e.g., ['IVg', 'It']). If None, process all.
+        chip_numbers : Optional[List[int]]
+            Filter to specific chip numbers. If None, process all.
+        workers : int
+            Number of parallel workers (threads, default: 6)
+        skip_existing : bool
+            Skip measurements that already have metrics (default: False)
+
+        Returns
+        -------
+        Path
+            Path to saved metrics.parquet file
+
+        Examples
+        --------
+        >>> # Extract all metrics in TUI mode
+        >>> pipeline.derive_all_metrics_tui()
+        PosixPath('data/03_derived/_metrics/metrics.parquet')
+
+        >>> # Extract only from IVg measurements
+        >>> pipeline.derive_all_metrics_tui(procedures=['IVg'])
+
+        >>> # Extract for specific chip with 4 workers
+        >>> pipeline.derive_all_metrics_tui(chip_numbers=[67], workers=4)
+        """
+        logger.info("Starting metric extraction pipeline (TUI mode: ThreadPoolExecutor)")
+
+        # Load manifest
+        manifest_path = self.stage_dir / "raw_measurements" / "_manifest" / "manifest.parquet"
+        if not manifest_path.exists():
+            raise FileNotFoundError(f"Manifest not found: {manifest_path}")
+
+        manifest = pl.read_parquet(manifest_path)
+        logger.info(f"Loaded manifest with {manifest.height} measurements")
+
+        # Filter by procedure if specified
+        if procedures:
+            manifest = manifest.filter(pl.col("proc").is_in(procedures))
+            logger.info(f"Filtered to {manifest.height} measurements in procedures: {procedures}")
+
+        # Filter by chip numbers if specified
+        if chip_numbers:
+            manifest = manifest.filter(pl.col("chip_number").is_in(chip_numbers))
+            logger.info(f"Filtered to {manifest.height} measurements for chips: {chip_numbers}")
+
+        # Filter to only procedures with extractors
+        applicable_procs = list(self.extractor_map.keys())
+        manifest = manifest.filter(pl.col("proc").is_in(applicable_procs))
+        logger.info(f"Found {manifest.height} measurements with applicable extractors")
+
+        if manifest.height == 0:
+            logger.warning("No measurements to process")
+            return self._save_empty_metrics()
+
+        # Load existing metrics if skip_existing
+        existing_run_ids = set()
+        if skip_existing:
+            existing_metrics_path = self.derived_dir / "_metrics" / "metrics.parquet"
+            if existing_metrics_path.exists():
+                existing_metrics = pl.read_parquet(existing_metrics_path)
+                existing_run_ids = set(existing_metrics["run_id"].unique().to_list())
+                logger.info(f"Found {len(existing_run_ids)} measurements with existing metrics")
+
+        # Extract metrics using thread-based parallel extraction
+        metrics = self._extract_parallel_tui(manifest, workers, existing_run_ids)
+
+        logger.info(f"Extracted {len(metrics)} metrics from {manifest.height} measurements")
+
+        # Save metrics
+        metrics_path = self._save_metrics(metrics)
+
+        return metrics_path
+
     def _extract_sequential(
         self,
         manifest: pl.DataFrame,
@@ -309,6 +417,93 @@ class MetricPipeline:
             max_workers=workers,
             mp_context=mp_context
         ) as executor:
+            # Submit all tasks
+            future_to_row = {
+                executor.submit(self._extract_from_measurement, row): row
+                for row in rows
+            }
+
+            # Collect results as they complete
+            completed = 0
+            total = len(future_to_row)
+
+            for future in as_completed(future_to_row):
+                completed += 1
+                row = future_to_row[future]
+
+                try:
+                    row_metrics = future.result()
+                    metrics.extend(row_metrics)
+                    chip_name = f"{row.get('chip_group', '?')}{row.get('chip_number', '?')}"
+                    logger.info(
+                        f"[{completed}/{total}] Completed {chip_name} "
+                        f"({row.get('proc', '?')}) - extracted {len(row_metrics)} metrics"
+                    )
+                except Exception as e:
+                    chip_name = f"{row.get('chip_group', '?')}{row.get('chip_number', '?')}"
+                    logger.error(
+                        f"[{completed}/{total}] Failed {chip_name} "
+                        f"({row.get('proc', '?')}): {e}"
+                    )
+
+        return metrics
+
+    def _extract_parallel_tui(
+        self,
+        manifest: pl.DataFrame,
+        workers: int,
+        skip_run_ids: set
+    ) -> List[DerivedMetric]:
+        """
+        Extract metrics in parallel using ThreadPoolExecutor (safe for TUI on macOS).
+
+        This is a TUI-specific variant that uses threads instead of processes to avoid
+        multiprocessing issues when called from GUI frameworks like Textual.
+
+        Background
+        ----------
+        On macOS, Python uses 'spawn' for multiprocessing, which requires pickling
+        the entire environment. Textual apps contain unpickleable objects (Rich
+        console, thread locks, etc.), causing ProcessPoolExecutor to fail or hang.
+
+        ThreadPoolExecutor avoids this by sharing memory instead of spawning
+        subprocesses. Since metric extraction involves mostly I/O (reading Parquet
+        files), threads provide comparable performance to processes.
+
+        Parameters
+        ----------
+        manifest : pl.DataFrame
+            Filtered manifest with measurements to process
+        workers : int
+            Number of parallel workers (threads)
+        skip_run_ids : set
+            Set of run_ids to skip (already processed)
+
+        Returns
+        -------
+        List[DerivedMetric]
+            All extracted metrics
+
+        Performance Notes:
+            - I/O-bound tasks (Parquet reading) release the GIL, so threads work well
+            - Expect ~80-90% of ProcessPoolExecutor performance
+            - Safe to use 4-6 workers on modern machines
+        """
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        rows = [
+            row for row in manifest.iter_rows(named=True)
+            if row["run_id"] not in skip_run_ids
+        ]
+
+        if not rows:
+            logger.info("All measurements already processed")
+            return []
+
+        logger.info(f"Processing {len(rows)} measurements with {workers} workers (TUI mode: ThreadPoolExecutor)")
+
+        metrics = []
+        with ThreadPoolExecutor(max_workers=workers) as executor:
             # Submit all tasks
             future_to_row = {
                 executor.submit(self._extract_from_measurement, row): row

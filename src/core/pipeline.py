@@ -275,7 +275,9 @@ class Pipeline:
 
     def _execute_step(self, step: PipelineStep, progress: Progress) -> bool:
         """Execute a single step with retry logic."""
-        console.print(f"\n[bold cyan]{'═'*3} {step.name.upper()} {'═'*3}[/bold cyan]\n")
+        # Only print header if step name doesn't start with "STEP" (custom headers)
+        if not step.name.startswith("STEP"):
+            console.print(f"\n[bold cyan]{'═'*3} {step.name.upper()} {'═'*3}[/bold cyan]\n")
 
         step.status = StepStatus.RUNNING
         step.start_time = time.time()
@@ -294,7 +296,9 @@ class Pipeline:
                 # Success
                 step.status = StepStatus.SUCCESS
                 step.end_time = time.time()
-                console.print(f"[green]✓ {step.name} completed in {step.elapsed_time:.1f}s[/green]")
+                # Only print completion message for non-custom steps
+                if not step.name.startswith("STEP"):
+                    console.print(f"[green]✓ {step.name} completed in {step.elapsed_time:.1f}s[/green]")
                 return True
 
             except SystemExit as e:

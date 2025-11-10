@@ -150,9 +150,20 @@ def plot_cnp_vs_time(
 
     plt.tight_layout()
 
-    # Save figure
-    filename = f"{chip_name}_cnp_vs_time.png"
-    output_file = config.get_output_path(filename, procedure="CNP")
+    # Extract chip number from chip_name (e.g., "Alisson81" -> 81)
+    import re
+    match = re.search(r'(\d+)$', chip_name)
+    chip_number = int(match.group(1)) if match else None
+
+    # Save figure (CNP is derived metric - no illumination subcategory)
+    filename = f"{chip_name.lower()}_cnp_vs_time"
+    output_file = config.get_output_path(
+        filename,
+        chip_number=chip_number,
+        procedure="CNP",
+        # No metadata - CNP is a derived metric, not tied to specific illumination
+        create_dirs=True
+    )
     plt.savefig(output_file, dpi=config.dpi, bbox_inches='tight')
     plt.close()
 

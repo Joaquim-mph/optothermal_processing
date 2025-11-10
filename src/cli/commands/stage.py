@@ -550,12 +550,23 @@ def inspect_manifest_command(
         "-n",
         help="Number of rows to display"
     ),
+    format: str = typer.Option(
+        "table",
+        "--format",
+        "-f",
+        help="Output format: table (default), json, csv"
+    ),
 ):
     """
     Inspect manifest contents with optional filtering.
 
     Browse the manifest data with filtering by procedure type, chip number,
     or other criteria. Useful for quick exploration of staged data.
+
+    Output formats:
+        - table: Rich terminal table with colors and styling (default)
+        - json: Machine-readable JSON for scripting/automation
+        - csv: Spreadsheet-compatible CSV for data analysis
 
     Examples:
 
@@ -570,6 +581,12 @@ def inspect_manifest_command(
 
         # Combine filters
         process_and_analyze inspect-manifest -p It -c 67 -n 10
+
+        # Export as JSON
+        process_and_analyze inspect-manifest --format json > manifest.json
+
+        # Export as CSV
+        process_and_analyze inspect-manifest --chip 67 --format csv > chip67_manifest.csv
     """
     # Load config for defaults
     from src.cli.main import get_config
@@ -582,13 +599,6 @@ def inspect_manifest_command(
 
     import polars as pl
 
-    console.print()
-    console.print(Panel.fit(
-        "[bold cyan]Manifest Inspector[/bold cyan]",
-        border_style="cyan"
-    ))
-    console.print()
-
     try:
         if not manifest.exists():
             console.print(f"[bold red]Error:[/bold red] Manifest not found: {manifest}")
@@ -596,11 +606,8 @@ def inspect_manifest_command(
             raise typer.Exit(1)
 
         # Load manifest
-        console.print(f"[cyan]Loading:[/cyan] {manifest}")
         df = pl.read_parquet(manifest)
         total_rows = len(df)
-        console.print(f"[green]✓[/green] Loaded {total_rows:,} rows")
-        console.print()
 
         # Apply filters
         filters = []
@@ -614,6 +621,58 @@ def inspect_manifest_command(
 
         filtered_rows = len(df)
 
+        if filtered_rows == 0:
+            if format == "table":
+                console.print("[yellow]No rows match the filter criteria[/yellow]")
+                console.print()
+            return
+
+        # If format is not table, use formatters for JSON/CSV output
+        if format != "table":
+            from src.cli.formatters import get_formatter
+
+            # Validate format
+            try:
+                formatter = get_formatter(format)
+            except ValueError as e:
+                console.print(f"[red]Error:[/red] {e}")
+                raise typer.Exit(1)
+
+            # Limit output
+            output_df = df.head(limit)
+
+            # Build metadata
+            metadata = {
+                "manifest_path": str(manifest),
+                "total_rows": total_rows,
+                "filtered_rows": filtered_rows,
+                "showing_rows": len(output_df),
+                "filters": filters,
+            }
+
+            # Format and output
+            output = formatter.format_dataframe(
+                output_df,
+                title="Manifest Data",
+                metadata=metadata,
+            )
+
+            # Print to stdout (pipeable)
+            print(output)
+            return
+
+        # Display table (table format only from here on)
+        console.print()
+        console.print(Panel.fit(
+            "[bold cyan]Manifest Inspector[/bold cyan]",
+            border_style="cyan"
+        ))
+        console.print()
+
+        console.print(f"[cyan]Loading:[/cyan] {manifest}")
+        console.print(f"[green]✓[/green] Loaded {total_rows:,} rows")
+        console.print()
+
         # Display filter info
         if filters:
             console.print(f"[cyan]Filters:[/cyan] {', '.join(filters)}")
@@ -622,12 +681,6 @@ def inspect_manifest_command(
             console.print(f"[cyan]Showing:[/cyan] first {min(limit, filtered_rows):,} of {total_rows:,} rows")
         console.print()
 
-        if filtered_rows == 0:
-            console.print("[yellow]No rows match the filter criteria[/yellow]")
-            console.print()
-            return
-
-        # Display table
         display_df = df.head(limit)
 
         # Select key columns for display

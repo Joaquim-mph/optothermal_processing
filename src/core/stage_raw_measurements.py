@@ -1307,6 +1307,149 @@ def run_staging_pipeline(params: StagingParameters, progress_callback=None) -> N
         print(f"[done] staging complete  |  ok={ok}  skipped={skipped}  rejects={reject}  submitted={submitted}")
 
 
+def run_staging_pipeline_tui(params: StagingParameters, progress_callback=None) -> None:
+    """
+    Run staging pipeline using ThreadPoolExecutor (safe for TUI on macOS).
+
+    This is a TUI-specific variant that uses threads instead of processes to avoid
+    multiprocessing issues when called from GUI frameworks like Textual on macOS.
+
+    Background
+    ----------
+    On macOS, Python uses the 'spawn' start method for multiprocessing, which requires
+    pickling the entire environment. Textual apps contain unpickleable objects (Rich
+    console, thread locks, etc.), causing ProcessPoolExecutor to fail or hang.
+
+    ThreadPoolExecutor avoids this issue by sharing memory instead of spawning
+    subprocesses. Since CSV/Parquet I/O is I/O-bound (not CPU-bound), threads
+    provide comparable performance to processes for this workload.
+
+    Args:
+        params: Validated StagingParameters instance
+        progress_callback: Optional callback function(current, total, proc, status) for progress updates
+
+    Performance Notes:
+        - I/O-bound tasks (file reading/writing) release the GIL, so threads work well
+        - Expect ~80-90% of ProcessPoolExecutor performance on most systems
+        - Safe to use 4-6 workers on modern machines
+
+    Example:
+        >>> from pathlib import Path
+        >>> from src.models.parameters import StagingParameters
+        >>> from src.core import run_staging_pipeline_tui
+        >>>
+        >>> params = StagingParameters(
+        ...     raw_root=Path("data/01_raw"),
+        ...     stage_root=Path("data/02_stage/raw_measurements"),
+        ...     procedures_yaml=Path("config/procedures.yml"),
+        ...     workers=6,  # Can now use multiple workers in TUI!
+        ...     force=False
+        ... )
+        >>> run_staging_pipeline_tui(params)
+    """
+    # Extract validated parameters
+    raw_root = params.raw_root
+    stage_root = params.stage_root
+    rejects_dir = params.rejects_dir
+    events_dir = params.events_dir
+    manifest_path = params.manifest
+    local_tz = params.local_tz
+    workers = params.workers
+    polars_threads = params.polars_threads
+    force = params.force
+    only_yaml_data = params.only_yaml_data
+    strict = params.strict
+
+    # Create output directories
+    ensure_dir(stage_root)
+    ensure_dir(rejects_dir)
+    ensure_dir(events_dir)
+    ensure_dir(manifest_path.parent)
+
+    # Set Polars thread count
+    os.environ["POLARS_MAX_THREADS"] = str(polars_threads)
+
+    # Validate YAML schema (fail fast)
+    _ = get_procs_cached(params.procedures_yaml)
+
+    # Discover CSV files
+    csvs = discover_csvs(raw_root)
+    if not progress_callback:
+        print(f"[info] discovered {len(csvs)} CSV files under {raw_root}")
+    if not csvs:
+        if not progress_callback:
+            print("[done] nothing to do.")
+        return
+
+    # Process files in parallel using ThreadPoolExecutor
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    submitted = 0
+    ok = skipped = reject = 0
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        # Submit all tasks and track futures with their source files
+        future_to_src = {}
+        for src in csvs:
+            fut = ex.submit(
+                ingest_file_task,
+                str(src),
+                str(stage_root),
+                str(params.procedures_yaml),
+                local_tz,
+                force,
+                str(events_dir),
+                str(rejects_dir),
+                only_yaml_data,
+                strict,
+            )
+            future_to_src[fut] = src
+            submitted += 1
+
+        # Process futures as they complete (not in submission order)
+        completed = 0
+        for fut in as_completed(future_to_src):
+            completed += 1
+            src = future_to_src[fut]
+
+            try:
+                out = fut.result()
+            except Exception as e:
+                reject += 1
+                if not progress_callback:
+                    print(f"[{completed:04d}]  REJECT {src} :: {e}")
+                if progress_callback:
+                    progress_callback(completed, len(csvs), "unknown", "reject")
+                continue
+
+            st = out.get("status")
+            proc = out.get("proc", "unknown")
+
+            if st == "ok":
+                ok += 1
+            elif st == "skipped":
+                skipped += 1
+            elif st == "reject":
+                reject += 1
+
+            # Only print if no callback (verbose mode)
+            if not progress_callback:
+                if st in {"ok", "skipped"}:
+                    print(f"[{completed:04d}] {st.upper():>7} {out['proc']:<8} rows={out['rows']:<7} → {out['path']}  ({out.get('date_origin','meta')})")
+                else:
+                    print(f"[{completed:04d}]  REJECT {src} :: {out.get('error')}")
+
+            # Call progress callback if provided
+            if progress_callback:
+                progress_callback(completed, len(csvs), proc, st)
+
+    # Merge events into manifest
+    merge_events_to_manifest(events_dir, manifest_path)
+
+    # Only print summary if no callback (verbose mode)
+    if not progress_callback:
+        print(f"[done] staging complete (TUI mode: ThreadPoolExecutor)  |  ok={ok}  skipped={skipped}  rejects={reject}  submitted={submitted}")
+
+
 def main() -> None:
     """
     Main entry point with both Pydantic and legacy argparse support.

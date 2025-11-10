@@ -71,6 +71,12 @@ def show_history_command(
         "-m",
         help="Display mode: 'default' (all columns), 'metrics' (focus on derived metrics), 'compact' (minimal columns)"
     ),
+    format: str = typer.Option(
+        "table",
+        "--format",
+        "-f",
+        help="Output format: table (default), json, csv"
+    ),
 ):
     """
     Display the complete experiment history for a specific chip.
@@ -83,10 +89,29 @@ def show_history_command(
         - metrics: Focus on derived metrics (CNP, photoresponse, power)
         - compact: Minimal view (seq, date, time, proc only)
 
-    Example:
+    Output formats:
+        - table: Rich terminal table with colors and styling (default)
+        - json: Machine-readable JSON for scripting/automation
+        - csv: Spreadsheet-compatible CSV for data analysis
+
+    Examples:
+        # Default: Rich table in terminal
         python process_and_analyze.py show-history 67
+
+        # Filter and limit
         python process_and_analyze.py show-history 72 --proc ITS --limit 20
+
+        # Metrics view
         python process_and_analyze.py show-history 67 --mode metrics
+
+        # Export as JSON
+        python process_and_analyze.py show-history 67 --format json
+
+        # Export as CSV for Excel
+        python process_and_analyze.py show-history 67 --format csv > history.csv
+
+        # Pipe to jq for filtering
+        python process_and_analyze.py show-history 67 --format json | jq '.data[] | select(.procedure == "IVg")'
     """
     ctx = get_context()
 
@@ -190,6 +215,40 @@ def show_history_command(
         else:
             ctx.print(f"[red]Error:[/red] {message}")
         raise typer.Exit(exc.exit_code)
+
+    # If format is not table, use formatters for JSON/CSV output
+    if format != "table":
+        from src.cli.formatters import get_formatter
+
+        # Validate format
+        try:
+            formatter = get_formatter(format)
+        except ValueError as e:
+            ctx.print(f"[red]Error:[/red] {e}")
+            raise typer.Exit(1)
+
+        # Build metadata
+        summary = summarize_history(history)
+        metadata = {
+            "chip": chip_name,
+            "chip_number": chip_number,
+            "chip_group": chip_group,
+            "total_experiments": summary["total"],
+            "date_range": summary["date_range"],
+            "num_days": summary["num_days"],
+            "filters_applied": applied_filters,
+        }
+
+        # Format and output
+        output = formatter.format_dataframe(
+            history,
+            title=f"{chip_name} Experiment History",
+            metadata=metadata,
+        )
+
+        # Print to stdout (pipeable)
+        print(output)
+        return
 
     summary = summarize_history(history)
 

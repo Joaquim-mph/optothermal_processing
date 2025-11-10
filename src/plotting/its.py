@@ -530,10 +530,35 @@ def plot_its_overlay(
                 y_pad = padding * y_range
                 plt.ylim(y_min - y_pad, y_max + y_pad)
 
+    # Determine illumination status for subcategory
+    # Check if all experiments are dark, all light, or mixed
+    illumination_metadata = None
+    if "has_light" in df.columns:
+        has_light_values = df["has_light"].unique().to_list()
+        # Remove None values
+        has_light_values = [v for v in has_light_values if v is not None]
+
+        if len(has_light_values) == 1:
+            # All experiments have same illumination status
+            illumination_metadata = {"has_light": has_light_values[0]}
+        elif len(has_light_values) > 1:
+            # Mixed dark/light experiments - no subcategory
+            print_warning(
+                f"Mixed illumination experiments in plot (dark + light). "
+                f"Saving to procedure root folder without subcategory."
+            )
+        # If empty list, illumination unknown - will trigger warning below
+
     # Add _raw suffix if baseline_mode is "none"
     raw_suffix = "_raw" if baseline_mode == "none" else ""
-    filename = f"encap{chipnum}_ITS_{tag}{raw_suffix}"
-    out = config.get_output_path(filename, procedure="ITS")
+    filename = f"encap{chipnum}_It_{tag}{raw_suffix}"
+    out = config.get_output_path(
+        filename,
+        chip_number=chipnum,
+        procedure="It",  # Use data procedure name, not "ITS"
+        metadata=illumination_metadata,
+        create_dirs=True  # Create directories only when saving
+    )
     plt.savefig(out, dpi=config.dpi)
     print(f"saved {out}")
 
@@ -806,8 +831,14 @@ def plot_its_dark(
 
     # Add _raw suffix if baseline_mode is "none"
     raw_suffix = "_raw" if baseline_mode == "none" else ""
-    filename = f"encap{chipnum}_ITS_dark_{tag}{raw_suffix}"
-    out = config.get_output_path(filename, procedure="ITS")
+    filename = f"encap{chipnum}_It_dark_{tag}{raw_suffix}"
+    out = config.get_output_path(
+        filename,
+        chip_number=chipnum,
+        procedure="It",  # Use data procedure name
+        metadata={"has_light": False},  # plot_its_dark is explicitly for dark experiments
+        create_dirs=True
+    )
     plt.savefig(out, dpi=config.dpi)
     print(f"saved {out}")
 
@@ -1050,9 +1081,29 @@ def plot_its_sequential(
 
     plt.tight_layout()
 
+    # Determine illumination status for subcategory
+    illumination_metadata = None
+    if "has_light" in df.columns:
+        has_light_values = df["has_light"].unique().to_list()
+        has_light_values = [v for v in has_light_values if v is not None]
+
+        if len(has_light_values) == 1:
+            illumination_metadata = {"has_light": has_light_values[0]}
+        elif len(has_light_values) > 1:
+            print_warning(
+                f"Mixed illumination experiments in sequential plot. "
+                f"Saving to procedure root folder without subcategory."
+            )
+
     # Save figure
-    filename = f"encap{chipnum}_ITS_sequential_{tag}"
-    out = config.get_output_path(filename, procedure="ITS")
+    filename = f"encap{chipnum}_It_sequential_{tag}"
+    out = config.get_output_path(
+        filename,
+        chip_number=chipnum,
+        procedure="It",  # Use data procedure name
+        metadata=illumination_metadata,
+        create_dirs=True
+    )
     plt.savefig(out, dpi=config.dpi)
     print(f"saved {out}")
 

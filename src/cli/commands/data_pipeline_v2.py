@@ -55,10 +55,11 @@ def create_full_pipeline(
 
     # Step 1: Stage raw CSVs to Parquet (wrapper function)
     def stage_wrapper():
-        from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeRemainingColumn
+        # Print step header (matching v1 style)
         from rich.console import Console
-
         _console = Console()
+        _console.print("\n[bold cyan]═══ STEP 1: STAGING ═══[/bold cyan]\n")
+
         params = StagingParameters(
             raw_root=raw_root,
             stage_root=stage_root,
@@ -74,23 +75,17 @@ def create_full_pipeline(
             strict=False,
         )
 
-        # Create clean progress bar (suppresses verbose file-by-file output)
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            BarColumn(),
-            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-            TimeRemainingColumn(),
-            console=_console,
-        ) as progress:
-            task = progress.add_task("[cyan]Staging files...", total=None)
+        # Use a simple progress callback that suppresses verbose output
+        # without creating a nested Progress context
+        def progress_callback(current, total, proc, status):
+            """Suppress verbose file-by-file output (no-op callback)."""
+            pass
 
-            def progress_callback(current, total, proc, status):
-                """Update progress bar without verbose file output."""
-                if total and task:
-                    progress.update(task, total=total, completed=current, description=f"[cyan]Staging {proc} files")
+        result = run_staging_pipeline(params, progress_callback=progress_callback)
 
-            return run_staging_pipeline(params, progress_callback=progress_callback)
+        # Print separator (matching v1 style)
+        _console.print("\n" + "="*80 + "\n")
+        return result
 
     pipeline.add_step(
         name="stage-raw-data",
@@ -102,13 +97,23 @@ def create_full_pipeline(
 
     # Step 2: Build chip histories (wrapper function)
     def history_wrapper():
-        return generate_all_chip_histories(
+        # Print step header (matching v1 style)
+        from rich.console import Console
+        _console = Console()
+        _console.print("\n[bold magenta]═══ STEP 2: CHIP HISTORIES ═══[/bold magenta]\n")
+
+        result = generate_all_chip_histories(
             manifest_path=manifest_path,
             output_dir=history_dir,
             stage_root=stage_root,
             chip_group=chip_group,
             min_experiments=min_experiments,
         )
+
+        # Print separator if not last step
+        if not skip_metrics:
+            _console.print("\n" + "="*80 + "\n")
+        return result
 
     pipeline.add_step(
         name="build-histories",
@@ -121,6 +126,11 @@ def create_full_pipeline(
     if not skip_metrics:
         def metrics_wrapper():
             import polars as pl
+            from rich.console import Console
+
+            # Print step header (matching v1 style)
+            _console = Console()
+            _console.print("\n[bold green]═══ STEP 3: DERIVED METRICS ═══[/bold green]\n")
 
             # Initialize metric pipeline
             metric_pipeline = MetricPipeline(
@@ -232,6 +242,9 @@ def full_pipeline_v2_command(
         process_and_analyze full-pipeline-v2 --save-yaml pipelines/full.yml
     """
     from src.cli.main import get_config
+    from rich.panel import Panel
+    import time
+
     config = get_config()
 
     # Use config defaults if not specified
@@ -239,7 +252,26 @@ def full_pipeline_v2_command(
     stage_root = stage_root or config.stage_dir / "raw_measurements"
     history_dir = history_dir or config.history_dir
 
-    # Create pipeline
+    # Display initial panel (matching v1 style)
+    console.print()
+    steps_text = (
+        "[bold blue]Complete Data Processing Pipeline[/bold blue]\n"
+        "Step 1: Stage raw CSVs → Parquet + Manifest (schema-validated)\n"
+        "Step 2: Generate chip histories from manifest"
+    )
+    if not skip_metrics:
+        steps_text += "\nStep 3: Extract derived metrics (CNP, photoresponse, calibration power)"
+
+    console.print(Panel.fit(
+        steps_text,
+        title="Full Pipeline",
+        border_style="blue"
+    ))
+    console.print()
+
+    start_time = time.time()
+
+    # Create pipeline (without header - we just displayed it)
     pipeline = create_full_pipeline(
         raw_root=raw_root,
         stage_root=stage_root,
@@ -253,18 +285,77 @@ def full_pipeline_v2_command(
         include_calibrations=include_calibrations,
     )
 
+    # Customize step display names to match v1
+    pipeline.steps[0].name = "STEP 1: STAGING"
+    pipeline.steps[1].name = "STEP 2: CHIP HISTORIES"
+    if len(pipeline.steps) > 2:
+        pipeline.steps[2].name = "STEP 3: DERIVED METRICS"
+
     # Save definition if requested
     if save_definition:
         pipeline.to_yaml(save_definition)
         if not typer.confirm("Continue with execution?"):
             return
 
-    # Execute pipeline
+    # Execute pipeline (with custom display disabled since we showed header)
+    # Suppress the default pipeline header and summary
+    pipeline._display_header = lambda: None
+    pipeline._display_summary = lambda result: None  # Suppress default summary
+
     result = pipeline.execute(
         stop_on_error=True,
         enable_rollback=enable_rollback,
         resume_from="latest" if resume else None,
     )
+
+    elapsed = time.time() - start_time
+
+    # Display summary (matching v1 style)
+    manifest_path = stage_root / "_manifest" / "manifest.parquet"
+
+    outputs_text = (
+        f"[cyan]Outputs:[/cyan]\n"
+        f"  • Staged data: {stage_root}\n"
+        f"  • Manifest: {manifest_path}\n"
+        f"  • Histories (Stage 2): {history_dir}"
+    )
+
+    if not skip_metrics:
+        derived_dir = config.stage_dir.parent / "03_derived"
+        outputs_text += (
+            f"\n  • Metrics: {derived_dir / '_metrics' / 'metrics.parquet'}\n"
+            f"  • Enriched histories (Stage 3): {derived_dir / 'chip_histories_enriched'}"
+        )
+
+    next_steps_text = (
+        "[dim]Next steps:[/dim]\n"
+        "  • [cyan]show-history <chip_number>[/cyan] - View chip timeline\n"
+        "  • [cyan]plot-its[/cyan], [cyan]plot-ivg[/cyan] - Generate plots"
+    )
+
+    if skip_metrics:
+        next_steps_text += "\n  • [cyan]derive-all-metrics[/cyan] - Extract derived metrics"
+    else:
+        next_steps_text += "\n  • [cyan]validate-manifest[/cyan] - Check data quality"
+
+    # Don't print separator here - it's already printed by the last step
+    console.print()
+
+    if result.success:
+        console.print(Panel.fit(
+            f"[bold green]✓ Pipeline Complete![/bold green]\n\n"
+            f"Total time: {elapsed:.1f}s\n\n"
+            f"{outputs_text}\n\n"
+            f"{next_steps_text}",
+            border_style="green"
+        ))
+    else:
+        console.print(Panel.fit(
+            f"[bold red]✗ Pipeline Failed[/bold red]\n\n"
+            f"Total time: {elapsed:.1f}s\n"
+            f"Failed steps: {result.failed_steps}/{result.total_steps}",
+            border_style="red"
+        ))
 
     # Exit with appropriate code
     if not result.success:
@@ -379,7 +470,6 @@ def quick_staging_command(
     # Use the underlying staging function with StagingParameters
     from src.models.parameters import StagingParameters
     from src.core.stage_raw_measurements import run_staging_pipeline
-    from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeRemainingColumn
 
     def stage_wrapper():
         # Auto-detect paths
@@ -402,23 +492,13 @@ def quick_staging_command(
             strict=False,
         )
 
-        # Create clean progress bar (suppresses verbose file-by-file output)
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            BarColumn(),
-            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-            TimeRemainingColumn(),
-            console=console,
-        ) as progress:
-            task = progress.add_task("[cyan]Staging files...", total=None)
+        # Use a simple progress callback that suppresses verbose output
+        # without creating a nested Progress context
+        def progress_callback(current, total, proc, status):
+            """Suppress verbose file-by-file output (no-op callback)."""
+            pass
 
-            def progress_callback(current, total, proc, status):
-                """Update progress bar without verbose file output."""
-                if total and task:
-                    progress.update(task, total=total, completed=current, description=f"[cyan]Staging {proc} files")
-
-            return run_staging_pipeline(params, progress_callback=progress_callback)
+        return run_staging_pipeline(params, progress_callback=progress_callback)
 
     pipeline.add_step(
         name="stage-raw-data",

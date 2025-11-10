@@ -205,9 +205,19 @@ def plot_laser_calibration(
     # Tight layout
     plt.tight_layout()
 
-    # Save figure
-    filename = f"laser_calibration_{tag}.png"
-    output_file = config.get_output_path(filename, procedure="LaserCalibration")
+    # Extract chip number if available in df
+    chip_number = None
+    if "chip_number" in df.columns:
+        chip_number = int(df["chip_number"][0])
+
+    # Save figure (LaserCalibration is a derived/calibration metric - no illumination subcategory)
+    filename = f"laser_calibration_{tag}"
+    output_file = config.get_output_path(
+        filename,
+        chip_number=chip_number,
+        procedure="LaserCalibration",
+        create_dirs=True
+    )
 
     fig.savefig(output_file, dpi=config.dpi, bbox_inches='tight')
     plt.close(fig)
@@ -349,9 +359,19 @@ def plot_laser_calibration_comparison(
 
     plt.tight_layout()
 
-    # Save figure
-    filename = f"laser_calibration_comparison_{tag}.png"
-    output_file = config.get_output_path(filename, procedure="LaserCalibration")
+    # Extract chip number if available in df
+    chip_number = None
+    if "chip_number" in df.columns:
+        chip_number = int(df["chip_number"][0])
+
+    # Save figure (LaserCalibration is a derived/calibration metric)
+    filename = f"laser_calibration_comparison_{tag}"
+    output_file = config.get_output_path(
+        filename,
+        chip_number=chip_number,
+        procedure="LaserCalibration",
+        create_dirs=True
+    )
 
     fig.savefig(output_file, dpi=config.dpi, bbox_inches='tight')
     plt.close(fig)

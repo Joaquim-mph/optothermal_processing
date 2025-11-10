@@ -248,15 +248,26 @@ def plot_photoresponse(
 
     plt.tight_layout()
 
+    # Extract chip number from chip_name (e.g., "Alisson81" -> 81)
+    import re
+    match = re.search(r'(\d+)$', chip_name)
+    chip_number = int(match.group(1)) if match else None
+
     # Build output filename
-    filename_parts = [chip_name, "photoresponse", y_metric, "vs", x_variable]
+    filename_parts = [chip_name.lower(), "photoresponse", y_metric, "vs", x_variable]
     if filter_wavelength is not None:
         filename_parts.append(f"wl{filter_wavelength:.0f}nm")
     if filter_vg is not None:
         filename_parts.append(f"vg{filter_vg:.2f}V".replace(".", "p"))
 
-    filename = "_".join(filename_parts) + ".png"
-    output_file = config.get_output_path(filename, procedure="Photoresponse")
+    filename = "_".join(filename_parts)
+    output_file = config.get_output_path(
+        filename,
+        chip_number=chip_number,
+        procedure="Photoresponse",
+        # No metadata - Photoresponse is a derived metric
+        create_dirs=True
+    )
     plt.savefig(output_file, dpi=config.dpi, bbox_inches='tight')
     plt.close()
 

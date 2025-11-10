@@ -59,6 +59,7 @@ See Also
 
 from .stage_raw_measurements import (
     run_staging_pipeline,
+    run_staging_pipeline_tui,
     discover_csvs,
     merge_events_to_manifest,
     load_procedures_yaml,
@@ -68,6 +69,7 @@ from .stage_raw_measurements import (
 
 __all__ = [
     "run_staging_pipeline",
+    "run_staging_pipeline_tui",
     "discover_csvs",
     "merge_events_to_manifest",
     "load_procedures_yaml",

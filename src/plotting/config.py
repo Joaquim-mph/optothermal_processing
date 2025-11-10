@@ -14,8 +14,73 @@ to enable command-line control over plot appearance without code changes.
 """
 
 from pathlib import Path
-from typing import Literal, Tuple, Optional
+from typing import Literal, Tuple, Optional, Dict, Any
 from pydantic import BaseModel, Field, field_validator
+
+
+def determine_subcategory(
+    procedure: str,
+    metadata: Optional[Dict[str, Any]] = None,
+    special_type: Optional[str] = None
+) -> Optional[str]:
+    """
+    Auto-detect subcategory based on procedure, metadata, and special analysis type.
+
+    Creates subcategory names like "Dark_It", "Light_IVg", "relaxation_fits", etc.
+
+    Parameters
+    ----------
+    procedure : str
+        Procedure name (It, IVg, VVg, Vt, Transconductance, etc.)
+    metadata : dict, optional
+        Experiment metadata containing 'has_light' and other fields
+    special_type : str, optional
+        Special analysis type (e.g., 'relaxation_fits', 'individual_fits', 'overlays')
+        Takes precedence over illumination-based subcategories.
+
+    Returns
+    -------
+    str or None
+        Subcategory name (e.g., "Dark_It", "relaxation_fits") or None if no subcategory
+
+    Examples
+    --------
+    >>> determine_subcategory("It", {"has_light": False})
+    'Dark_It'
+    >>> determine_subcategory("IVg", {"has_light": True})
+    'Light_IVg'
+    >>> determine_subcategory("It", {"has_light": False}, special_type="relaxation_fits")
+    'relaxation_fits'
+    >>> determine_subcategory("CNP", {"has_light": False})
+    None
+    """
+    # Special analysis types override illumination subcategories
+    if special_type:
+        return special_type
+
+    # Procedures that support illumination-based subcategories
+    # These are raw measurement procedures that can be dark or illuminated
+    illumination_procedures = {"It", "IVg", "VVg", "Vt", "Transconductance"}
+
+    # Derived metrics don't use illumination subcategories
+    # (they analyze data from multiple measurements)
+    if procedure not in illumination_procedures:
+        return None
+
+    # Check metadata for illumination status
+    if metadata is None:
+        return None
+
+    has_light = metadata.get("has_light")
+
+    if has_light is None:
+        return None  # No subcategory if illumination unknown
+
+    # Generate illumination-based subcategory
+    if has_light:
+        return f"Light_{procedure}"
+    else:
+        return f"Dark_{procedure}"
 
 
 class PlotConfig(BaseModel):
@@ -77,6 +142,30 @@ class PlotConfig(BaseModel):
     use_proc_subdirs: bool = Field(
         default=True,
         description="Create procedure-specific subdirectories (e.g., figs/ITS/, figs/IVg/)"
+    )
+
+    # ============================================================================
+    # Chip-First Hierarchy Configuration (New Architecture)
+    # ============================================================================
+
+    chip_subdir_enabled: bool = Field(
+        default=True,
+        description="Create chip-specific subdirectories (Encap81/, Encap67/). Enables chip-first hierarchy."
+    )
+
+    chip_folder_prefix: str = Field(
+        default="Encap",
+        description="Prefix for chip folder names (e.g., 'Encap' → Encap81, 'Alisson' → Alisson81)"
+    )
+
+    auto_subcategories: bool = Field(
+        default=True,
+        description="Automatically create subcategories based on metadata (Dark_It/, Light_It/, etc.)"
+    )
+
+    warn_unknown_illumination: bool = Field(
+        default=True,
+        description="Warn when illumination status is unknown and ask user for confirmation"
     )
 
     # ============================================================================
@@ -343,18 +432,41 @@ class PlotConfig(BaseModel):
     def get_output_path(
         self,
         filename: str,
+        chip_number: Optional[int] = None,
+        chip_group: Optional[str] = None,
         procedure: Optional[str] = None,
-        create_dirs: bool = True
+        metadata: Optional[Dict[str, Any]] = None,
+        subcategory: Optional[str] = None,
+        special_type: Optional[str] = None,
+        create_dirs: bool = False
     ) -> Path:
         """
-        Get full output path for a plot file.
+        Get full output path for a plot file using chip-first hierarchy.
+
+        Builds paths following this structure:
+            output_dir/{ChipFolder}/{Procedure}/{Subcategory}/{filename}
+
+        Where:
+        - ChipFolder: Encap{N} (configurable prefix, optional)
+        - Procedure: It, IVg, VVg, CNP, etc. (data procedure names)
+        - Subcategory: Dark_It, Light_IVg, relaxation_fits, etc. (automatic or manual)
 
         Parameters
         ----------
         filename : str
             Output filename (with or without extension)
+        chip_number : int, optional
+            Chip number (e.g., 81 for Encap81)
+        chip_group : str, optional
+            Chip group name (currently unused, kept for compatibility)
         procedure : str, optional
-            Procedure type (e.g., "ITS", "IVg") for subdirectory creation
+            Procedure type using DATA names (It, IVg, VVg, not ITS)
+        metadata : dict, optional
+            Experiment metadata for auto-subcategory detection (must contain 'has_light')
+        subcategory : str, optional
+            Manual subcategory override (if provided, skips auto-detection)
+        special_type : str, optional
+            Special analysis type (relaxation_fits, individual_fits, overlays)
         create_dirs : bool
             Create directories if they don't exist (default: True)
 
@@ -365,30 +477,75 @@ class PlotConfig(BaseModel):
 
         Examples
         --------
-        >>> config = PlotConfig(output_dir=Path("figs"), use_proc_subdirs=True)
-        >>> config.get_output_path("chip67_its.png", procedure="ITS")
-        PosixPath('/path/to/figs/ITS/chip67_its.png')
+        >>> # Chip-first with auto subcategory
+        >>> config = PlotConfig()
+        >>> config.get_output_path(
+        ...     "encap81_It.png",
+        ...     chip_number=81,
+        ...     procedure="It",
+        ...     metadata={"has_light": False}
+        ... )
+        PosixPath('figs/Encap81/It/Dark_It/encap81_It.png')
 
-        >>> config = PlotConfig(use_proc_subdirs=False)
-        >>> config.get_output_path("chip67_its.png", procedure="ITS")
-        PosixPath('/path/to/figs/chip67_its.png')
+        >>> # With special analysis type
+        >>> config.get_output_path(
+        ...     "fits.png",
+        ...     chip_number=81,
+        ...     procedure="It",
+        ...     special_type="relaxation_fits"
+        ... )
+        PosixPath('figs/Encap81/It/relaxation_fits/fits.png')
+
+        >>> # Derived metrics (no subcategory)
+        >>> config.get_output_path(
+        ...     "cnp_evolution.png",
+        ...     chip_number=81,
+        ...     procedure="CNP"
+        ... )
+        PosixPath('figs/Encap81/CNP/cnp_evolution.png')
+
+        >>> # Legacy mode (no chip folder)
+        >>> config = PlotConfig(chip_subdir_enabled=False)
+        >>> config.get_output_path("plot.png", procedure="IVg")
+        PosixPath('figs/IVg/plot.png')
         """
         # Ensure filename has correct extension
         filename_path = Path(filename)
         if filename_path.suffix != f".{self.format}":
             filename = f"{filename_path.stem}.{self.format}"
 
-        # Determine output directory
+        # Start with base output directory
+        path = self.output_dir
+
+        # Level 1: Chip folder (Encap81/)
+        if self.chip_subdir_enabled and chip_number is not None:
+            chip_folder = f"{self.chip_folder_prefix}{chip_number}"
+            path = path / chip_folder
+
+        # Level 2: Procedure folder (It/)
         if self.use_proc_subdirs and procedure:
-            output_dir = self.output_dir / procedure
-        else:
-            output_dir = self.output_dir
+            path = path / procedure
+
+        # Level 3: Subcategory folder (Dark_It/ or relaxation_fits/)
+        # Priority: manual subcategory > special_type > auto-detected
+        if subcategory:
+            # Manual override
+            path = path / subcategory
+        elif self.auto_subcategories:
+            # Auto-detect from metadata or use special_type
+            auto_subcat = determine_subcategory(
+                procedure=procedure or "",
+                metadata=metadata,
+                special_type=special_type
+            )
+            if auto_subcat:
+                path = path / auto_subcat
 
         # Create directories if requested
         if create_dirs:
-            output_dir.mkdir(parents=True, exist_ok=True)
+            path.mkdir(parents=True, exist_ok=True)
 
-        return output_dir / filename
+        return path / filename
 
     def copy(self, **overrides) -> "PlotConfig":
         """

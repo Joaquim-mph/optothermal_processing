@@ -1,3 +1,5 @@
 """Custom TUI widgets."""
 
-__all__ = []
+from .plot_image import MatplotlibImageWidget
+
+__all__ = ['MatplotlibImageWidget']

@@ -433,6 +433,18 @@ class Router:
 
         self.app.push_screen(HistoryBrowserScreen())
 
+    def go_to_plot_browser(self) -> None:
+        """
+        Navigate to plot browser screen.
+
+        Opens standalone plot viewer for browsing existing plots
+        in the figs/ directory.
+
+        No session state requirements - accessible from main menu.
+        """
+        from src.tui.screens.analysis import PlotBrowserScreen
+        self.app.push_screen(PlotBrowserScreen())
+
     def go_to_preview(self) -> None:
         """
         Navigate to preview screen (Step 6).

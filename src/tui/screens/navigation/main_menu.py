@@ -90,6 +90,7 @@ class MainMenuScreen(WizardScreen):
         with Vertical():
             yield Button("New Plot", id="new-plot", variant="default", classes="menu-button")
             yield Button("View Chip Histories", id="history", variant="default", classes="menu-button")
+            yield Button("Browse Plots", id="browse-plots", variant="default", classes="menu-button")
             yield Button("Process New Data", id="process-data", variant="default", classes="menu-button")
             yield Button("Recent Configurations (0)", id="recent", variant="default", classes="menu-button")
             yield Button("Batch Mode", id="batch", variant="default", classes="menu-button")
@@ -136,6 +137,8 @@ class MainMenuScreen(WizardScreen):
             self.action_new_plot()
         elif button_id == "history":
             self.action_history()
+        elif button_id == "browse-plots":
+            self.action_browse_plots()
         elif button_id == "process-data":
             self.action_process_data()
         elif button_id == "recent":
@@ -170,6 +173,10 @@ class MainMenuScreen(WizardScreen):
             self.app.router.go_to_chip_selector(mode="history")
         except Exception as exc:
             self.notify(str(exc), severity="error")
+
+    def action_browse_plots(self) -> None:
+        """Open plot browser to view existing plots."""
+        self.app.router.go_to_plot_browser()
 
     def action_process_data(self) -> None:
         """Show process data confirmation dialog using router."""

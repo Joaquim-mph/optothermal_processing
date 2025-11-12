@@ -33,6 +33,7 @@ class MainMenuScreen(WizardScreen):
         Binding("p", "process_data", "Process Data", show=False),
         Binding("r", "recent", "Recent", show=False),
         Binding("b", "batch", "Batch", show=False),
+        Binding("l", "view_logs", "Logs", show=False),
         Binding("s", "settings", "Settings", show=False),
         Binding("h", "help", "Help", show=False),
         Binding("up", "move_up", "Up", priority=True),
@@ -92,6 +93,7 @@ class MainMenuScreen(WizardScreen):
             yield Button("Process New Data", id="process-data", variant="default", classes="menu-button")
             yield Button("Recent Configurations (0)", id="recent", variant="default", classes="menu-button")
             yield Button("Batch Mode", id="batch", variant="default", classes="menu-button")
+            yield Button("View Logs", id="logs", variant="default", classes="menu-button")
             yield Button("Settings", id="settings", variant="default", classes="menu-button")
             yield Button("Help", id="help-button", variant="default", classes="menu-button")
             yield Button("Quit", id="quit", variant="error", classes="menu-button")
@@ -140,6 +142,8 @@ class MainMenuScreen(WizardScreen):
             self.action_recent()
         elif button_id == "batch":
             self.action_batch()
+        elif button_id == "logs":
+            self.action_view_logs()
         elif button_id == "settings":
             self.action_settings()
         elif button_id == "help-button":
@@ -179,6 +183,10 @@ class MainMenuScreen(WizardScreen):
         """Show batch mode."""
         # TODO: Navigate to Batch Mode (Phase 6)
         self.app.notify("Batch Mode - Coming in Phase 6!")
+
+    def action_view_logs(self) -> None:
+        """Show TUI log viewer using router."""
+        self.app.router.go_to_log_viewer()
 
     def action_settings(self) -> None:
         """Show theme settings."""

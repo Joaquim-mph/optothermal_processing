@@ -9,6 +9,7 @@ from src.tui.screens.selection.plot_type_selector import PlotTypeSelectorScreen
 from src.tui.screens.selection.config_mode_selector import ConfigModeSelectorScreen
 from src.tui.screens.selection.experiment_selector import ExperimentSelectorScreen
 from src.tui.screens.selection.its_preset_selector import ITSPresetSelectorScreen
+from src.tui.screens.selection.vt_preset_selector import VtPresetSelectorScreen
 
 __all__ = [
     "ChipSelectorScreen",
@@ -16,4 +17,5 @@ __all__ = [
     "ConfigModeSelectorScreen",
     "ExperimentSelectorScreen",
     "ITSPresetSelectorScreen",
+    "VtPresetSelectorScreen",
 ]

@@ -79,22 +79,24 @@ class ProcessConfirmationScreen(WizardScreen):
     def compose_content(self) -> ComposeResult:
         """Compose confirmation dialog content."""
         yield Static(
-            "This will run the modern staging pipeline:\n\n"
-            "• Stage raw CSVs → Parquet (schema-validated)\n"
-            "• Generate manifest.parquet (authoritative metadata)\n"
-            "• Build chip histories from manifest\n"
-            "• Save histories to data/02_stage/chip_histories/\n\n"
+            "This will run the complete data processing pipeline:\n\n"
+            "Step 1: Stage raw CSVs → Parquet (schema-validated)\n"
+            "Step 2: Build chip histories from manifest\n"
+            "Step 3: Extract derived metrics (CNP, photoresponse, power)\n"
+            "Step 4: Enrich histories (join calibrations + metrics)\n\n"
             "Data paths:\n"
             "  → Raw: data/01_raw/\n"
             "  → Staged: data/02_stage/raw_measurements/\n"
-            "  → Histories: data/02_stage/chip_histories/\n\n"
+            "  → Histories: data/02_stage/chip_histories/\n"
+            "  → Derived: data/03_derived/_metrics/\n"
+            "  → Enriched: data/03_derived/chip_histories_enriched/\n\n"
             "⚠ NOTE: On some systems, multiprocessing from the TUI\n"
             "may not work. If you encounter errors, please run:\n"
             "  python process_and_analyze.py full-pipeline",
             id="description"
         )
 
-        yield Static("Modern pipeline: staging + history generation", id="command")
+        yield Static("Complete pipeline: staging → histories → metrics → enrichment", id="command")
 
         yield Static("⚠ This may take several minutes for large datasets", id="warning")
 

@@ -58,11 +58,11 @@ class PlotGenerationScreen(WizardScreen):
         width: 100%;
         height: auto;
         margin-bottom: 2;
-        padding: 0 20;
+        align-horizontal: center;
     }
 
     #progress-bar {
-        width: 100%;
+        width: 60%;
     }
 
     #current-task {
@@ -262,22 +262,25 @@ class PlotGenerationScreen(WizardScreen):
                 all_dark = False
 
                 if its_df.height > 0:
-                    # Check laser toggle column if available
-                    if "Laser toggle" in its_df.columns:
+                    # Check has_light column (more reliable than Laser toggle)
+                    if "has_light" in its_df.columns:
                         try:
-                            laser_toggle_col = its_df["Laser toggle"]
-                            toggles = []
-                            for val in laser_toggle_col.to_list():
-                                if isinstance(val, bool):
-                                    toggles.append(val)
-                                elif isinstance(val, str):
-                                    toggles.append(val.lower() == "true")
-                                else:
-                                    toggles.append(True)
-
-                            if all(not t for t in toggles):
-                                all_dark = True
-                        except Exception:
+                            # If all experiments have has_light = False, it's all dark
+                            has_light_values = its_df["has_light"].to_list()
+                            all_dark = all(not val for val in has_light_values if val is not None)
+                            logger.info(f"Dark detection: has_light values = {has_light_values}, all_dark = {all_dark}")
+                        except Exception as e:
+                            logger.warning(f"Failed to check has_light column: {e}")
+                            pass
+                    # Fallback: Check laser_voltage_v column
+                    elif "laser_voltage_v" in its_df.columns:
+                        try:
+                            laser_voltages = its_df["laser_voltage_v"].to_list()
+                            # All laser voltages < 0.1V = dark
+                            all_dark = all(v < 0.1 for v in laser_voltages if v is not None)
+                            logger.info(f"Dark detection (fallback): laser voltages = {laser_voltages}, all_dark = {all_dark}")
+                        except Exception as e:
+                            logger.warning(f"Failed to check laser_voltage_v column: {e}")
                             pass
 
                 # Call appropriate ITS plotting function
@@ -374,6 +377,151 @@ class PlotGenerationScreen(WizardScreen):
                         plot_tag
                     )
                     logger.info("plot_ivg_transconductance() completed")
+
+            elif self.plot_type == "VVg":
+                # VVg plot (v3.0)
+                from src.plotting import vvg
+                logger.info("Setting VVg FIG_DIR")
+                vvg.FIG_DIR = output_dir
+                logger.info("Calling plot_vvg_sequence()")
+                logger.info(f"Arguments: stage_dir={stage_dir}, plot_tag={plot_tag}")
+                vvg.plot_vvg_sequence(meta, stage_dir, plot_tag)
+                logger.info("plot_vvg_sequence() completed")
+
+            elif self.plot_type == "Vt":
+                # Vt plot (v3.0)
+                from src.plotting import vt
+                logger.info("Setting Vt FIG_DIR")
+                vt.FIG_DIR = output_dir
+
+                # Get Vt-specific config
+                legend_by = self.config.get("legend_by", "wavelength")  # Default to wavelength for Vt plots
+                baseline_t = self.config.get("baseline", 60.0)
+                padding = self.config.get("padding", 0.05)
+                baseline_mode = self.config.get("baseline_mode", "fixed")
+                baseline_auto_divisor = self.config.get("baseline_auto_divisor", 2.0)
+                plot_start_time = self.config.get("plot_start_time", 20.0)
+
+                logger.info(f"Vt config - legend_by: {legend_by}, baseline_t: {baseline_t}, "
+                           f"baseline_mode: {baseline_mode}, padding: {padding}")
+
+                logger.info("Calling plot_vt_overlay()")
+                logger.info(f"Arguments: stage_dir={stage_dir}, plot_tag={plot_tag}")
+                vt.plot_vt_overlay(
+                    meta,
+                    stage_dir,
+                    plot_tag,
+                    baseline_t=baseline_t,
+                    baseline_mode=baseline_mode,
+                    baseline_auto_divisor=baseline_auto_divisor,
+                    plot_start_time=plot_start_time,
+                    legend_by=legend_by,
+                    padding=padding
+                )
+                logger.info("plot_vt_overlay() completed")
+
+            elif self.plot_type == "CNP":
+                # CNP time evolution plot (v3.0 - requires enriched history)
+                from src.plotting import cnp_time
+                from src.tui.history_detection import load_chip_history
+
+                logger.info("CNP plot requires enriched history")
+                self.app.call_from_thread(self._update_progress, 20, "⣾ Loading enriched history...")
+
+                # Load enriched history
+                try:
+                    enriched_dir = PathLib("data/03_derived/chip_histories_enriched")
+                    history, is_enriched = load_chip_history(
+                        self.chip_number,
+                        self.chip_group,
+                        history_dir,
+                        enriched_dir,
+                        prefer_enriched=True,
+                        require_enriched=True,  # CNP requires enriched data
+                    )
+
+                    if not is_enriched:
+                        raise ValueError(
+                            f"CNP plots require enriched history for {self.chip_group}{self.chip_number}. "
+                            f"Run: python3 process_and_analyze.py enrich-history {self.chip_number}"
+                        )
+
+                    logger.info(f"Loaded enriched history with {history.height} experiments")
+                except Exception as e:
+                    logger.error(f"Failed to load enriched history: {str(e)}")
+                    raise
+
+                self.app.call_from_thread(self._update_progress, 40, "⣾ Generating CNP plot...")
+
+                logger.info("Setting CNP FIG_DIR")
+                cnp_time.FIG_DIR = output_dir
+
+                # Get CNP-specific config
+                metric = self.config.get("cnp_metric", "cnp_voltage")
+                show_illumination = self.config.get("cnp_show_illumination", True)
+
+                logger.info(f"Calling plot_cnp_time() with metric={metric}, show_illumination={show_illumination}")
+                cnp_time.plot_cnp_time(
+                    history,
+                    output_dir,
+                    f"{self.chip_group}{self.chip_number}",
+                    metric=metric,
+                    show_illumination=show_illumination,
+                )
+                logger.info("plot_cnp_time() completed")
+
+            elif self.plot_type == "Photoresponse":
+                # Photoresponse analysis plot (v3.0 - requires enriched history)
+                from src.plotting import photoresponse
+                from src.tui.history_detection import load_chip_history
+
+                logger.info("Photoresponse plot requires enriched history")
+                self.app.call_from_thread(self._update_progress, 20, "⣾ Loading enriched history...")
+
+                # Load enriched history
+                try:
+                    enriched_dir = PathLib("data/03_derived/chip_histories_enriched")
+                    history, is_enriched = load_chip_history(
+                        self.chip_number,
+                        self.chip_group,
+                        history_dir,
+                        enriched_dir,
+                        prefer_enriched=True,
+                        require_enriched=True,  # Photoresponse requires enriched data
+                    )
+
+                    if not is_enriched:
+                        raise ValueError(
+                            f"Photoresponse plots require enriched history for {self.chip_group}{self.chip_number}. "
+                            f"Run: python3 process_and_analyze.py enrich-history {self.chip_number}"
+                        )
+
+                    logger.info(f"Loaded enriched history with {history.height} experiments")
+                except Exception as e:
+                    logger.error(f"Failed to load enriched history: {str(e)}")
+                    raise
+
+                self.app.call_from_thread(self._update_progress, 40, "⣾ Generating photoresponse plot...")
+
+                logger.info("Setting Photoresponse FIG_DIR")
+                photoresponse.FIG_DIR = output_dir
+
+                # Get photoresponse-specific config
+                mode = self.config.get("photoresponse_mode", "power")
+                filter_vg = self.config.get("photoresponse_filter_vg")
+                filter_wl = self.config.get("photoresponse_filter_wl")
+
+                logger.info(f"Calling plot_photoresponse() with mode={mode}, filter_vg={filter_vg}, filter_wl={filter_wl}")
+                photoresponse.plot_photoresponse(
+                    history,
+                    output_dir,
+                    f"{self.chip_group}{self.chip_number}",
+                    mode=mode,
+                    filter_vg=filter_vg,
+                    filter_wl=filter_wl,
+                )
+                logger.info("plot_photoresponse() completed")
+
             else:
                 logger.error(f"Unknown plot type: {self.plot_type}")
                 raise ValueError(f"Unknown plot type: {self.plot_type}")
@@ -418,6 +566,20 @@ class PlotGenerationScreen(WizardScreen):
                     filename = f"encap{self.chip_number}_gm_savgol_{plot_tag}.png"
                 else:
                     filename = f"encap{self.chip_number}_gm_{plot_tag}.png"
+
+            elif self.plot_type == "VVg":
+                filename = f"encap{self.chip_number}_VVg_{plot_tag}.png"
+
+            elif self.plot_type == "Vt":
+                filename = f"encap{self.chip_number}_Vt_{plot_tag}.png"
+
+            elif self.plot_type == "CNP":
+                metric = self.config.get("cnp_metric", "cnp_voltage")
+                filename = f"encap{self.chip_number}_CNP_{metric}_time.png"
+
+            elif self.plot_type == "Photoresponse":
+                mode = self.config.get("photoresponse_mode", "power")
+                filename = f"encap{self.chip_number}_photoresponse_{mode}.png"
 
             output_path = output_dir / filename
             logger.info(f"Expected output file: {output_path}")

@@ -1,0 +1,218 @@
+digraph formatters_feature {
+    // Graph attributes for presentation - FORMATTERS FOCUS
+    graph [
+        rankdir=TB
+        bgcolor="white"
+        fontname="Arial Bold"
+        fontsize=32
+        label="\n\nOutput Formatters (v3.1) - Machine-Readable Export"
+        labelloc=t
+        fontsize=40
+        dpi=150
+        size="16,9!"
+        ratio=fill
+    ]
+
+    node [fontname="Arial Bold" fontsize=24 penwidth=4]
+    edge [fontname="Arial Bold" fontsize=20 penwidth=4]
+
+    // ============================================================
+    // DATA SOURCES
+    // ============================================================
+
+    subgraph cluster_data {
+        label="DATA SOURCES"
+        style=filled
+        color="#388e3c"
+        fillcolor="#e8f5e9"
+        fontsize=28
+        penwidth=4
+
+        chip_history [
+            label="📊 Chip Histories\n━━━━━━━━━━━━\nExperiment sequences\nwith metadata"
+            shape=cylinder
+            style=filled
+            fillcolor="#c8e6c9"
+            color="#2e7d32"
+            fontsize=22
+            width=4
+            height=2
+        ]
+
+        manifest [
+            label="📋 Manifest\n━━━━━━━━━━━━\nAll measurement\nmetadata"
+            shape=cylinder
+            style=filled
+            fillcolor="#a5d6a7"
+            color="#2e7d32"
+            fontsize=22
+            width=4
+            height=2
+        ]
+    }
+
+    // ============================================================
+    // COMMANDS WITH FORMAT FLAG
+    // ============================================================
+
+    subgraph cluster_commands {
+        label="CLI COMMANDS"
+        style=filled
+        color="#7b1fa2"
+        fillcolor="#f3e5f5"
+        fontsize=28
+        penwidth=4
+
+        show_history [
+            label="⚙️ show-history\n━━━━━━━━━━━━\n--format {table|json|csv}"
+            shape=box
+            style="filled,rounded"
+            fillcolor="#ce93d8"
+            color="#7b1fa2"
+            fontsize=22
+            width=4
+            height=2
+        ]
+
+        inspect [
+            label="⚙️ inspect-manifest\n━━━━━━━━━━━━\n--format {table|json|csv}"
+            shape=box
+            style="filled,rounded"
+            fillcolor="#ce93d8"
+            color="#7b1fa2"
+            fontsize=22
+            width=4
+            height=2
+        ]
+    }
+
+    // ============================================================
+    // OUTPUT FORMATS
+    // ============================================================
+
+    subgraph cluster_formats {
+        label="OUTPUT FORMATS"
+        style=filled
+        color="#c2185b"
+        fillcolor="#fce4ec"
+        fontsize=28
+        penwidth=4
+
+        table [
+            label="🖥️  RICH TABLE\n━━━━━━━━━━━━\n✓ Colored terminal\n✓ Styled tables\n✓ Human-readable"
+            shape=note
+            style=filled
+            fillcolor="#f8bbd0"
+            color="#c2185b"
+            fontsize=20
+            width=4
+            height=2
+        ]
+
+        json [
+            label="📝 JSON\n━━━━━━━━━━━━\n✓ Machine-readable\n✓ Metadata included\n✓ Pipeable to jq"
+            shape=note
+            style=filled
+            fillcolor="#f48fb1"
+            color="#ad1457"
+            fontsize=20
+            width=4
+            height=2
+        ]
+
+        csv [
+            label="📊 CSV\n━━━━━━━━━━━━\n✓ Spreadsheet-ready\n✓ Excel/Sheets\n✓ Nested columns OK"
+            shape=note
+            style=filled
+            fillcolor="#f06292"
+            color="#880e4f"
+            fontsize=20
+            width=4
+            height=2
+        ]
+    }
+
+    // ============================================================
+    // USE CASES
+    // ============================================================
+
+    subgraph cluster_uses {
+        label="USE CASES"
+        style=filled
+        color="#1976d2"
+        fillcolor="#e3f2fd"
+        fontsize=28
+        penwidth=4
+
+        interactive [
+            label="👤 Interactive\nTerminal exploration"
+            shape=box
+            style="filled,rounded"
+            fillcolor="#bbdefb"
+            color="#1976d2"
+            fontsize=20
+            width=3
+            height=1.5
+        ]
+
+        scripting [
+            label="⚙️  Automation\njq, Python, pandas"
+            shape=box
+            style="filled,rounded"
+            fillcolor="#90caf9"
+            color="#0d47a1"
+            fontsize=20
+            width=3
+            height=1.5
+        ]
+
+        analysis [
+            label="📊 Data Analysis\nExcel, Sheets, R"
+            shape=box
+            style="filled,rounded"
+            fillcolor="#64b5f6"
+            color="#0d47a1"
+            fontsize=20
+            width=3
+            height=1.5
+        ]
+    }
+
+    // ============================================================
+    // CONNECTIONS
+    // ============================================================
+
+    chip_history -> show_history [label="  load" penwidth=4 color="#7b1fa2"]
+    manifest -> inspect [label="  load" penwidth=4 color="#7b1fa2"]
+
+    show_history -> table [label="  --format table\n  (default)" penwidth=4 color="#c2185b"]
+    show_history -> json [label="  --format json" penwidth=4 color="#ad1457"]
+    show_history -> csv [label="  --format csv" penwidth=4 color="#880e4f"]
+
+    inspect -> table [label="  default" penwidth=4 color="#c2185b" style=dashed]
+    inspect -> json [label="  json" penwidth=4 color="#ad1457" style=dashed]
+    inspect -> csv [label="  csv" penwidth=4 color="#880e4f" style=dashed]
+
+    table -> interactive [penwidth=4 color="#1976d2"]
+    json -> scripting [penwidth=4 color="#0d47a1"]
+    csv -> analysis [penwidth=4 color="#0d47a1"]
+
+    // ============================================================
+    // EXAMPLE
+    // ============================================================
+
+    example [
+        label="💡 EXAMPLE\n━━━━━━━━━━━━━━━━━━━━━━━\n$ show-history 67 --format json | jq '.data'\n$ inspect-manifest --format csv > data.csv"
+        shape=box
+        style="filled,rounded"
+        fillcolor="#fff9c4"
+        color="#f9a825"
+        fontsize=18
+        penwidth=4
+        width=10
+        height=1.8
+    ]
+
+    {rank=same; interactive; scripting; analysis}
+    scripting -> example [style=invis]
+}

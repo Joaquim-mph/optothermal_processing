@@ -62,9 +62,18 @@ class PlotTypeSelectorScreen(SelectorScreen):
     def compose_content(self) -> ComposeResult:
         """Compose plot type selector content."""
         with RadioSet(id="plot-type-radio"):
+            # v2.x plot types
             yield RadioButton("It (Current vs Time)", id="its-radio")
             yield RadioButton("IVg (Transfer Curves)", id="ivg-radio")
             yield RadioButton("Transconductance", id="transconductance-radio")
+
+            # v3.0 measurement plot types
+            yield RadioButton("VVg (Drain-Source vs Gate)", id="vvg-radio")
+            yield RadioButton("Vt (Voltage vs Time)", id="vt-radio")
+
+            # v3.0 derived metric plot types (requires enriched histories)
+            yield RadioButton("CNP Time Evolution ⭐", id="cnp-radio")
+            yield RadioButton("Photoresponse Analysis ⭐", id="photoresponse-radio")
 
         # Descriptions below radio buttons
         yield Static(
@@ -80,6 +89,26 @@ class PlotTypeSelectorScreen(SelectorScreen):
         yield Static(
             "[bold]Transconductance[/bold]\n"
             "Plot gm = dI/dVg from IVg data. Derivative analysis of transfer curves.",
+            classes="plot-description"
+        )
+        yield Static(
+            "[bold]VVg (Drain-Source vs Gate)[/bold]\n"
+            "Plot drain-source voltage vs gate voltage sweeps. Shows output characteristics.",
+            classes="plot-description"
+        )
+        yield Static(
+            "[bold]Vt (Voltage vs Time)[/bold]\n"
+            "Plot voltage time series measurements. Track voltage changes over time.",
+            classes="plot-description"
+        )
+        yield Static(
+            "[bold]CNP Time Evolution ⭐[/bold]\n"
+            "Track Charge Neutrality Point (Dirac point) evolution over time. Requires enriched history.",
+            classes="plot-description"
+        )
+        yield Static(
+            "[bold]Photoresponse Analysis ⭐[/bold]\n"
+            "Analyze device response vs power, wavelength, gate voltage, or time. Requires enriched history.",
             classes="plot-description"
         )
 
@@ -144,9 +173,18 @@ class PlotTypeSelectorScreen(SelectorScreen):
 
         # Map radio button to plot type
         plot_type_map = {
+            # v2.x plot types
             "its-radio": "ITS",
             "ivg-radio": "IVg",
             "transconductance-radio": "Transconductance",
+
+            # v3.0 measurement plot types
+            "vvg-radio": "VVg",
+            "vt-radio": "Vt",
+
+            # v3.0 derived metric plot types (requires enriched histories)
+            "cnp-radio": "CNP",
+            "photoresponse-radio": "Photoresponse",
         }
 
         plot_type = plot_type_map.get(selected.id)

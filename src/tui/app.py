@@ -17,6 +17,8 @@ from src.tui.config_manager import ConfigManager
 from src.tui.session import PlotSession
 from src.tui.router import Router
 from src.tui.settings_manager import SettingsManager
+from src.plotting.config import PlotConfig  # v3.0: Consistent theming
+from src.tui.logging_config import setup_tui_logging, get_logger  # Logging system
 
 
 class PlotterApp(App):
@@ -91,6 +93,23 @@ class PlotterApp(App):
 
         # Initialize navigation router
         self.router = Router(self)
+
+        # Initialize PlotConfig for consistent theming (v3.0)
+        # This enables consistent output paths, DPI, and themes across CLI and TUI
+        # Note: Named plot_settings to avoid collision with plot_config property (backward compat)
+        self.plot_settings = PlotConfig(
+            output_dir=output_dir,
+            dpi=150,  # TUI default (lower than CLI for faster preview)
+            format="png",
+            theme="prism_rain",  # Match default lab workflow
+            chip_subdir_enabled=True,  # Use chip-first hierarchy
+            chip_folder_prefix=chip_group,  # Use chip_group for folder prefix
+        )
+
+        # Initialize logging system (v3.0)
+        # Creates rotating log files in logs/ directory for debugging
+        self.log_file = setup_tui_logging(log_dir="logs")
+        self.logger = get_logger(__name__)
 
     def on_mount(self) -> None:
         """Set theme and show main menu on startup."""

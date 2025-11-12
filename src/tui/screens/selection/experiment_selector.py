@@ -76,13 +76,22 @@ class ExperimentSelectorScreen(WizardScreen):
                 self.app.pop_screen()
                 return
 
-            # Create the selector screen with proper filtering
-            # Transconductance is calculated from IVg measurements, not a separate measurement type
-            proc_filter = "IVg" if self.plot_type == "Transconductance" else self.plot_type
+            # Map plot type to procedure name in data
+            # Some plot types have different names than their underlying procedure
+            proc_mapping = {
+                "ITS": "It",  # ITS plots use It (current vs time) procedure
+                "Transconductance": "IVg",  # Transconductance calculated from IVg
+                "Vt": "Vt",  # Vt plots use Vt procedure (explicit for clarity)
+                "VVg": "VVg",  # VVg plots use VVg procedure (explicit for clarity)
+                "IVg": "IVg",  # IVg plots use IVg procedure (explicit for clarity)
+            }
+            proc_filter = proc_mapping.get(self.plot_type, self.plot_type)
 
             # Update title to be clear about what experiments are being selected
             if self.plot_type == "Transconductance":
                 title = f"Select IVg Experiments (for Transconductance) - {self.chip_group}{self.chip_number}"
+            elif self.plot_type == "ITS":
+                title = f"Select It Experiments (Current vs Time) - {self.chip_group}{self.chip_number}"
             else:
                 title = f"Select {self.plot_type} Experiments - {self.chip_group}{self.chip_number}"
 

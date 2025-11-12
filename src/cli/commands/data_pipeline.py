@@ -75,6 +75,11 @@ def full_pipeline_command(
         "--skip-metrics",
         help="Skip derived metrics extraction (Step 3)"
     ),
+    skip_enrichment: bool = typer.Option(
+        False,
+        "--skip-enrichment",
+        help="Skip history enrichment (Step 4)"
+    ),
     include_calibrations: bool = typer.Option(
         True,
         "--calibrations/--no-calibrations",
@@ -82,19 +87,21 @@ def full_pipeline_command(
     ),
 ):
     """
-    Run the complete pipeline: stage → histories → derive metrics.
+    Run the complete pipeline: stage → histories → derive metrics → enrich.
 
     This modern pipeline uses the staging system (CSV → Parquet + manifest),
-    builds histories from the authoritative manifest.parquet, and extracts
-    derived analytical metrics including laser calibration power.
+    builds histories from the authoritative manifest.parquet, extracts
+    derived analytical metrics including laser calibration power, and enriches
+    chip histories with the derived metrics and calibration data.
 
     Steps:
       1. Stage all raw CSVs → Parquet with schema validation
       2. Generate chip histories from manifest
       3. Extract derived metrics (CNP, photoresponse, calibration power)
+      4. Enrich chip histories with metrics and calibrations
 
     Examples:
-        # Complete pipeline with all steps
+        # Complete pipeline with all steps (stage → histories → metrics → enrich)
         process_and_analyze full-pipeline
 
         # Custom paths with 16 workers
@@ -103,8 +110,11 @@ def full_pipeline_command(
         # Force re-processing everything
         process_and_analyze full-pipeline --force
 
-        # Skip metrics extraction (only stage + histories)
+        # Skip metrics extraction and enrichment (only stage + histories)
         process_and_analyze full-pipeline --skip-metrics
+
+        # Skip only enrichment (stage + histories + metrics)
+        process_and_analyze full-pipeline --skip-enrichment
 
         # Filter by chip group
         process_and_analyze full-pipeline -g Alisson --min 10
@@ -112,6 +122,7 @@ def full_pipeline_command(
     from src.cli.commands.stage import stage_all_command
     from src.cli.commands.history import build_all_histories_command
     from src.cli.commands.derived_metrics import derive_all_metrics_command
+    from src.cli.commands.enrich_unified import enrich_history_unified_command
 
     # Load config for defaults
     from src.cli.main import get_config
@@ -140,6 +151,8 @@ def full_pipeline_command(
     )
     if not skip_metrics:
         steps_text += "\nStep 3: Extract derived metrics (CNP, photoresponse, calibration power)"
+        if not skip_enrichment:
+            steps_text += "\nStep 4: Enrich chip histories with metrics and calibrations"
 
     console.print(Panel.fit(
         steps_text,
@@ -214,6 +227,33 @@ def full_pipeline_command(
                 console.print("[red]✗ Metrics extraction failed[/red]\n")
                 raise typer.Exit(1)
 
+        # Step 4: Enrich chip histories with metrics and calibrations
+        if not skip_enrichment:
+            console.print("\n" + "="*80 + "\n")
+            console.print("[bold yellow]═══ STEP 4: HISTORY ENRICHMENT ═══[/bold yellow]\n")
+
+            try:
+                enrich_history_unified_command(
+                    chip_number=None,  # Will use --all-chips
+                    all_chips=True,  # Process all chips
+                    chip_group=chip_group,
+                    calibrations_only=False,  # Add both calibrations and metrics
+                    metrics_only=False,
+                    metrics="all",  # Add all available metrics
+                    force=force,
+                    skip_derive=True,  # We just ran derive-all-metrics in Step 3
+                    derive_first=False,
+                    workers=workers,
+                    dry_run=False,
+                    output_dir=None,  # Use default
+                    stale_threshold=24.0,
+                    verbose=False,
+                )
+            except SystemExit as e:
+                if e.code != 0:
+                    console.print("[red]✗ History enrichment failed[/red]\n")
+                    raise typer.Exit(1)
+
     elapsed = time.time() - start_time
 
     # Build output summary
@@ -227,9 +267,17 @@ def full_pipeline_command(
     if not skip_metrics:
         derived_dir = config.stage_dir.parent / "03_derived"
         outputs_text += (
-            f"\n  • Metrics: {derived_dir / '_metrics' / 'metrics.parquet'}\n"
-            f"  • Enriched histories (Stage 3): {derived_dir / 'chip_histories_enriched'}"
+            f"\n  • Metrics: {derived_dir / '_metrics' / 'metrics.parquet'}"
         )
+
+        if not skip_enrichment:
+            outputs_text += (
+                f"\n  • [bold]Enriched histories (Stage 3): {derived_dir / 'chip_histories_enriched'}[/bold]"
+            )
+        else:
+            outputs_text += (
+                f"\n  • Enriched histories: [dim](skipped)[/dim]"
+            )
 
     next_steps_text = (
         "[dim]Next steps:[/dim]\n"
@@ -239,8 +287,10 @@ def full_pipeline_command(
 
     if skip_metrics:
         next_steps_text += "\n  • [cyan]derive-all-metrics[/cyan] - Extract derived metrics"
+    elif skip_enrichment:
+        next_steps_text += "\n  • [cyan]enrich-history -a[/cyan] - Enrich chip histories with metrics"
     else:
-        next_steps_text += "\n  • [cyan]validate-manifest[/cyan] - Check data quality"
+        next_steps_text += "\n  • [cyan]plot-cnp-time[/cyan], [cyan]plot-photoresponse[/cyan] - Plot derived metrics"
 
     console.print("\n" + "="*80 + "\n")
     console.print(Panel.fit(

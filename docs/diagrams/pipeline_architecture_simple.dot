@@ -1,0 +1,81 @@
+digraph pipeline_simple {
+    // Graph attributes for presentation - SIMPLE OVERVIEW
+    graph [
+        rankdir=LR
+        bgcolor="white"
+        fontname="Arial Bold"
+        fontsize=32
+        label="\n\nData Processing Pipeline - Overview"
+        labelloc=t
+        fontsize=40
+        dpi=150
+        size="16,9!"
+        ratio=fill
+    ]
+
+    node [fontname="Arial Bold" fontsize=28 penwidth=4 width=3 height=2]
+    edge [fontname="Arial Bold" fontsize=24 penwidth=5]
+
+    // Main stages only
+    raw [
+        label="📁\nRAW\nCSV"
+        shape=box
+        style="filled,rounded"
+        fillcolor="#bbdefb"
+        color="#1976d2"
+    ]
+
+    staged [
+        label="📦\nSTAGED\nParquet"
+        shape=box
+        style="filled,rounded"
+        fillcolor="#c8e6c9"
+        color="#388e3c"
+    ]
+
+    metrics [
+        label="📊\nMETRICS\nDerived"
+        shape=box
+        style="filled,rounded"
+        fillcolor="#ffe0b2"
+        color="#ef6c00"
+    ]
+
+    export [
+        label="📤\nEXPORT\nJSON/CSV"
+        shape=box
+        style="filled,rounded"
+        fillcolor="#f8bbd0"
+        color="#c2185b"
+    ]
+
+    plots [
+        label="📈\nPLOTS\nFigures"
+        shape=box
+        style="filled,rounded"
+        fillcolor="#f48fb1"
+        color="#ad1457"
+    ]
+
+    // Flow
+    raw -> staged [label=" stage-all " color="#388e3c"]
+    staged -> metrics [label=" derive-metrics " color="#ef6c00"]
+    metrics -> export [label=" show-history " color="#c2185b"]
+    metrics -> plots [label=" plot-* " color="#ad1457"]
+
+    // Full pipeline indicator
+    full [
+        label="⚡\nfull-pipeline\n(one command)"
+        shape=doubleoctagon
+        style=filled
+        fillcolor="#fff59d"
+        color="#f57f17"
+        fontsize=26
+        penwidth=5
+        width=3
+        height=2.5
+    ]
+
+    raw -> full [style=dashed color="#f57f17" constraint=false]
+    full -> metrics [style=dashed color="#f57f17" constraint=false]
+}

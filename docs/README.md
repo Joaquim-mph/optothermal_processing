@@ -1,9 +1,20 @@
 # Documentation Index
 
-**Last Updated:** October 31, 2025
-**Project Version:** 3.0+
+**Last Updated:** November 8, 2025
+**Project Version:** 3.1+
 
 Welcome to the optothermal processing pipeline documentation. This index organizes all documentation by topic for easy navigation.
+
+---
+
+## 🎯 Pipeline Architecture Diagram
+
+**NEW in v3.1:** Visual overview of the complete pipeline architecture
+
+- **[pipeline_architecture.png](pipeline_architecture.png)** ⭐ - Comprehensive pipeline diagram
+  - Shows complete data flow from raw CSV → Parquet → metrics → plots
+  - Includes all processing stages, commands, and data artifacts
+  - **Formats:** [PNG](pipeline_architecture.png) • [SVG](pipeline_architecture.svg) • [PDF](pipeline_architecture.pdf) • [DOT source](pipeline_architecture.dot)
 
 ---
 
@@ -95,6 +106,37 @@ Creating publication-quality plots:
 
 ---
 
+## 📤 Output Formatters (v3.1)
+
+**NEW in version 3.1:** Machine-readable data export for automation and scripting
+
+### Documentation
+
+- **[OUTPUT_FORMATTERS.md](OUTPUT_FORMATTERS.md)** ⭐ - **Complete user guide** for JSON/CSV export
+  - Quick start examples
+  - Format details (table, JSON, CSV)
+  - Scripting and automation
+  - External tool integration (jq, csvkit, pandas)
+
+- **[OUTPUT_FORMATTERS_COMPLETE.md](OUTPUT_FORMATTERS_COMPLETE.md)** - Implementation summary and test results
+- **[OUTPUT_FORMATTERS_PLAN.md](OUTPUT_FORMATTERS_PLAN.md)** - Original implementation plan
+- **[OUTPUT_FORMATTERS_TEST_RESULTS.md](OUTPUT_FORMATTERS_TEST_RESULTS.md)** - Test coverage (34/34 tests passed)
+
+### Quick Examples
+
+```bash
+# Export chip history as JSON
+python3 process_and_analyze.py show-history 67 --format json
+
+# Export manifest as CSV
+python3 process_and_analyze.py inspect-manifest --format csv > manifest.csv
+
+# Pipe to jq for filtering
+python3 process_and_analyze.py show-history 67 --format json | jq '.data[] | select(.proc == "IVg")'
+```
+
+---
+
 ## 🖥️ Terminal UI
 
 User-friendly terminal interface for lab users:
@@ -158,6 +200,7 @@ External system documentation:
 | **CLI Command** | [CLI_PLUGIN_SYSTEM.md](CLI_PLUGIN_SYSTEM.md) |
 | **Plotting Function** | [PLOTTING_IMPLEMENTATION_GUIDE.md](PLOTTING_IMPLEMENTATION_GUIDE.md) |
 | **Metric Extractor** | [ADDING_NEW_METRICS_GUIDE.md](ADDING_NEW_METRICS_GUIDE.md) |
+| **Output Formatter** | [OUTPUT_FORMATTERS.md](OUTPUT_FORMATTERS.md) (v3.1) |
 | **Procedure Type** | [ADDING_PROCEDURES.md](ADDING_PROCEDURES.md) |
 | **Data Model** | [PYDANTIC_ARCHITECTURE.md](PYDANTIC_ARCHITECTURE.md) |
 
@@ -167,9 +210,34 @@ External system documentation:
 |------|---------|---------------|
 | Stage raw data | `python process_and_analyze.py full-pipeline` | [STAGING_GUIDE.md](STAGING_GUIDE.md) |
 | Extract metrics | `python process_and_analyze.py derive-all-metrics` | [DERIVED_METRICS_QUICKSTART.md](DERIVED_METRICS_QUICKSTART.md) |
+| Export data | `python process_and_analyze.py show-history 67 --format json` | [OUTPUT_FORMATTERS.md](OUTPUT_FORMATTERS.md) |
 | Generate plots | `python process_and_analyze.py plot-its 67 --auto` | [PLOTTING_IMPLEMENTATION_GUIDE.md](PLOTTING_IMPLEMENTATION_GUIDE.md) |
 | Configure CLI | `python process_and_analyze.py config-init` | [CONFIGURATION.md](CONFIGURATION.md) |
 | List commands | `python process_and_analyze.py list-plugins` | [CLI_PLUGIN_SYSTEM.md](CLI_PLUGIN_SYSTEM.md) |
+
+---
+
+## 🆕 What's New in v3.1
+
+### Major Features
+
+✅ **Output Formatters**
+- Machine-readable data export (JSON, CSV)
+- Integrated with `show-history` and `inspect-manifest` commands
+- Clean stdout for Unix piping (jq, csvkit, pandas)
+- Automatic nested column handling for CSV
+
+✅ **Pipeline Architecture Diagram**
+- Comprehensive visual diagram of entire pipeline
+- Multiple formats: PNG, SVG, PDF, Graphviz DOT
+- Shows data flow, processing steps, and integration points
+
+### New Documentation
+
+- **OUTPUT_FORMATTERS.md** - Complete user guide for data export
+- **OUTPUT_FORMATTERS_COMPLETE.md** - Implementation summary
+- **OUTPUT_FORMATTERS_TEST_RESULTS.md** - Test coverage (100% pass rate)
+- **pipeline_architecture.png/svg/pdf** - Visual pipeline diagram
 
 ---
 
@@ -216,8 +284,10 @@ External system documentation:
 | Data Processing | 5 | ~56KB |
 | Derived Metrics | 4 | ~56KB |
 | Plotting | 1 | 37KB |
+| Output Formatters (v3.1) | 5 | ~80KB |
+| Pipeline Diagrams (v3.1) | 4 | ~800KB (images) |
 | Other | 4 | ~25KB |
-| **Total** | **17** | **~269KB** |
+| **Total** | **26** | **~1.1MB** |
 
 ---
 
@@ -262,6 +332,22 @@ When adding new documentation:
 3. Use clear section headers with anchors
 4. Provide code examples where applicable
 5. Cross-reference related documentation
+
+### Regenerating Pipeline Diagram
+
+To update the pipeline architecture diagram after making changes:
+
+```bash
+# Quick method: Use the provided script
+./docs/render_pipeline_diagram.sh
+
+# Manual method: Run dot commands
+dot -Tpng docs/pipeline_architecture.dot -o docs/pipeline_architecture.png
+dot -Tsvg docs/pipeline_architecture.dot -o docs/pipeline_architecture.svg
+dot -Tpdf docs/pipeline_architecture.dot -o docs/pipeline_architecture.pdf
+```
+
+**Note:** Requires Graphviz installed (`brew install graphviz` on macOS)
 
 ---
 

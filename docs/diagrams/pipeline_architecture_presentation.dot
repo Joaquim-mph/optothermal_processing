@@ -1,0 +1,238 @@
+digraph pipeline_presentation {
+    // Graph attributes for presentation (16:9 aspect ratio)
+    graph [
+        rankdir=TB
+        bgcolor="white"
+        fontname="Arial Bold"
+        fontsize=28
+        label="\n\nOptothermal Processing Pipeline"
+        labelloc=t
+        fontsize=36
+        dpi=150
+        size="16,9!"
+        ratio=fill
+    ]
+
+    node [fontname="Arial Bold" fontsize=20 penwidth=3]
+    edge [fontname="Arial Bold" fontsize=18 penwidth=3]
+
+    // ============================================================
+    // HIGH-LEVEL OVERVIEW - 5 MAIN STAGES
+    // ============================================================
+
+    subgraph cluster_stage1 {
+        label="STAGE 1: RAW DATA"
+        style=filled
+        color="#1976d2"
+        fillcolor="#e3f2fd"
+        fontsize=24
+        fontcolor="#0d47a1"
+        penwidth=4
+
+        raw [
+            label="📁 Raw CSV Files\n━━━━━━━━━━━━\nLab Equipment\nKeithley, Lasers"
+            shape=box
+            style="filled,rounded"
+            fillcolor="#bbdefb"
+            color="#1976d2"
+            fontsize=22
+            height=1.5
+        ]
+    }
+
+    subgraph cluster_stage2 {
+        label="STAGE 2: STAGED DATA"
+        style=filled
+        color="#388e3c"
+        fillcolor="#e8f5e9"
+        fontsize=24
+        fontcolor="#1b5e20"
+        penwidth=4
+
+        staged [
+            label="📦 Parquet Files\n━━━━━━━━━━━━\nSchema-Validated\nType-Safe Data"
+            shape=box
+            style="filled,rounded"
+            fillcolor="#c8e6c9"
+            color="#388e3c"
+            fontsize=22
+            height=1.5
+        ]
+
+        manifest [
+            label="📋 Manifest\n━━━━━━━━━━━━\nMetadata Table\n(One row per experiment)"
+            shape=cylinder
+            style=filled
+            fillcolor="#a5d6a7"
+            color="#2e7d32"
+            fontsize=22
+            height=1.5
+        ]
+    }
+
+    subgraph cluster_stage3 {
+        label="STAGE 3: DERIVED METRICS"
+        style=filled
+        color="#ef6c00"
+        fillcolor="#fff3e0"
+        fontsize=24
+        fontcolor="#e65100"
+        penwidth=4
+
+        metrics [
+            label="📊 Metrics\n━━━━━━━━━━━━\nCNP, Photoresponse\nLaser Power"
+            shape=box
+            style="filled,rounded"
+            fillcolor="#ffe0b2"
+            color="#ef6c00"
+            fontsize=22
+            height=1.5
+        ]
+
+        enriched [
+            label="✨ Enriched Histories\n━━━━━━━━━━━━\nChip Histories +\nDerived Metrics"
+            shape=box
+            style="filled,rounded"
+            fillcolor="#ffcc80"
+            color="#e65100"
+            fontsize=22
+            height=1.5
+        ]
+    }
+
+    subgraph cluster_output {
+        label="OUTPUT & ANALYSIS"
+        style=filled
+        color="#c2185b"
+        fillcolor="#fce4ec"
+        fontsize=24
+        fontcolor="#880e4f"
+        penwidth=4
+
+        export [
+            label="📤 Data Export (v3.1)\n━━━━━━━━━━━━\nJSON • CSV • Table"
+            shape=box
+            style="filled,rounded"
+            fillcolor="#f8bbd0"
+            color="#c2185b"
+            fontsize=22
+            height=1.5
+        ]
+
+        plots [
+            label="📈 Publication Plots\n━━━━━━━━━━━━\nIVg, ITS, CNP\nPhotoresponse"
+            shape=box
+            style="filled,rounded"
+            fillcolor="#f48fb1"
+            color="#ad1457"
+            fontsize=22
+            height=1.5
+        ]
+    }
+
+    // ============================================================
+    // KEY COMMANDS
+    // ============================================================
+
+    stage_cmd [
+        label="⚙️ stage-all"
+        shape=box
+        style="filled,rounded"
+        fillcolor="#ce93d8"
+        color="#7b1fa2"
+        fontsize=20
+        penwidth=3
+    ]
+
+    derive_cmd [
+        label="⚙️ derive-all-metrics"
+        shape=box
+        style="filled,rounded"
+        fillcolor="#ce93d8"
+        color="#7b1fa2"
+        fontsize=20
+        penwidth=3
+    ]
+
+    enrich_cmd [
+        label="⚙️ enrich-history"
+        shape=box
+        style="filled,rounded"
+        fillcolor="#ce93d8"
+        color="#7b1fa2"
+        fontsize=20
+        penwidth=3
+    ]
+
+    // ============================================================
+    // UNIFIED PIPELINE
+    // ============================================================
+
+    full_pipeline [
+        label="🎯 full-pipeline\n━━━━━━━━━━━━\nComplete End-to-End\nProcessing"
+        shape=doubleoctagon
+        style=filled
+        fillcolor="#fff59d"
+        color="#f57f17"
+        fontsize=24
+        fontcolor="#f57f17"
+        penwidth=5
+        height=2
+    ]
+
+    // ============================================================
+    // DATA FLOW
+    // ============================================================
+
+    raw -> stage_cmd [label="  parse & validate" fontsize=18 penwidth=4 color="#7b1fa2"]
+    stage_cmd -> staged [label="  write" fontsize=18 penwidth=4 color="#388e3c"]
+    stage_cmd -> manifest [label="  generate" fontsize=18 penwidth=4 color="#388e3c"]
+
+    manifest -> derive_cmd [label="  read" fontsize=18 penwidth=4 color="#7b1fa2"]
+    staged -> derive_cmd [label="  load" fontsize=18 penwidth=4 color="#7b1fa2"]
+    derive_cmd -> metrics [label="  extract" fontsize=18 penwidth=4 color="#ef6c00"]
+
+    metrics -> enrich_cmd [label="  join" fontsize=18 penwidth=4 color="#7b1fa2"]
+    manifest -> enrich_cmd [label="  base" fontsize=18 penwidth=4 color="#7b1fa2"]
+    enrich_cmd -> enriched [label="  write" fontsize=18 penwidth=4 color="#ef6c00"]
+
+    enriched -> export [label="  format" fontsize=18 penwidth=4 color="#c2185b"]
+    enriched -> plots [label="  plot" fontsize=18 penwidth=4 color="#c2185b"]
+
+    // Full pipeline connection
+    raw -> full_pipeline [style=dashed penwidth=4 color="#f57f17" label="  unified\n  command" fontsize=18]
+    full_pipeline -> enriched [style=dashed penwidth=4 color="#f57f17" label="  produces" fontsize=18]
+
+    // ============================================================
+    // LEGEND
+    // ============================================================
+
+    subgraph cluster_legend {
+        label="LEGEND"
+        style=filled
+        color="#666666"
+        fillcolor="#f5f5f5"
+        fontsize=20
+        penwidth=3
+
+        legend_new [
+            label="✨ NEW in v3.1:\nOutput Formatters"
+            shape=note
+            style=filled
+            fillcolor="#fff9c4"
+            color="#f9a825"
+            fontsize=18
+        ]
+
+        legend_cmd [
+            label="⚙️ CLI Commands"
+            shape=box
+            style="filled,rounded"
+            fillcolor="#ce93d8"
+            color="#7b1fa2"
+            fontsize=18
+        ]
+
+        legend_new -> legend_cmd [style=invis]
+    }
+}

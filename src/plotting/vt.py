@@ -255,7 +255,7 @@ def plot_vt_overlay(
             yy_corr = yy
 
         # Get label using centralized formatter
-        lbl, legend_title = legend_formatter(row, d, config)
+        lbl, legend_title = legend_formatter(row, config)
 
         # Store y-values ONLY for the visible time window (t >= plot_start_time)
         # Convert to mV for display
@@ -309,24 +309,33 @@ def plot_vt_overlay(
                 ax = plt.gca()
                 ax.ticklabel_format(style="scientific", axis="x", scilimits=(0, 0))
 
-    # Calculate light window shading
+    # Check if all experiments are dark (no laser)
+    # If so, skip light window shading
+    has_any_light = False
+    if "has_light" in df.columns:
+        has_any_light = df["has_light"].any()
+    elif "light" in df.columns:
+        has_any_light = df["light"].str.contains("light", case=False).any()
+
+    # Calculate light window shading (only for experiments with light)
     t0 = t1 = None
-    if starts_vl and ends_vl:
+    if has_any_light and starts_vl and ends_vl:
         t0 = float(np.median(starts_vl))
         t1 = float(np.median(ends_vl))
-    if (t0 is None or t1 is None) and on_durations_meta and t_totals:
+    if has_any_light and (t0 is None or t1 is None) and on_durations_meta and t_totals:
         on_dur = float(np.median(on_durations_meta))
         T_total = float(np.median(t_totals))
         if np.isfinite(on_dur) and np.isfinite(T_total) and T_total > 0:
             pre_off = max(0.0, (T_total - on_dur) / 2.0)
             t0 = pre_off
             t1 = pre_off + on_dur
-    if (t0 is None or t1 is None) and t_totals:
+    if has_any_light and (t0 is None or t1 is None) and t_totals:
         T_total = float(np.median(t_totals))
         if np.isfinite(T_total) and T_total > 0:
             t0 = T_total / 3.0
             t1 = 2.0 * T_total / 3.0
-    if (t0 is not None) and (t1 is not None) and (t1 > t0):
+    # Only draw light window if we have valid bounds AND detected light
+    if has_any_light and (t0 is not None) and (t1 is not None) and (t1 > t0):
         plt.axvspan(t0, t1, alpha=config.light_window_alpha)
 
     plt.xlabel(r"$t\ (\mathrm{s})$")

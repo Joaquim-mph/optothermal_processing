@@ -162,8 +162,10 @@ class ExperimentSelectorScreen(Screen):
                 yield Label("Filter:", id="search-label")
                 yield Input(placeholder="Type to filter...", id="search-input")
 
-            # Light filter buttons (only show for ITS experiments with has_light column)
-            if self.proc_filter == "ITS" and "has_light" in self.history_df.columns:
+            # Light filter buttons (show for time-series experiments: It, Vt)
+            # These are procedures with light/dark cycling capabilities
+            is_time_series = self.proc_filter in ["ITS", "It", "Vt"]
+            if is_time_series and "has_light" in self.history_df.columns:
                 with Horizontal(id="light-filter-bar"):
                     yield Label("Light Filter:", id="light-filter-label")
                     yield Button("All", id="light-filter-all", classes="light-filter-button", variant="primary")
@@ -189,6 +191,10 @@ class ExperimentSelectorScreen(Screen):
         table = self.query_one("#experiments-table", DataTable)
         table.focus()
 
+    def _is_time_series_proc(self) -> bool:
+        """Check if current procedure is a time-series measurement (It/ITS, Vt)."""
+        return self.proc_filter in ["ITS", "It", "Vt"]
+
     def _populate_table(self, filter_text: str = "") -> None:
         """Populate the data table with experiments."""
         table = self.query_one("#experiments-table", DataTable)
@@ -213,7 +219,7 @@ class ExperimentSelectorScreen(Screen):
             else:
                 df = df.filter(pl.col("proc") == self.proc_filter)
 
-        # Apply light filter (for ITS experiments with has_light column)
+        # Apply light filter (for time-series experiments with has_light column)
         if self.light_filter and "has_light" in df.columns:
             if self.light_filter == "light":
                 # Filter for light experiments (has_light == True)
@@ -246,8 +252,8 @@ class ExperimentSelectorScreen(Screen):
         # Add columns (different based on procedure type)
         table.add_column("✓", width=3)
 
-        # Add light indicator column for ITS experiments (if has_light exists)
-        if self.proc_filter == "ITS" and "has_light" in df.columns:
+        # Add light indicator column for time-series experiments (if has_light exists)
+        if self._is_time_series_proc() and "has_light" in df.columns:
             table.add_column("💡", width=3)
 
         table.add_column("Seq", width=5)
@@ -255,7 +261,7 @@ class ExperimentSelectorScreen(Screen):
         table.add_column("Time", width=10)
 
         # For IVg experiments, VG is swept so show VDS instead
-        # For ITS experiments, show VG (gate bias during time series)
+        # For time-series experiments (It, Vt), show VG (gate bias during measurement)
         if self.proc_filter == "IVg":
             table.add_column("VDS (V)", width=8)
         else:
@@ -264,8 +270,8 @@ class ExperimentSelectorScreen(Screen):
         table.add_column("λ (nm)", width=8)
         table.add_column("LED V", width=7)
 
-        # Add Duration column for ITS experiments
-        if self.proc_filter == "ITS":
+        # Add Duration column for time-series experiments (It, Vt)
+        if self._is_time_series_proc():
             table.add_column("Duration", width=10)
 
         # Clear row mappings
@@ -301,8 +307,8 @@ class ExperimentSelectorScreen(Screen):
             # Check mark if selected
             check = "✓" if idx in self.selected_rows else " "
 
-            # Get light indicator if column exists (for ITS experiments)
-            has_light_col = self.proc_filter == "ITS" and "has_light" in df.columns
+            # Get light indicator if column exists (for time-series experiments)
+            has_light_col = self._is_time_series_proc() and "has_light" in df.columns
             if has_light_col:
                 has_light = row.get("has_light")
                 # Convert string representation back to boolean for comparison
@@ -324,7 +330,7 @@ class ExperimentSelectorScreen(Screen):
             # Build row data based on procedure type
             row_data = [check]
 
-            # Add light indicator for ITS if column exists
+            # Add light indicator for time-series experiments if column exists
             if has_light_col:
                 row_data.append(light_icon)
 
@@ -338,8 +344,8 @@ class ExperimentSelectorScreen(Screen):
                 led_str,
             ])
 
-            # Add Duration for ITS experiments
-            if self.proc_filter == "ITS":
+            # Add Duration for time-series experiments (It, Vt)
+            if self._is_time_series_proc():
                 duration = self._extract_duration(row)
                 row_data.append(duration)
 
@@ -463,7 +469,7 @@ class ExperimentSelectorScreen(Screen):
         return None
 
     def _extract_duration(self, row: dict) -> str:
-        """Extract and calculate duration from ITS experiment.
+        """Extract and calculate duration from time-series experiment (It, Vt).
 
         Duration = (Laser ON+OFF period) * 1.5
 

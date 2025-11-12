@@ -164,6 +164,52 @@ class Router:
             plot_type="ITS"
         ))
 
+    def go_to_vt_config(self, preset_mode: bool = False) -> None:
+        """
+        Navigate to Vt configuration screen (Step 3).
+
+        Parameters
+        ----------
+        preset_mode : bool
+            If True, show config for selected preset (read-only summary).
+            If False, show full custom config form.
+
+        Raises
+        ------
+        ValueError
+            If required session fields not set
+        """
+        from src.tui.screens.configuration import VtConfigScreen
+
+        if self.app.session.chip_number is None:
+            raise ValueError("chip_number must be set")
+
+        self.app.push_screen(VtConfigScreen(
+            chip_number=self.app.session.chip_number,
+            chip_group=self.app.session.chip_group,
+            preset_mode=preset_mode
+        ))
+
+    def go_to_vt_preset_selector(self) -> None:
+        """
+        Navigate to Vt preset selector.
+
+        Raises
+        ------
+        ValueError
+            If required session fields not set
+        """
+        from src.tui.screens.selection import VtPresetSelectorScreen
+
+        if self.app.session.chip_number is None:
+            raise ValueError("chip_number must be set")
+
+        self.app.push_screen(VtPresetSelectorScreen(
+            chip_number=self.app.session.chip_number,
+            chip_group=self.app.session.chip_group,
+            plot_type="Vt"
+        ))
+
     def go_to_ivg_config(self) -> None:
         """
         Navigate to IVg configuration screen (Step 4).
@@ -202,6 +248,128 @@ class Router:
             chip_group=self.app.session.chip_group
         ))
 
+    # ═══════════════════════════════════════════════════════════════════
+    # New Plot Type Configuration Screens (v3.0)
+    # ═══════════════════════════════════════════════════════════════════
+
+    def go_to_vvg_config(self) -> None:
+        """
+        Navigate to VVg configuration screen (Step 4).
+
+        VVg plots show drain-source voltage vs gate voltage sweeps.
+
+        Raises
+        ------
+        ValueError
+            If required session fields not set
+        """
+        from src.tui.screens.configuration.vvg_config import VVgConfigScreen
+
+        if self.app.session.chip_number is None:
+            raise ValueError("chip_number must be set")
+
+        self.app.push_screen(VVgConfigScreen(
+            chip_number=self.app.session.chip_number,
+            chip_group=self.app.session.chip_group
+        ))
+
+    def go_to_vt_config(self, preset_mode: bool = False) -> None:
+        """
+        Navigate to Vt configuration screen (Step 4).
+
+        Vt plots show voltage vs time measurements.
+
+        Parameters
+        ----------
+        preset_mode : bool
+            If True, shows preset summary instead of full custom form
+
+        Raises
+        ------
+        ValueError
+            If required session fields not set
+        """
+        from src.tui.screens.configuration.vt_config import VtConfigScreen
+
+        if self.app.session.chip_number is None:
+            raise ValueError("chip_number must be set")
+
+        self.app.push_screen(VtConfigScreen(
+            chip_number=self.app.session.chip_number,
+            chip_group=self.app.session.chip_group,
+            preset_mode=preset_mode
+        ))
+
+    def go_to_cnp_config(self) -> None:
+        """
+        Navigate to CNP time plot configuration screen (Step 4).
+
+        CNP plots show Charge Neutrality Point (Dirac point) evolution over time.
+        Requires enriched chip histories with derived metrics.
+
+        Raises
+        ------
+        ValueError
+            If required session fields not set
+        """
+        from src.tui.screens.configuration.cnp_config import CNPConfigScreen
+
+        if self.app.session.chip_number is None:
+            raise ValueError("chip_number must be set")
+
+        self.app.push_screen(CNPConfigScreen(
+            chip_number=self.app.session.chip_number,
+            chip_group=self.app.session.chip_group
+        ))
+
+    def go_to_photoresponse_config(self) -> None:
+        """
+        Navigate to Photoresponse configuration screen (Step 4).
+
+        Photoresponse plots analyze device response to illumination vs:
+        - Power
+        - Wavelength
+        - Gate voltage
+        - Time
+
+        Requires enriched chip histories with derived metrics and laser calibration data.
+
+        Raises
+        ------
+        ValueError
+            If required session fields not set
+        """
+        from src.tui.screens.configuration.photoresponse_config import PhotoresponseConfigScreen
+
+        if self.app.session.chip_number is None:
+            raise ValueError("chip_number must be set")
+
+        self.app.push_screen(PhotoresponseConfigScreen(
+            chip_number=self.app.session.chip_number,
+            chip_group=self.app.session.chip_group
+        ))
+
+    def go_to_laser_calibration_config(self) -> None:
+        """
+        Navigate to Laser Calibration configuration screen (Step 4).
+
+        Laser calibration plots show power output vs control voltage curves.
+
+        Raises
+        ------
+        ValueError
+            If required session fields not set
+        """
+        from src.tui.screens.configuration.laser_calibration_config import LaserCalibrationConfigScreen
+
+        if self.app.session.chip_number is None:
+            raise ValueError("chip_number must be set")
+
+        self.app.push_screen(LaserCalibrationConfigScreen(
+            chip_number=self.app.session.chip_number,
+            chip_group=self.app.session.chip_group
+        ))
+
     def go_to_recent_configs(self) -> None:
         """
         Navigate to recent configurations screen.
@@ -220,6 +388,16 @@ class Router:
             chip_number=self.app.session.chip_number,
             chip_group=self.app.session.chip_group
         ))
+
+    def go_to_log_viewer(self) -> None:
+        """
+        Navigate to log viewer screen.
+
+        Shows recent TUI log entries for debugging and troubleshooting.
+        """
+        from src.tui.screens.navigation import LogViewerScreen
+
+        self.app.push_screen(LogViewerScreen())
 
     def go_to_experiment_selector(self) -> None:
         """
@@ -314,6 +492,39 @@ class Router:
     # ═══════════════════════════════════════════════════════════════════
     # Data Processing Flow
     # ═══════════════════════════════════════════════════════════════════
+
+    def go_to_data_pipeline_menu(self) -> None:
+        """
+        Navigate to Data Pipeline menu (v3.0).
+
+        Provides access to data processing commands:
+        - Stage All Data (CSV → Parquet)
+        - Generate Chip Histories
+        - Extract Derived Metrics
+        - Enrich Histories (join calibrations + metrics)
+        - Run Full Pipeline
+        """
+        from src.tui.screens.navigation.data_pipeline_menu import DataPipelineMenuScreen
+        self.app.push_screen(DataPipelineMenuScreen())
+
+    def go_to_pipeline_loading(self, pipeline_type: str) -> None:
+        """
+        Navigate to pipeline loading screen (v3.0).
+
+        Starts a specific data pipeline command in background.
+
+        Parameters
+        ----------
+        pipeline_type : str
+            Pipeline command to run:
+            - 'stage-all': Stage raw CSVs to Parquet
+            - 'build-histories': Generate chip histories from manifest
+            - 'derive-metrics': Extract derived metrics (CNP, photoresponse)
+            - 'enrich-histories': Enrich histories with calibrations + metrics
+            - 'full-pipeline': Run all steps in sequence
+        """
+        from src.tui.screens.processing.pipeline_loading import PipelineLoadingScreen
+        self.app.push_screen(PipelineLoadingScreen(pipeline_type=pipeline_type))
 
     def go_to_process_confirmation(self) -> None:
         """
@@ -499,10 +710,19 @@ class Router:
         """
         Navigate to appropriate config screen based on session.plot_type.
 
-        Automatically routes to:
-        - ITS → ConfigModeSelectorScreen
+        Automatically routes to correct configuration screen for each plot type:
+
+        v2.x Plot Types (original):
+        - ITS → ConfigModeSelectorScreen (has presets)
         - IVg → IVgConfigScreen
         - Transconductance → TransconductanceConfigScreen
+
+        v3.0 Plot Types (new):
+        - VVg → VVgConfigScreen
+        - Vt → ConfigModeSelectorScreen (has presets, like ITS)
+        - CNP → CNPConfigScreen
+        - Photoresponse → PhotoresponseConfigScreen
+        - LaserCalibration → LaserCalibrationConfigScreen
 
         Raises
         ------
@@ -514,14 +734,30 @@ class Router:
 
         plot_type = self.app.session.plot_type
 
-        if plot_type == "ITS":
-            self.go_to_config_mode_selector()
-        elif plot_type == "IVg":
-            self.go_to_ivg_config()
-        elif plot_type == "Transconductance":
-            self.go_to_transconductance_config()
-        else:
+        # Map plot types to config screen navigation methods
+        config_router = {
+            # v2.x plot types
+            "ITS": self.go_to_config_mode_selector,  # ITS has presets
+            "IVg": self.go_to_ivg_config,
+            "Transconductance": self.go_to_transconductance_config,
+
+            # v3.0 measurement plots
+            "VVg": self.go_to_vvg_config,
+            "Vt": self.go_to_config_mode_selector,  # Vt has presets (like ITS)
+
+            # v3.0 derived metric plots
+            "CNP": self.go_to_cnp_config,
+            "Photoresponse": self.go_to_photoresponse_config,
+
+            # v3.0 specialized plots
+            "LaserCalibration": self.go_to_laser_calibration_config,
+        }
+
+        nav_func = config_router.get(plot_type)
+        if nav_func is None:
             raise ValueError(f"Unknown plot_type: {plot_type}")
+
+        nav_func()
 
     def restart_wizard(self) -> None:
         """

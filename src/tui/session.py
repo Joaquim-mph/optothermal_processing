@@ -41,6 +41,11 @@ class PlotSession(BaseModel):
     >>> session.legend_by = "wavelength"
     """
 
+    model_config = {
+        "validate_assignment": True,  # Enable validation on field assignment
+        "arbitrary_types_allowed": True,  # Allow Path types
+    }
+
     # ═══════════════════════════════════════════════════════════════════
     # Application Paths (Required, set at app initialization)
     # ═══════════════════════════════════════════════════════════════════
@@ -175,6 +180,93 @@ class PlotSession(BaseModel):
     )
 
     # ═══════════════════════════════════════════════════════════════════
+    # VVg/Vt Plot Parameters (v3.0)
+    # ═══════════════════════════════════════════════════════════════════
+
+    vvg_vt_mode: str = Field(
+        default="standard",
+        description="Plotting mode: 'standard', 'normalized', or 'derivative'"
+    )
+
+    # ═══════════════════════════════════════════════════════════════════
+    # CNP Time Plot Parameters (v3.0 - requires enriched history)
+    # ═══════════════════════════════════════════════════════════════════
+
+    cnp_metric: str = Field(
+        default="cnp_voltage",
+        description="CNP metric to plot: 'cnp_voltage', 'cnp_current', 'mobility'"
+    )
+
+    cnp_show_illumination: bool = Field(
+        default=True,
+        description="Show illumination periods on CNP time plot"
+    )
+
+    # ═══════════════════════════════════════════════════════════════════
+    # Photoresponse Plot Parameters (v3.0 - requires enriched history)
+    # ═══════════════════════════════════════════════════════════════════
+
+    photoresponse_mode: str = Field(
+        default="power",
+        description="Photoresponse plot mode: 'power', 'wavelength', 'gate_voltage', or 'time'"
+    )
+
+    photoresponse_filter_vg: Optional[float] = Field(
+        default=None,
+        description="Filter by gate voltage (for wavelength/power plots)"
+    )
+
+    photoresponse_filter_wl: Optional[int] = Field(
+        default=None,
+        description="Filter by wavelength in nm (for power/gate plots)"
+    )
+
+    photoresponse_normalize: bool = Field(
+        default=False,
+        description="Normalize photoresponse to dark current"
+    )
+
+    # ═══════════════════════════════════════════════════════════════════
+    # Data Pipeline Parameters (v3.0)
+    # ═══════════════════════════════════════════════════════════════════
+
+    pipeline_staging_workers: int = Field(
+        default=6,
+        ge=1,
+        le=16,
+        description="Number of parallel workers for staging"
+    )
+
+    pipeline_strict_mode: bool = Field(
+        default=False,
+        description="Strict schema validation (fail on errors)"
+    )
+
+    pipeline_force_overwrite: bool = Field(
+        default=False,
+        description="Force overwrite existing staged data"
+    )
+
+    pipeline_include_calibrations: bool = Field(
+        default=True,
+        description="Include laser calibration power extraction"
+    )
+
+    # ═══════════════════════════════════════════════════════════════════
+    # Enriched History Support (v3.0)
+    # ═══════════════════════════════════════════════════════════════════
+
+    use_enriched_histories: bool = Field(
+        default=True,
+        description="Use enriched histories with derived metrics if available"
+    )
+
+    enriched_history_dir: Path = Field(
+        default=Path("data/03_derived/chip_histories_enriched"),
+        description="Enriched history directory path"
+    )
+
+    # ═══════════════════════════════════════════════════════════════════
     # Validators
     # ═══════════════════════════════════════════════════════════════════
 
@@ -182,8 +274,14 @@ class PlotSession(BaseModel):
     @classmethod
     def validate_plot_type(cls, v: Optional[str]) -> Optional[str]:
         """Validate plot type is one of the supported types."""
-        if v is not None and v not in ["ITS", "IVg", "Transconductance"]:
-            raise ValueError(f"Invalid plot_type: {v}. Must be 'ITS', 'IVg', or 'Transconductance'")
+        valid_types = [
+            "ITS", "IVg", "Transconductance",  # Existing v2.x plot types
+            "VVg", "Vt",                        # New measurement plots (v3.0)
+            "CNP", "Photoresponse",             # New derived metric plots (v3.0)
+            "LaserCalibration", "ITSRelaxation" # New specialized plots (v3.0)
+        ]
+        if v is not None and v not in valid_types:
+            raise ValueError(f"Invalid plot_type: {v}. Must be one of {valid_types}")
         return v
 
     @field_validator("config_mode")
@@ -224,6 +322,30 @@ class PlotSession(BaseModel):
         """Validate window_length is odd for Savitzky-Golay filter."""
         if v % 2 == 0:
             raise ValueError(f"window_length must be odd, got {v}")
+        return v
+
+    @field_validator("vvg_vt_mode")
+    @classmethod
+    def validate_vvg_vt_mode(cls, v: str) -> str:
+        """Validate VVg/Vt plotting mode."""
+        if v not in ["standard", "normalized", "derivative"]:
+            raise ValueError(f"Invalid vvg_vt_mode: {v}. Must be 'standard', 'normalized', or 'derivative'")
+        return v
+
+    @field_validator("cnp_metric")
+    @classmethod
+    def validate_cnp_metric(cls, v: str) -> str:
+        """Validate CNP metric selection."""
+        if v not in ["cnp_voltage", "cnp_current", "mobility"]:
+            raise ValueError(f"Invalid cnp_metric: {v}. Must be 'cnp_voltage', 'cnp_current', or 'mobility'")
+        return v
+
+    @field_validator("photoresponse_mode")
+    @classmethod
+    def validate_photoresponse_mode(cls, v: str) -> str:
+        """Validate photoresponse plot mode."""
+        if v not in ["power", "wavelength", "gate_voltage", "time"]:
+            raise ValueError(f"Invalid photoresponse_mode: {v}. Must be 'power', 'wavelength', 'gate_voltage', or 'time'")
         return v
 
     # ═══════════════════════════════════════════════════════════════════

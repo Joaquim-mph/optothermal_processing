@@ -178,6 +178,9 @@ class ConfigModeSelectorScreen(SelectorScreen):
             if self.plot_type == "ITS":
                 # For ITS, go to preset selector first
                 self.app.router.go_to_its_preset_selector()
+            elif self.plot_type == "Vt":
+                # For Vt, go to preset selector first (mirrors ITS workflow)
+                self.app.router.go_to_vt_preset_selector()
             elif self.plot_type == "IVg":
                 self.app.router.go_to_ivg_config()
             elif self.plot_type == "Transconductance":

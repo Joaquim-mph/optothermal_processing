@@ -1,0 +1,227 @@
+digraph extractors_slide {
+    // Graph attributes for presentation
+    graph [
+        rankdir=TB
+        bgcolor="white"
+        fontname="Arial Bold"
+        fontsize=32
+        label="\n\nHow Metric Extractors Work"
+        labelloc=t
+        fontsize=42
+        dpi=150
+        size="16,9!"
+        ratio=fill
+    ]
+
+    node [fontname="Arial Bold" fontsize=22 penwidth=3]
+    edge [fontname="Arial Bold" fontsize=20 penwidth=3]
+
+    // ============================================================
+    // TITLE SECTION
+    // ============================================================
+
+    subtitle [
+        label="Plugin Architecture for Deriving Analytical Results"
+        shape=box
+        style="filled,rounded"
+        fillcolor="#fff9c4"
+        color="#f9a825"
+        fontsize=24
+        penwidth=0
+    ]
+
+    // ============================================================
+    // 1. INPUT DATA
+    // ============================================================
+
+    subgraph cluster_input {
+        label="1️⃣  INPUT: Measurement Data"
+        style=filled
+        color="#1976d2"
+        fillcolor="#e3f2fd"
+        fontsize=28
+        penwidth=4
+
+        measurement [
+            label="📊 Staged Measurement\n━━━━━━━━━━━━━━━\nPolars DataFrame\n\nVg (V)    │  I (A)\n─────────┼─────────\n-1.0      │  1.5e-6\n-0.5      │  0.8e-6\n 0.0      │  0.5e-6  ← CNP!\n 0.5      │  0.9e-6\n 1.0      │  1.6e-6"
+            shape=box
+            style="filled,rounded"
+            fillcolor="#bbdefb"
+            color="#1976d2"
+            fontsize=20
+            height=3
+            width=5
+        ]
+
+        metadata [
+            label="📋 Metadata\n━━━━━━━━━━━━━━━\nchip_number: 67\nproc: IVg\nvds_v: 0.1\nrun_id: a1b2c3..."
+            shape=note
+            style=filled
+            fillcolor="#c5cae9"
+            color="#3f51b5"
+            fontsize=18
+            width=4
+        ]
+    }
+
+    // ============================================================
+    // 2. EXTRACTOR SELECTION
+    // ============================================================
+
+    subgraph cluster_selection {
+        label="2️⃣  EXTRACTOR SELECTION"
+        style=filled
+        color="#388e3c"
+        fillcolor="#e8f5e9"
+        fontsize=28
+        penwidth=4
+
+        procedure_check [
+            label="🔍 Check Procedure Type\n━━━━━━━━━━━━━━━━━━\nproc = \"IVg\""
+            shape=diamond
+            style=filled
+            fillcolor="#c8e6c9"
+            color="#388e3c"
+            fontsize=20
+            width=4
+        ]
+
+        extractor_map [
+            label="📚 Extractor Registry\n━━━━━━━━━━━━━━━━━━\nIVg   → CNPExtractor\nVVg   → CNPExtractor\nIt    → PhotoresponseExtractor\nVt    → PhotoresponseExtractor\nITt   → PhotoresponseExtractor"
+            shape=box
+            style=filled
+            fillcolor="#a5d6a7"
+            color="#2e7d32"
+            fontsize=18
+            width=6
+            height=2.5
+        ]
+    }
+
+    // ============================================================
+    // 3. EXTRACTOR LOGIC
+    // ============================================================
+
+    subgraph cluster_extraction {
+        label="3️⃣  EXTRACTION LOGIC"
+        style=filled
+        color="#7b1fa2"
+        fillcolor="#f3e5f5"
+        fontsize=28
+        penwidth=4
+
+        extractor [
+            label="⚙️  CNPExtractor.extract()\n━━━━━━━━━━━━━━━━━━━━━━━\n\n1️⃣  Calculate Resistance\n   R = Vds / I\n\n2️⃣  Find Peak\n   CNP = Vg where R is max\n\n3️⃣  Compute Confidence\n   Check: edge? noisy?\n\n4️⃣  Return DerivedMetric"
+            shape=box
+            style="filled,rounded"
+            fillcolor="#ce93d8"
+            color="#7b1fa2"
+            fontsize=20
+            height=4
+            width=6
+        ]
+
+        code_example [
+            label="💻 Code Snippet\n━━━━━━━━━━━━━━━━━━━━━━━\n\nclass CNPExtractor:\n  applicable_procedures =\n    [\"IVg\", \"VVg\"]\n\n  def extract(measurement, metadata):\n    # Calculate resistance\n    r = abs(vds / current)\n    \n    # Find max resistance point\n    cnp_idx = argmax(r)\n    cnp_voltage = vg[cnp_idx]\n    \n    return DerivedMetric(\n      metric_name=\"cnp_voltage\",\n      value_float=cnp_voltage,\n      ...)"
+            shape=note
+            style=filled
+            fillcolor="#e1bee7"
+            color="#8e24aa"
+            fontsize=16
+            width=6
+            height=4
+        ]
+    }
+
+    // ============================================================
+    // 4. OUTPUT
+    // ============================================================
+
+    subgraph cluster_output {
+        label="4️⃣  OUTPUT: Derived Metric"
+        style=filled
+        color="#c2185b"
+        fillcolor="#fce4ec"
+        fontsize=28
+        penwidth=4
+
+        derived_metric [
+            label="✨ DerivedMetric\n━━━━━━━━━━━━━━━━━━━━\n\nrun_id: a1b2c3...\nchip_number: 67\nproc: IVg\nseq_num: 15\n\nmetric_name: cnp_voltage\nvalue_float: -0.35\nunit: V\n\nconfidence: 1.0\nflags: null\n\nextraction_method:\n  peak_resistance\nextraction_version:\n  v3.0+g1a2b3c"
+            shape=box
+            style="filled,rounded"
+            fillcolor="#f8bbd0"
+            color="#c2185b"
+            fontsize=18
+            height=4
+            width=5
+        ]
+
+        saved [
+            label="💾 Saved to:\nmetrics.parquet"
+            shape=cylinder
+            style=filled
+            fillcolor="#f48fb1"
+            color="#ad1457"
+            fontsize=20
+            width=3
+            height=1.5
+        ]
+    }
+
+    // ============================================================
+    // DATA FLOW
+    // ============================================================
+
+    subtitle -> measurement [style=invis]
+
+    measurement -> procedure_check [label="  proc=\"IVg\"" fontsize=20 penwidth=4 color="#388e3c"]
+    metadata -> procedure_check [style=dashed penwidth=3 color="#3f51b5"]
+
+    procedure_check -> extractor_map [label="  lookup" fontsize=20 penwidth=4 color="#388e3c"]
+
+    extractor_map -> extractor [label="  CNPExtractor" fontsize=20 penwidth=4 color="#7b1fa2"]
+
+    extractor -> derived_metric [label="  compute" fontsize=20 penwidth=4 color="#c2185b"]
+
+    derived_metric -> saved [label="  write" fontsize=20 penwidth=4 color="#c2185b"]
+
+    // Side connection for code example
+    extractor -> code_example [style=dashed penwidth=2 color="#8e24aa" constraint=false]
+
+    // ============================================================
+    // KEY FEATURES BOX
+    // ============================================================
+
+    features [
+        label="🎯 KEY FEATURES\n━━━━━━━━━━━━━━━━━━━━━━\n\n✅ Plugin-based: Add extractors without\n   changing pipeline\n\n✅ Parallel: Process 6 measurements\n   simultaneously\n\n✅ Quality-aware: Confidence scores\n   and warning flags\n\n✅ Provenance: Track extraction method\n   and code version\n\n✅ Type-safe: Pydantic models ensure\n   schema consistency"
+        shape=box
+        style="filled,rounded"
+        fillcolor="#dcedc8"
+        color="#689f38"
+        fontsize=18
+        penwidth=4
+        width=6
+        height=3
+    ]
+
+    saved -> features [style=invis]
+
+    // ============================================================
+    // AVAILABLE EXTRACTORS
+    // ============================================================
+
+    available [
+        label="📦 AVAILABLE EXTRACTORS\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n🔹 CNPExtractor\n   Procedures: IVg, VVg\n   Extracts: Charge neutrality point voltage\n\n🔹 PhotoresponseExtractor\n   Procedures: It, Vt, ITt\n   Extracts: ΔI_ds, ΔV_ds, responsivity\n\n🔹 CalibrationMatcher\n   Procedures: LaserCalibration\n   Extracts: Irradiated power\n\n➕ Easy to add more!"
+        shape=note
+        style="filled,rounded"
+        fillcolor="#fff9c4"
+        color="#f9a825"
+        fontsize=18
+        penwidth=3
+        width=6
+        height=3
+    ]
+
+    {rank=same; features; available}
+    features -> available [style=invis]
+}

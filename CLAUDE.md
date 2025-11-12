@@ -70,7 +70,7 @@ python3 process_and_analyze.py show-history 67 --proc IVg --light dark --limit 2
 ### Derived Metrics Pipeline (New in v3.0)
 
 ```bash
-# Extract all derived metrics (CNP, photoresponse) from measurements
+# Extract all derived metrics (CNP, photoresponse, relaxation times) from measurements
 python3 process_and_analyze.py derive-all-metrics
 
 # Include laser calibration power extraction (enabled by default)
@@ -94,6 +94,19 @@ python3 process_and_analyze.py enrich-history -a --calibrations-only  # Only add
 
 # Alternative: Link calibrations only (advanced users)
 python3 process_and_analyze.py link-calibrations
+```
+
+### Pipeline Builder (New in v3.2)
+
+```bash
+# Run full pipeline using formal Pipeline builder (with error handling, rollback, checkpoints)
+python3 process_and_analyze.py full-pipeline-v2
+
+# Resume from checkpoint after failure
+python3 process_and_analyze.py full-pipeline-v2 --resume latest
+
+# Enable rollback on failure (undo completed steps)
+python3 process_and_analyze.py full-pipeline-v2 --enable-rollback
 ```
 
 ### Plotting Commands
@@ -147,6 +160,53 @@ python3 process_and_analyze.py config-validate
 python3 process_and_analyze.py --verbose --output-dir /tmp/test plot-its 67 --auto
 ```
 
+### Data Export and Output Formats (New in v3.1)
+
+Commands that display data support multiple output formats for scripting and automation:
+
+```bash
+# View chip history (default: Rich terminal table)
+python3 process_and_analyze.py show-history 67
+
+# Export as JSON for scripting
+python3 process_and_analyze.py show-history 67 --format json
+
+# Export as CSV for spreadsheets
+python3 process_and_analyze.py show-history 67 --format csv > history.csv
+
+# Inspect manifest data
+python3 process_and_analyze.py inspect-manifest --chip 67 --format json
+
+# Combine with filters
+python3 process_and_analyze.py show-history 67 --proc IVg --format json > ivg_data.json
+python3 process_and_analyze.py inspect-manifest --proc ITS --format csv > its_manifest.csv
+
+# Pipe to external tools (jq, column, etc.)
+python3 process_and_analyze.py show-history 67 --format json | jq '.metadata'
+python3 process_and_analyze.py show-history 67 --format json | jq '.data[] | select(.procedure == "IVg")'
+python3 process_and_analyze.py inspect-manifest --format csv | column -t -s,
+
+# Scripting examples
+# Extract CNP voltages
+python3 process_and_analyze.py show-history 67 --format json | \
+  jq '.data[] | select(.cnp_voltage != null) | {seq, cnp_voltage}'
+
+# Count experiments by procedure
+python3 process_and_analyze.py show-history 67 --format json | \
+  jq '.data | group_by(.procedure) | map({proc: .[0].procedure, count: length})'
+
+# Check for failed experiments
+python3 process_and_analyze.py inspect-manifest --format json | \
+  jq '[.data[] | select(.status == "failed")] | length'
+```
+
+**Available Formats:**
+- `table` (default) - Rich terminal table with colors and styling
+- `json` - Machine-readable JSON with metadata
+- `csv` - Spreadsheet-compatible CSV
+
+**See:** `docs/OUTPUT_FORMATTERS.md` for complete guide
+
 ### Terminal UI (For Lab Users)
 
 ```bash
@@ -168,6 +228,8 @@ python3 process_and_analyze.py list-plugins --group plotting
 ```
 
 ## Architecture
+
+**Visual Overview:** See `docs/pipeline_architecture.png` for a comprehensive diagram of the entire pipeline, including data flow, processing steps, and the new output formatters feature.
 
 ### Data Flow
 
@@ -206,6 +268,7 @@ The pipeline follows a four-stage data processing architecture:
 - `stage_raw_measurements.py`: Main staging pipeline (CSV → Parquet + manifest)
 - `schema_validator.py`: **Schema validation engine (validates CSV against procedures.yml)**
 - `history_builder.py`: Chip history generation from manifest
+- `pipeline.py`: **Formal pipeline builder** (error handling, rollback, checkpointing, retry logic)
 - `utils.py`: Common utilities, numeric coercion, light detection, Parquet reading with `read_measurement_parquet()`
 - `stage_utils.py`: Validation helpers, type coercion for staging
 - `parser.py`: CSV header parsing (legacy, still used for compatibility)
@@ -233,7 +296,14 @@ The pipeline follows a four-stage data processing architecture:
 
 **Derived Metrics** (`src/derived/`) **[New in v3.0]**
 - `metric_pipeline.py`: Main pipeline for extracting derived metrics
-- `extractors/`: Individual metric extractors (CNP, photoresponse, calibration matching)
+- `extractors/`: Individual metric extractors (CNP, photoresponse, calibration matching, relaxation times)
+  - `cnp_extractor.py`: Charge neutrality point (Dirac point) extraction
+  - `photoresponse_extractor.py`: Simple photoresponse (ΔI) calculation
+  - `calibration_matcher.py`: Laser calibration power association
+  - `its_relaxation_extractor.py`: **Single-phase relaxation time** (stretched exponential, Numba-accelerated)
+  - `its_three_phase_fit_extractor.py`: **Three-phase relaxation** (PRE-DARK, LIGHT, POST-DARK)
+- `algorithms/`: Numba-accelerated fitting algorithms
+  - `stretched_exponential.py`: Levenberg-Marquardt optimization (2-200x faster than SciPy)
 - `registry.py`: Plugin registry for auto-discovery of extractors
 - `models.py`: Pydantic models for metric metadata
 - Supports parallel extraction and incremental updates
@@ -242,12 +312,16 @@ The pipeline follows a four-stage data processing architecture:
 - `main.py`: Typer app with plugin discovery system
 - `plugin_system.py`: **Auto-discovery and registration of commands via `@cli_command` decorator**
 - `config.py`: **Configuration management layer (Pydantic-based)**
+- `cache.py`: **Thread-safe caching for loaded data** (TTL-based, file modification tracking, LRU eviction)
+- `context.py`: **Session state management** (tracks loaded histories, config overrides)
 - `commands/`: Individual command modules (auto-discovered by plugin system)
-  - `data_pipeline.py`: Full pipeline orchestration
+  - `data_pipeline.py`: Full pipeline orchestration (legacy)
+  - `data_pipeline_v2.py`: **Pipeline builder-based orchestration** (error handling, rollback, checkpoints)
   - `history.py`: History viewing and generation
   - `stage.py`: Staging commands and validation
   - `derived_metrics.py`: Derived metrics extraction commands
   - `plot_its.py`: ITS plotting with presets
+  - `plot_its_relaxation.py`: ITS relaxation time visualization
   - `plot_ivg.py`: IVg plotting
   - `plot_vvg.py`: VVg plotting
   - `plot_vt.py`: Vt plotting
@@ -256,9 +330,11 @@ The pipeline follows a four-stage data processing architecture:
   - `plot_photoresponse.py`: Photoresponse analysis plotting
   - `plot_laser_calibration.py`: Laser calibration plotting
   - `config.py`: Configuration management commands
+  - `cache.py`: Cache management commands (stats, clear)
   - `utilities.py`: Utility commands (list-plugins, etc.)
 - `helpers.py`: Shared CLI utilities (seq parsing, output setup, Rich displays)
 - `history_utils.py`: History filtering logic shared by CLI and TUI
+- `formatters.py`: **Output formatters** (table, JSON, CSV) for data export
 - **Note**: `process_and_analyze.py` in project root is a thin wrapper
 
 **TUI** (`src/tui/`)
@@ -331,14 +407,35 @@ The pipeline follows a four-stage data processing architecture:
 ## Key Concepts (Continued)
 
 **Derived Metrics Pipeline** **[New in v3.0]**
-- **Automated extraction**: Extracts derived quantities (CNP, photoresponse) from measurements
+- **Automated extraction**: Extracts derived quantities (CNP, photoresponse, relaxation times) from measurements
 - **Plugin-based extractors**: Auto-discovered metric extractors in `src/derived/extractors/`
 - **Incremental updates**: Only processes new/changed measurements (use `--force` to re-extract)
 - **Parallel processing**: Multi-worker extraction for performance
 - **Laser calibration matching**: Associates light experiments with nearest calibration curves
 - **Power interpolation**: Calculates irradiated power from laser voltage and calibration data
+- **Relaxation time extraction**: **Numba-accelerated stretched exponential fitting** (2-200x faster than SciPy)
+  - Single-phase: Extracts τ, β from LED ON period
+  - Three-phase: Fits PRE-DARK, LIGHT, POST-DARK separately for complete dynamics
 - **Enriched histories**: Chip histories with derived metrics joined as columns for plotting
 - **See**: `docs/DERIVED_METRICS_ARCHITECTURE.md` for complete documentation
+- **See**: `docs/ITS_RELAXATION_TIME_EXTRACTOR.md` for relaxation time details
+- **See**: `docs/ITS_THREE_PHASE_FITTING_GUIDE.md` for three-phase fitting guide
+
+**Pipeline Builder** **[New in v3.2]**
+- **Formal pipeline orchestration**: Declarative pipeline definition with `Pipeline` class
+- **Error handling**: Automatic retry, skip-on-error, rollback capabilities
+- **Checkpointing**: Save/restore pipeline state for resumable execution
+- **Progress tracking**: Rich progress bars with real-time step status
+- **YAML export**: Save pipeline definitions for reuse
+- **See**: `src/core/pipeline.py` for implementation
+- **Use**: `full-pipeline-v2` command for error-resilient pipeline execution
+
+**CLI Caching & Performance** **[New in v3.2]**
+- **Thread-safe caching**: TTL-based cache with file modification tracking
+- **LRU eviction**: Automatic memory management (configurable max size)
+- **Cache statistics**: Hit rate monitoring via `cache-stats` command
+- **Session context**: Persistent state across commands in same session
+- **See**: `src/cli/cache.py` and `src/cli/context.py` for implementation
 
 **Adding New Derived Metrics**
 1. **Create extractor** in `src/derived/extractors/my_metric.py`:
@@ -357,6 +454,28 @@ The pipeline follows a four-stage data processing architecture:
 2. **Auto-discovered**: No registration needed, just import in `__init__.py`
 3. **Test**: `python3 process_and_analyze.py derive-all-metrics --procedures IVg`
 4. **See**: `docs/ADDING_NEW_METRICS_GUIDE.md` for step-by-step guide
+
+**Performance-Critical Extractors: Use Numba**
+For extractors requiring iterative optimization or heavy computation:
+```python
+from numba import jit
+import numpy as np
+
+@jit(nopython=True)  # Compile to machine code for 2-200x speedup
+def fit_model(x: np.ndarray, y: np.ndarray) -> tuple:
+    # Numba-accelerated fitting algorithm
+    # Must use NumPy (not Polars) inside @jit functions
+    return tau, beta, r_squared
+
+class MyFittingExtractor:
+    def extract(self, measurement: pl.DataFrame, metadata: dict):
+        # Convert Polars to NumPy for Numba function
+        x = measurement["time"].to_numpy()
+        y = measurement["current"].to_numpy()
+        tau, beta, r2 = fit_model(x, y)
+        return [DerivedMetric(...)]
+```
+**See**: `src/derived/algorithms/stretched_exponential.py` for real-world example
 
 ## Development Workflow
 
@@ -445,6 +564,31 @@ Quick overview:
 - Derivatives: `src/plotting/transconductance.py`
 - Derived metrics: `src/plotting/cnp_time.py`, `src/plotting/photoresponse.py`
 
+### Plotting Style Guidelines
+
+**IMPORTANT: Follow these style rules for all plots:**
+
+1. **NO GRIDS**: Plots should NEVER have grid lines enabled
+   - ❌ WRONG: `plt.grid(True)` or `ax.grid(True)`
+   - ✅ CORRECT: No grid calls, or explicitly `plt.grid(False)`
+   - Reason: Clean, professional appearance for publication-quality figures
+
+2. **Use PlotConfig**: Always use `PlotConfig` for output paths and styling
+   - Ensures chip-first directory hierarchy (`figs/Encap81/It/Dark_It/`)
+   - Respects global configuration (DPI, format, theme)
+
+3. **Directory creation**: Only create directories during save
+   - Use `create_dirs=True` when calling `config.get_output_path()` before `savefig()`
+   - Never create directories during validation or path preview
+
+4. **Procedure names**: Use data procedure names, not plotting aliases
+   - ✅ CORRECT: `procedure="It"` (matches data)
+   - ❌ WRONG: `procedure="ITS"` (old plotting name)
+
+5. **Illumination handling**: Auto-detect subcategories from metadata
+   - Pass `metadata={"has_light": False}` for automatic `Dark_It/` subfolder
+   - Handle mixed illumination gracefully (save to root, warn user)
+
 ### Modifying Data Schema
 
 1. **Update `src/models/manifest.py`** (Pydantic model)
@@ -478,6 +622,15 @@ python3 -c "from src.cli.main import app; print('✓ CLI imports OK')"
 
 # Test command discovery
 python3 process_and_analyze.py list-plugins
+
+# Test Numba-accelerated algorithms
+python3 -m src.derived.algorithms.benchmark_stretched_exp
+
+# Test caching system
+python3 -m pytest tests/test_cache.py -v
+
+# Test pipeline builder
+python3 -m pytest tests/test_pipeline.py -v
 ```
 
 ## Important Notes
@@ -537,6 +690,44 @@ python3 process_and_analyze.py list-plugins
 
 ## Recent Additions & Features
 
+### Version 3.2 - Pipeline Builder & Advanced Relaxation Analysis (November 2025)
+
+**New Pipeline Features:**
+- `full-pipeline-v2`: Formal pipeline builder with error handling, rollback, and checkpointing
+  - Resume from checkpoints: `--resume latest`
+  - Rollback on failure: `--enable-rollback`
+  - Retry failed steps automatically
+- **Pipeline class**: Declarative pipeline definition for custom workflows
+- **See**: `src/core/pipeline.py` for implementation
+
+**New Relaxation Time Extractors:**
+- **Single-phase relaxation**: Extracts τ, β from LED ON period using Numba-accelerated stretched exponential fitting
+  - 2-200x faster than SciPy (< 1ms per fit for typical ITS measurements)
+  - Command: `derive-all-metrics` (auto-included)
+  - Visualization: `plot-its-relaxation 67 --seq 52`
+- **Three-phase relaxation**: Fits PRE-DARK, LIGHT, POST-DARK separately
+  - Complete photoresponse dynamics (τ₁, τ₂, τ₃, β₁, β₂, β₃)
+  - Captures baseline stability, photoresponse buildup, and decay
+  - Command: `derive-all-metrics` (auto-included)
+- **See**: `docs/ITS_RELAXATION_TIME_EXTRACTOR.md` and `docs/ITS_THREE_PHASE_FITTING_GUIDE.md`
+
+**CLI Performance Improvements:**
+- **Thread-safe caching**: TTL-based cache with LRU eviction (5-100x speedup for repeated commands)
+- **Session context**: Persistent state across commands
+- **Cache management**: `cache-stats`, `cache-clear` commands
+- **See**: `src/cli/cache.py` and `src/cli/context.py`
+
+**Workflow:**
+1. Stage data: `python3 process_and_analyze.py full-pipeline-v2` (with error recovery)
+2. Extract metrics: `python3 process_and_analyze.py derive-all-metrics` (includes relaxation times)
+3. Enrich histories: `python3 process_and_analyze.py enrich-history -a`
+4. Plot relaxation: `python3 process_and_analyze.py plot-its-relaxation 67 --auto`
+
+**Documentation:**
+- `docs/ITS_RELAXATION_TIME_EXTRACTOR.md`: Relaxation time extraction guide
+- `docs/ITS_THREE_PHASE_FITTING_GUIDE.md`: Three-phase fitting guide
+- `src/derived/algorithms/benchmark_stretched_exp.py`: Performance benchmarks
+
 ### Version 3.0 - Derived Metrics Pipeline (October 2025)
 
 **New Commands:**
@@ -563,5 +754,4 @@ python3 process_and_analyze.py list-plugins
 **Documentation:**
 - `docs/DERIVED_METRICS_ARCHITECTURE.md`: Complete architecture guide
 - `docs/ADDING_NEW_METRICS_GUIDE.md`: Step-by-step guide for adding extractors
-- `docs/DERIVED_METRICS_QUICKSTART.md`: Quick start guide
 - `docs/CNP_EXTRACTOR_GUIDE.md`: CNP extractor implementation details

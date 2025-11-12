@@ -1,0 +1,513 @@
+digraph pipeline_architecture {
+    // Graph attributes
+    graph [
+        rankdir=TB
+        bgcolor="#f8f9fa"
+        fontname="Arial"
+        fontsize=14
+        label="\n\nOptothermal Processing Pipeline Architecture\nVersion 3.1 with Output Formatters"
+        labelloc=t
+        fontsize=16
+    ]
+
+    node [fontname="Arial" fontsize=11]
+    edge [fontname="Arial" fontsize=10]
+
+    // Define color scheme
+    // Stage 1: Raw data (blue)
+    // Stage 2: Staged data (green)
+    // Stage 3: Derived metrics (orange)
+    // Processing (purple)
+    // Output (red)
+
+    // ============================================================
+    // STAGE 1: RAW DATA
+    // ============================================================
+
+    subgraph cluster_raw {
+        label="Stage 1: Raw Data (01_raw/)"
+        style=filled
+        color="#e3f2fd"
+        fontsize=12
+        fontcolor="#0d47a1"
+
+        raw_csv [
+            label="Raw CSV Files\n━━━━━━━━━━━━━━\nLab Equipment Output\n• Keithley sourcemeter\n• Laser control\n• Temperature sensors\n\nFormat: ChipGroup##_###.csv\nExample: Alisson67_015.csv"
+            shape=folder
+            style=filled
+            fillcolor="#bbdefb"
+            color="#1976d2"
+        ]
+
+        csv_structure [
+            label="CSV Structure\n━━━━━━━━━━━━━━\n#Parameters:\n  Vgs_start: -1.0\n  Vgs_stop: 1.0\n#Metadata:\n  Start time: 1634567890\n  wavelength: 365.0\n#Data:\n  time,voltage,current"
+            shape=note
+            style=filled
+            fillcolor="#e1f5fe"
+            color="#0288d1"
+        ]
+    }
+
+    raw_csv -> csv_structure [style=dotted color="#1976d2" label="  structure"]
+
+    // ============================================================
+    // PROCESSING: STAGING PIPELINE
+    // ============================================================
+
+    subgraph cluster_staging {
+        label="Processing: Staging Pipeline"
+        style=filled
+        color="#f3e5f5"
+        fontsize=12
+        fontcolor="#4a148c"
+
+        stage_cmd [
+            label="Command: stage-all\n━━━━━━━━━━━━━━━━━━━\nsrc/core/stage_raw_measurements.py"
+            shape=box
+            style="filled,rounded"
+            fillcolor="#ce93d8"
+            color="#7b1fa2"
+        ]
+
+        schema_validator [
+            label="Schema Validator\n━━━━━━━━━━━━━━\nsrc/core/schema_validator.py\n\n✓ Validate against procedures.yml\n✓ Type coercion\n✓ Required field checks"
+            shape=component
+            style=filled
+            fillcolor="#e1bee7"
+            color="#8e24aa"
+        ]
+
+        parallel_processing [
+            label="Parallel Processing\n━━━━━━━━━━━━━━━━\nProcessPoolExecutor\n(default: 6 workers)"
+            shape=parallelogram
+            style=filled
+            fillcolor="#e1bee7"
+            color="#8e24aa"
+        ]
+    }
+
+    raw_csv -> stage_cmd [label="  read" color="#7b1fa2" penwidth=2]
+    stage_cmd -> schema_validator [label="  parse & validate" color="#7b1fa2"]
+    schema_validator -> parallel_processing [label="  distribute" color="#7b1fa2"]
+
+    // Configuration file
+    procedures_yml [
+        label="config/procedures.yml\n━━━━━━━━━━━━━━━━━━\nProcedure Schemas:\n• IVg, IV, IVgT\n• It, ITt, Tt\n• LaserCalibration\n• VVg, Vt"
+        shape=note
+        style=filled
+        fillcolor="#fff9c4"
+        color="#f9a825"
+    ]
+
+    procedures_yml -> schema_validator [style=dashed color="#f9a825" label="  schema"]
+
+    // ============================================================
+    // STAGE 2: STAGED DATA
+    // ============================================================
+
+    subgraph cluster_staged {
+        label="Stage 2: Staged Data (02_stage/)"
+        style=filled
+        color="#e8f5e9"
+        fontsize=12
+        fontcolor="#1b5e20"
+
+        staged_parquet [
+            label="Staged Measurements\n━━━━━━━━━━━━━━━━━━━\nraw_measurements/{proc}/\n• IVg/*.parquet\n• It/*.parquet\n• LaserCalibration/*.parquet\n• etc.\n\nSchema-validated\nType-safe"
+            shape=folder
+            style=filled
+            fillcolor="#c8e6c9"
+            color="#388e3c"
+        ]
+
+        manifest [
+            label="manifest.parquet\n━━━━━━━━━━━━━━━━\n_manifest/manifest.parquet\n\n✦ Authoritative metadata table\n✦ One row per measurement\n✦ Pydantic-validated schema\n✦ Includes parquet_path column"
+            shape=cylinder
+            style=filled
+            fillcolor="#a5d6a7"
+            color="#2e7d32"
+            fontcolor="#1b5e20"
+        ]
+    }
+
+    parallel_processing -> staged_parquet [label="  write" color="#388e3c" penwidth=2]
+    parallel_processing -> manifest [label="  generate" color="#388e3c" penwidth=2]
+
+    // ============================================================
+    // PROCESSING: HISTORY BUILDER
+    // ============================================================
+
+    subgraph cluster_history_builder {
+        label="Processing: History Builder"
+        style=filled
+        color="#f3e5f5"
+        fontsize=12
+        fontcolor="#4a148c"
+
+        history_cmd [
+            label="Command: build-all-histories\n━━━━━━━━━━━━━━━━━━━━━━━━━\nsrc/core/history_builder.py"
+            shape=box
+            style="filled,rounded"
+            fillcolor="#ce93d8"
+            color="#7b1fa2"
+        ]
+
+        group_by_chip [
+            label="Group by Chip\n━━━━━━━━━━━━━\nFilter manifest by:\n• chip_number\n• chip_group\n\nSort by timestamp\nAdd seq numbers"
+            shape=component
+            style=filled
+            fillcolor="#e1bee7"
+            color="#8e24aa"
+        ]
+    }
+
+    manifest -> history_cmd [label="  read" color="#7b1fa2" penwidth=2]
+    history_cmd -> group_by_chip [label="  filter" color="#7b1fa2"]
+
+    // ============================================================
+    // STAGE 2.5: CHIP HISTORIES
+    // ============================================================
+
+    subgraph cluster_chip_histories {
+        label="Stage 2.5: Chip Histories (02_stage/chip_histories/)"
+        style=filled
+        color="#e8f5e9"
+        fontsize=12
+        fontcolor="#1b5e20"
+
+        chip_histories [
+            label="Chip Histories\n━━━━━━━━━━━━━━\nchip_histories/\n• chip_067.parquet\n• chip_075.parquet\n• chip_081.parquet\n• etc.\n\nOne file per chip\nSequential experiment numbers\nIncludes parquet_path column"
+            shape=folder
+            style=filled
+            fillcolor="#c8e6c9"
+            color="#388e3c"
+        ]
+    }
+
+    group_by_chip -> chip_histories [label="  write" color="#388e3c" penwidth=2]
+
+    // ============================================================
+    // PROCESSING: DERIVED METRICS PIPELINE
+    // ============================================================
+
+    subgraph cluster_derived_metrics {
+        label="Processing: Derived Metrics Pipeline"
+        style=filled
+        color="#f3e5f5"
+        fontsize=12
+        fontcolor="#4a148c"
+
+        derive_cmd [
+            label="Command: derive-all-metrics\n━━━━━━━━━━━━━━━━━━━━━━━━━━\nsrc/derived/metric_pipeline.py"
+            shape=box
+            style="filled,rounded"
+            fillcolor="#ce93d8"
+            color="#7b1fa2"
+        ]
+
+        extractors [
+            label="Metric Extractors\n━━━━━━━━━━━━━━━━\nsrc/derived/extractors/\n\n• CNP Extractor (IVg → Dirac point)\n• Photoresponse Extractor (ITS → ΔI)\n• Calibration Matcher (LaserCalibration)"
+            shape=component
+            style=filled
+            fillcolor="#e1bee7"
+            color="#8e24aa"
+        ]
+
+        parallel_extract [
+            label="Parallel Extraction\n━━━━━━━━━━━━━━━━\nMulti-worker processing\nIncremental updates"
+            shape=parallelogram
+            style=filled
+            fillcolor="#e1bee7"
+            color="#8e24aa"
+        ]
+    }
+
+    staged_parquet -> derive_cmd [label="  read measurements" color="#7b1fa2" penwidth=2]
+    manifest -> derive_cmd [label="  read metadata" color="#7b1fa2" penwidth=2]
+    derive_cmd -> extractors [label="  dispatch by procedure" color="#7b1fa2"]
+    extractors -> parallel_extract [label="  distribute" color="#7b1fa2"]
+
+    // ============================================================
+    // STAGE 3: DERIVED METRICS
+    // ============================================================
+
+    subgraph cluster_derived_output {
+        label="Stage 3: Derived Metrics (03_derived/)"
+        style=filled
+        color="#fff3e0"
+        fontsize=12
+        fontcolor="#e65100"
+
+        metrics_parquet [
+            label="metrics.parquet\n━━━━━━━━━━━━━━━\n_metrics/metrics.parquet\n\nExtracted quantities:\n• CNP voltage (Dirac point)\n• Photoresponse (ΔI, responsivity)\n• Laser power associations\n• Quality metrics"
+            shape=cylinder
+            style=filled
+            fillcolor="#ffe0b2"
+            color="#ef6c00"
+        ]
+    }
+
+    parallel_extract -> metrics_parquet [label="  aggregate" color="#ef6c00" penwidth=2]
+
+    // ============================================================
+    // PROCESSING: HISTORY ENRICHMENT
+    // ============================================================
+
+    subgraph cluster_enrichment {
+        label="Processing: History Enrichment"
+        style=filled
+        color="#f3e5f5"
+        fontsize=12
+        fontcolor="#4a148c"
+
+        enrich_cmd [
+            label="Command: enrich-history\n━━━━━━━━━━━━━━━━━━━━━━\nJoin calibrations + metrics"
+            shape=box
+            style="filled,rounded"
+            fillcolor="#ce93d8"
+            color="#7b1fa2"
+        ]
+
+        join_metrics [
+            label="Join Operations\n━━━━━━━━━━━━━━\n1. Match calibrations → laser_power\n2. Join metrics → cnp_voltage, photoresponse\n3. Preserve all history columns"
+            shape=component
+            style=filled
+            fillcolor="#e1bee7"
+            color="#8e24aa"
+        ]
+    }
+
+    chip_histories -> enrich_cmd [label="  base history" color="#7b1fa2" penwidth=2]
+    metrics_parquet -> enrich_cmd [label="  derived data" color="#7b1fa2" penwidth=2]
+    enrich_cmd -> join_metrics [label="  merge" color="#7b1fa2"]
+
+    // ============================================================
+    // ENRICHED HISTORIES
+    // ============================================================
+
+    subgraph cluster_enriched {
+        label="Enriched Chip Histories (03_derived/chip_histories_enriched/)"
+        style=filled
+        color="#fff3e0"
+        fontsize=12
+        fontcolor="#e65100"
+
+        enriched_histories [
+            label="Enriched Histories\n━━━━━━━━━━━━━━━━━\nchip_histories_enriched/\n• chip_067_enriched.parquet\n• chip_075_enriched.parquet\n• chip_081_enriched.parquet\n\nOriginal columns +\n• cnp_voltage (from IVg)\n• photoresponse (from ITS)\n• laser_power (from calibrations)\n• responsivity, etc."
+            shape=folder
+            style=filled
+            fillcolor="#ffe0b2"
+            color="#ef6c00"
+        ]
+    }
+
+    join_metrics -> enriched_histories [label="  write" color="#ef6c00" penwidth=2]
+
+    // ============================================================
+    // VIEWING & ANALYSIS
+    // ============================================================
+
+    subgraph cluster_viewing {
+        label="Data Viewing & Export (NEW in v3.1)"
+        style=filled
+        color="#fce4ec"
+        fontsize=12
+        fontcolor="#880e4f"
+
+        show_history [
+            label="Command: show-history\n━━━━━━━━━━━━━━━━━━━━\nsrc/cli/commands/history.py\n\n--format {table|json|csv}\n--proc, --light, --limit"
+            shape=box
+            style="filled,rounded"
+            fillcolor="#f8bbd0"
+            color="#c2185b"
+        ]
+
+        inspect_manifest [
+            label="Command: inspect-manifest\n━━━━━━━━━━━━━━━━━━━━━━━━\nsrc/cli/commands/stage.py\n\n--format {table|json|csv}\n--chip, --proc, --limit"
+            shape=box
+            style="filled,rounded"
+            fillcolor="#f8bbd0"
+            color="#c2185b"
+        ]
+
+        formatters [
+            label="Output Formatters\n━━━━━━━━━━━━━━━━\nsrc/cli/formatters.py\n\n• RichTableFormatter (default)\n• JSONFormatter (machine-readable)\n• CSVFormatter (spreadsheet)"
+            shape=component
+            style=filled
+            fillcolor="#f48fb1"
+            color="#ad1457"
+        ]
+    }
+
+    chip_histories -> show_history [label="  load" color="#c2185b" penwidth=2]
+    enriched_histories -> show_history [label="  load enriched" color="#c2185b" style=dashed penwidth=2]
+    manifest -> inspect_manifest [label="  load" color="#c2185b" penwidth=2]
+
+    show_history -> formatters [label="  format" color="#c2185b"]
+    inspect_manifest -> formatters [label="  format" color="#c2185b"]
+
+    // ============================================================
+    // OUTPUT FORMATS
+    // ============================================================
+
+    subgraph cluster_outputs {
+        label="Output Formats"
+        style=filled
+        color="#ffebee"
+        fontsize=12
+        fontcolor="#b71c1c"
+
+        table_output [
+            label="Rich Table\n━━━━━━━━━━\n✦ Colored terminal output\n✦ Styled tables\n✦ Emojis (💡🌙)\n✦ Human-readable"
+            shape=note
+            style=filled
+            fillcolor="#ffcdd2"
+            color="#d32f2f"
+        ]
+
+        json_output [
+            label="JSON Output\n━━━━━━━━━━━━\n{\n  \"metadata\": {...},\n  \"data\": [...]\n}\n\n✦ Machine-readable\n✦ Metadata included\n✦ Type-safe\n✦ Pipeable to jq"
+            shape=note
+            style=filled
+            fillcolor="#ffcdd2"
+            color="#d32f2f"
+        ]
+
+        csv_output [
+            label="CSV Output\n━━━━━━━━━━\nseq,proc,voltage,...\n1,IVg,0.5,...\n\n✦ Spreadsheet-compatible\n✦ Excel/Sheets import\n✦ Nested columns stringified\n✦ Standard format"
+            shape=note
+            style=filled
+            fillcolor="#ffcdd2"
+            color="#d32f2f"
+        ]
+    }
+
+    formatters -> table_output [label="  format='table'" color="#d32f2f"]
+    formatters -> json_output [label="  format='json'" color="#d32f2f"]
+    formatters -> csv_output [label="  format='csv'" color="#d32f2f"]
+
+    // ============================================================
+    // PLOTTING PIPELINE
+    // ============================================================
+
+    subgraph cluster_plotting {
+        label="Plotting Pipeline"
+        style=filled
+        color="#fce4ec"
+        fontsize=12
+        fontcolor="#880e4f"
+
+        plot_commands [
+            label="Plot Commands\n━━━━━━━━━━━━━━\n• plot-its (I vs t)\n• plot-ivg (I vs Vg)\n• plot-vvg (V vs Vg)\n• plot-vt (V vs t)\n• plot-transconductance\n• plot-cnp-time\n• plot-photoresponse\n• plot-laser-calibration"
+            shape=box
+            style="filled,rounded"
+            fillcolor="#f8bbd0"
+            color="#c2185b"
+        ]
+
+        read_parquet [
+            label="read_measurement_parquet()\n━━━━━━━━━━━━━━━━━━━━━━━━\nsrc/core/utils.py\n\nLoad staged Parquet via\nparquet_path column"
+            shape=component
+            style=filled
+            fillcolor="#f48fb1"
+            color="#ad1457"
+        ]
+    }
+
+    enriched_histories -> plot_commands [label="  select experiments" color="#c2185b" penwidth=2]
+    chip_histories -> plot_commands [label="  select (no metrics)" color="#c2185b" style=dashed]
+    plot_commands -> read_parquet [label="  load data" color="#c2185b"]
+    staged_parquet -> read_parquet [label="  read via parquet_path" color="#388e3c" penwidth=2]
+
+    // ============================================================
+    // FINAL OUTPUT
+    // ============================================================
+
+    figures [
+        label="Publication Figures\n━━━━━━━━━━━━━━━━━━\nfigures/\n• ITS_chip067_seq52-57-58.pdf\n• IVg_chip081_auto.png\n• CNP_evolution_chip081.pdf\n• Photoresponse_vs_power_chip081.pdf\n\nMatplotlib + scienceplots\nPublication-quality"
+        shape=folder
+        style=filled
+        fillcolor="#ffcdd2"
+        color="#d32f2f"
+    ]
+
+    read_parquet -> figures [label="  plot & save" color="#d32f2f" penwidth=2]
+
+    // ============================================================
+    // EXTERNAL TOOLS INTEGRATION
+    // ============================================================
+
+    subgraph cluster_external {
+        label="External Tools Integration"
+        style=filled
+        color="#f1f8e9"
+        fontsize=12
+        fontcolor="#33691e"
+
+        jq_tool [
+            label="jq\n━━━\nJSON filtering\nData extraction"
+            shape=box
+            style=filled
+            fillcolor="#dcedc8"
+            color="#689f38"
+        ]
+
+        spreadsheet [
+            label="Excel/Sheets\n━━━━━━━━━━━━\nData analysis\nVisualization"
+            shape=box
+            style=filled
+            fillcolor="#dcedc8"
+            color="#689f38"
+        ]
+
+        python_scripts [
+            label="Python Scripts\n━━━━━━━━━━━━━━\npandas.read_json()\nAutomated analysis"
+            shape=box
+            style=filled
+            fillcolor="#dcedc8"
+            color="#689f38"
+        ]
+    }
+
+    json_output -> jq_tool [label="  pipe" color="#689f38" style=dashed]
+    json_output -> python_scripts [label="  parse" color="#689f38" style=dashed]
+    csv_output -> spreadsheet [label="  import" color="#689f38" style=dashed]
+
+    // ============================================================
+    // UNIFIED PIPELINE COMMAND
+    // ============================================================
+
+    full_pipeline [
+        label="UNIFIED COMMAND\n━━━━━━━━━━━━━━━━━━━━━\nfull-pipeline\n\n1. stage-all\n2. build-all-histories\n3. derive-all-metrics\n4. enrich-history -a\n\nComplete end-to-end processing"
+        shape=doubleoctagon
+        style=filled
+        fillcolor="#fff59d"
+        color="#f57f17"
+        fontsize=12
+        fontcolor="#f57f17"
+        penwidth=3
+    ]
+
+    raw_csv -> full_pipeline [label="  execute" color="#f57f17" penwidth=3 style=dashed]
+    full_pipeline -> enriched_histories [label="  produces" color="#f57f17" penwidth=3 style=dashed]
+
+    // ============================================================
+    // LEGEND
+    // ============================================================
+
+    subgraph cluster_legend {
+        label="Legend"
+        style=filled
+        color="#eceff1"
+        fontsize=10
+
+        legend_data [label="Data Artifacts" shape=folder style=filled fillcolor="#c8e6c9" color="#388e3c"]
+        legend_processing [label="Processing Steps" shape=box style="filled,rounded" fillcolor="#ce93d8" color="#7b1fa2"]
+        legend_output [label="Output/Export" shape=note style=filled fillcolor="#ffcdd2" color="#d32f2f"]
+        legend_config [label="Configuration" shape=note style=filled fillcolor="#fff9c4" color="#f9a825"]
+
+        legend_data -> legend_processing [style=invis]
+        legend_processing -> legend_output [style=invis]
+        legend_output -> legend_config [style=invis]
+    }
+}

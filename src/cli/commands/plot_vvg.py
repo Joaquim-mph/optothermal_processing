@@ -100,6 +100,23 @@ def plot_vvg_command(
         "--show-cnp",
         help="Show detected CNP points in bright yellow"
     ),
+    resistance: bool = typer.Option(
+        False,
+        "--resistance",
+        "-r",
+        help="Plot resistance R=V/I instead of voltage"
+    ),
+    absolute: bool = typer.Option(
+        False,
+        "--absolute",
+        "-a",
+        help="Plot absolute value |R| or |1/R| (only with --resistance)"
+    ),
+    inverse: bool = typer.Option(
+        False,
+        "--inverse",
+        help="Plot inverse resistance 1/R to estimate conductance (only with --resistance)"
+    ),
     theme: Optional[str] = typer.Option(
         None,
         "--theme",
@@ -124,14 +141,26 @@ def plot_vvg_command(
     Prevents overwriting by using unique filenames based on experiments selected.
 
     Examples:
-        # Plot specific VVg experiments
+        # Plot specific VVg experiments (voltage)
         python process_and_analyze.py plot-vvg 67 --seq 2,8,14
+
+        # Plot resistance R=V/I
+        python process_and_analyze.py plot-vvg 67 --seq 2,8,14 --resistance
+
+        # Plot absolute resistance |R|
+        python process_and_analyze.py plot-vvg 67 --seq 2,8,14 --resistance --absolute
+
+        # Plot inverse resistance 1/R to estimate conductance
+        python process_and_analyze.py plot-vvg 67 --seq 2,8,14 --resistance --inverse
+
+        # Plot absolute inverse resistance |1/R|
+        python process_and_analyze.py plot-vvg 67 --seq 2,8,14 --resistance --inverse --absolute
+
+        # Auto-select all VVg experiments with inverse resistance
+        python process_and_analyze.py plot-vvg 67 --auto --resistance --inverse
 
         # Interactive selection (TUI)
         python process_and_analyze.py plot-vvg 67 --interactive
-
-        # Auto-select all VVg experiments
-        python process_and_analyze.py plot-vvg 67 --auto
 
         # Filter by date
         python process_and_analyze.py plot-vvg 67 --auto --date 2025-10-15
@@ -147,6 +176,21 @@ def plot_vvg_command(
     ))
     ctx.print()
 
+    # Validate flag combinations
+    if absolute and not resistance:
+        ctx.print("[yellow]Warning:[/yellow] --absolute flag ignored (only valid with --resistance)")
+        absolute = False
+
+    if inverse and not resistance:
+        ctx.print("[red]Error:[/red] --inverse requires --resistance flag")
+        ctx.print("[yellow]Hint:[/yellow] Use: [cyan]--resistance --inverse[/cyan]")
+        raise typer.Exit(1)
+
+    if show_cnp and resistance and not inverse:
+        ctx.print("[yellow]Warning:[/yellow] --show-cnp disabled when using --resistance mode")
+        show_cnp = False
+
+    # Note: CNP markers ARE supported in inverse mode (will be transformed to 1/R space)
 
     if output_dir is None:
         output_dir = ctx.output_dir
@@ -296,9 +340,29 @@ def plot_vvg_command(
 
     # Step 7: Display plot settings
     ctx.print()
+    if resistance:
+        if inverse:
+            if absolute:
+                plot_mode = "Absolute Inverse Resistance (|1/R| = |I/V|)"
+                plot_type = "VVg sequence (|1/R| vs Vg)"
+            else:
+                plot_mode = "Inverse Resistance (1/R = I/V)"
+                plot_type = "VVg sequence (1/R vs Vg)"
+        else:
+            if absolute:
+                plot_mode = "Absolute Resistance (|R| = |V/I|)"
+            else:
+                plot_mode = "Resistance (R = V/I)"
+            plot_type = "VVg sequence (R vs Vg)"
+    else:
+        plot_mode = "Voltage (Vds)"
+        plot_type = "VVg sequence (Vds vs Vg)"
+
     display_plot_settings({
-        "Plot type": "VVg sequence (Vds vs Vg)",
+        "Plot type": plot_type,
+        "Y-axis": plot_mode,
         "Curves": f"{history.height} measurement(s)",
+        "CNP markers": "Enabled" if show_cnp else "Disabled",
         "Output directory": str(output_dir)
     })
 
@@ -362,6 +426,9 @@ def plot_vvg_command(
             base_dir,
             plot_tag,
             show_cnp=show_cnp,
+            resistance=resistance,
+            absolute=absolute,
+            inverse=inverse,
             config=plot_config
         )
     except Exception as e:

@@ -100,6 +100,23 @@ def plot_ivg_command(
         "--show-cnp",
         help="Show detected CNP points in bright yellow"
     ),
+    conductance: bool = typer.Option(
+        False,
+        "--conductance",
+        "-c",
+        help="Plot conductance G=I/V instead of current"
+    ),
+    absolute: bool = typer.Option(
+        False,
+        "--absolute",
+        "-a",
+        help="Plot absolute value |G| or |1/G| (only with --conductance)"
+    ),
+    inverse: bool = typer.Option(
+        False,
+        "--inverse",
+        help="Plot inverse conductance 1/G to estimate resistance (only with --conductance)"
+    ),
     theme: Optional[str] = typer.Option(
         None,
         "--theme",
@@ -124,14 +141,26 @@ def plot_ivg_command(
     Prevents overwriting by using unique filenames based on experiments selected.
 
     Examples:
-        # Plot specific IVg experiments
+        # Plot specific IVg experiments (current)
         python process_and_analyze.py plot-ivg 67 --seq 2,8,14
+
+        # Plot conductance G=I/V
+        python process_and_analyze.py plot-ivg 67 --seq 2,8,14 --conductance
+
+        # Plot absolute conductance |G|
+        python process_and_analyze.py plot-ivg 67 --seq 2,8,14 --conductance --absolute
+
+        # Plot inverse conductance 1/G to estimate resistance
+        python process_and_analyze.py plot-ivg 67 --seq 2,8,14 --conductance --inverse
+
+        # Plot absolute inverse conductance |1/G|
+        python process_and_analyze.py plot-ivg 67 --seq 2,8,14 --conductance --inverse --absolute
+
+        # Auto-select all IVg experiments with inverse conductance
+        python process_and_analyze.py plot-ivg 67 --auto --conductance --inverse
 
         # Interactive selection (TUI)
         python process_and_analyze.py plot-ivg 67 --interactive
-
-        # Auto-select all IVg experiments
-        python process_and_analyze.py plot-ivg 67 --auto
 
         # Filter by date
         python process_and_analyze.py plot-ivg 67 --auto --date 2025-10-15
@@ -147,6 +176,21 @@ def plot_ivg_command(
     ))
     ctx.print()
 
+    # Validate flag combinations
+    if absolute and not conductance:
+        ctx.print("[yellow]Warning:[/yellow] --absolute flag ignored (only valid with --conductance)")
+        absolute = False
+
+    if inverse and not conductance:
+        ctx.print("[red]Error:[/red] --inverse requires --conductance flag")
+        ctx.print("[yellow]Hint:[/yellow] Use: [cyan]--conductance --inverse[/cyan]")
+        raise typer.Exit(1)
+
+    if show_cnp and conductance and not inverse:
+        ctx.print("[yellow]Warning:[/yellow] --show-cnp disabled when using --conductance mode")
+        show_cnp = False
+
+    # Note: CNP markers ARE supported in inverse mode (will be transformed to 1/G space)
 
     if output_dir is None:
         output_dir = ctx.output_dir
@@ -296,9 +340,29 @@ def plot_ivg_command(
 
     # Step 7: Display plot settings
     ctx.print()
+    if conductance:
+        if inverse:
+            if absolute:
+                plot_mode = "Absolute Inverse Conductance (|1/G| = |V/I|)"
+                plot_type = "IVg sequence (|1/G| vs Vg)"
+            else:
+                plot_mode = "Inverse Conductance (1/G = V/I)"
+                plot_type = "IVg sequence (1/G vs Vg)"
+        else:
+            if absolute:
+                plot_mode = "Absolute Conductance (|G| = |I/V|)"
+            else:
+                plot_mode = "Conductance (G = I/V)"
+            plot_type = "IVg sequence (G vs Vg)"
+    else:
+        plot_mode = "Current (Id)"
+        plot_type = "IVg sequence (Id vs Vg)"
+
     display_plot_settings({
-        "Plot type": "IVg sequence (Id vs Vg)",
+        "Plot type": plot_type,
+        "Y-axis": plot_mode,
         "Curves": f"{history.height} measurement(s)",
+        "CNP markers": "Enabled" if show_cnp else "Disabled",
         "Output directory": str(output_dir)
     })
 
@@ -362,6 +426,9 @@ def plot_ivg_command(
             base_dir,
             plot_tag,
             show_cnp=show_cnp,
+            conductance=conductance,
+            absolute=absolute,
+            inverse=inverse,
             config=plot_config
         )
     except Exception as e:

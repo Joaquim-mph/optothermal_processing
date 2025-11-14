@@ -124,7 +124,14 @@ def plot_cnp_time_command(
         history = pl.read_parquet(history_file)
 
     # Join with CNP metrics if not already joined
-    if "cnp_voltage" not in history.columns:
+    # Also reload if cnp_voltage is stored as string (old format)
+    cnp_is_string = "cnp_voltage" in history.columns and history.schema["cnp_voltage"] == pl.Utf8
+
+    if "cnp_voltage" not in history.columns or cnp_is_string:
+        if cnp_is_string:
+            # Drop the old string column
+            history = history.drop("cnp_voltage")
+
         if not metrics_file.exists():
             ctx.print(f"[red]Error:[/red] No CNP metrics found")
             ctx.print("[yellow]Hint:[/yellow] Run [cyan]derive-all-metrics[/cyan] first to extract CNP values")

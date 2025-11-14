@@ -67,36 +67,23 @@ python3 process_and_analyze.py inspect-manifest --chip 67
 python3 process_and_analyze.py show-history 67 --proc IVg --light dark --limit 20
 ```
 
-### Derived Metrics Pipeline (New in v3.0)
+### Derived Metrics Pipeline
 
 ```bash
 # Extract all derived metrics (CNP, photoresponse, relaxation times) from measurements
 python3 process_and_analyze.py derive-all-metrics
 
-# Include laser calibration power extraction (enabled by default)
-python3 process_and_analyze.py derive-all-metrics --calibrations
-
 # Extract metrics for specific chip or procedure
 python3 process_and_analyze.py derive-all-metrics --chip 75
 python3 process_and_analyze.py derive-all-metrics --procedures IVg,VVg
-
-# Preview what would be extracted (dry run)
-python3 process_and_analyze.py derive-all-metrics --dry-run
-
-# Force re-extraction (overwrite existing metrics)
-python3 process_and_analyze.py derive-all-metrics --force
 
 # Enrich chip histories with derived metrics (RECOMMENDED UNIFIED COMMAND)
 python3 process_and_analyze.py enrich-history 75        # Single chip
 python3 process_and_analyze.py enrich-history -a        # All chips
 python3 process_and_analyze.py enrich-history 67,81,75  # Multiple chips
-python3 process_and_analyze.py enrich-history -a --calibrations-only  # Only add power data
-
-# Alternative: Link calibrations only (advanced users)
-python3 process_and_analyze.py link-calibrations
 ```
 
-### Pipeline Builder (New in v3.2)
+### Pipeline Builder
 
 ```bash
 # Run full pipeline using formal Pipeline builder (with error handling, rollback, checkpoints)
@@ -115,11 +102,14 @@ python3 process_and_analyze.py full-pipeline-v2 --enable-rollback
 # ITS (current vs time) plots
 python3 process_and_analyze.py plot-its 67 --seq 52,57,58
 python3 process_and_analyze.py plot-its 67 --auto --vg -0.4  # Auto-select with filters
+python3 process_and_analyze.py plot-its 67 --seq 52,57,58 --conductance  # G = I/V
+python3 process_and_analyze.py plot-its 67 --auto --conductance --absolute  # |G|
 python3 process_and_analyze.py plot-its-presets  # List available presets
 
 # IVg (gate voltage sweep) plots
 python3 process_and_analyze.py plot-ivg 67 --seq 2,8,14
 python3 process_and_analyze.py plot-ivg 67 --auto
+python3 process_and_analyze.py plot-ivg 67 --seq 2,8,14 --conductance  # G = I/V
 
 # Transconductance (gm = dI/dVg) plots
 python3 process_and_analyze.py plot-transconductance 67 --seq 2,8,14
@@ -127,9 +117,12 @@ python3 process_and_analyze.py plot-transconductance 67 --seq 2,8,14
 # VVg (drain-source voltage vs gate voltage) plots
 python3 process_and_analyze.py plot-vvg 67 --seq 2,8,14
 python3 process_and_analyze.py plot-vvg 67 --auto
+python3 process_and_analyze.py plot-vvg 81 --seq 203,204,205 --resistance  # R = V/I
 
 # Vt (voltage vs time) plots
 python3 process_and_analyze.py plot-vt 67 --seq 10,20,30
+python3 process_and_analyze.py plot-vt 81 --seq 238,239,240 --resistance  # R = V/I
+python3 process_and_analyze.py plot-vt 81 --auto --resistance --absolute  # |R|
 
 # CNP (Charge Neutrality Point / Dirac point) evolution plots
 python3 process_and_analyze.py plot-cnp-time 81
@@ -137,12 +130,53 @@ python3 process_and_analyze.py plot-cnp-time 81
 # Photoresponse plots (vs power, wavelength, gate voltage, or time)
 python3 process_and_analyze.py plot-photoresponse 81 power
 python3 process_and_analyze.py plot-photoresponse 81 wavelength --vg -0.4
-python3 process_and_analyze.py plot-photoresponse 81 gate_voltage --wl 660
-python3 process_and_analyze.py plot-photoresponse 81 time
 
 # Laser calibration plots
 python3 process_and_analyze.py plot-laser-calibration 67
 ```
+
+### Batch Plotting
+
+Efficient multi-plot generation from YAML configuration (3-15x faster than subprocess execution):
+
+```bash
+# Sequential mode (best for <10 plots)
+python3 process_and_analyze.py batch-plot config/batch_plots/alisson67_plots.yaml
+
+# Parallel mode (best for >10 plots, 4+ cores)
+python3 process_and_analyze.py batch-plot config/batch_plots/alisson67_plots.yaml --parallel 4
+
+# Preview what will be executed (dry run)
+python3 process_and_analyze.py batch-plot config/batch_plots/alisson67_plots.yaml --dry-run
+```
+
+**YAML Configuration Example:**
+```yaml
+chip: 67
+chip_group: "Alisson"
+defaults:
+  legend_by: irradiated_power
+
+plots:
+  - type: plot-ivg
+    seq: 2
+  - type: plot-its
+    seq: "52-58"
+    tag: "365nm_photoresponse"
+  - type: plot-transconductance
+    seq: 2
+    method: savgol
+    window: 21
+```
+
+**Features:**
+- Single process execution (eliminates subprocess overhead)
+- Cached history loading (load once, reuse for all plots)
+- Automatic data caching (Parquet files cached for overlapping measurements)
+- Parallel execution support for large batches
+- Real-time progress tracking
+
+**See:** `docs/BATCH_PLOTTING_GUIDE.md` for complete usage guide
 
 ### Configuration Management
 
@@ -160,9 +194,9 @@ python3 process_and_analyze.py config-validate
 python3 process_and_analyze.py --verbose --output-dir /tmp/test plot-its 67 --auto
 ```
 
-### Data Export and Output Formats (New in v3.1)
+### Data Export and Output Formats
 
-Commands that display data support multiple output formats for scripting and automation:
+Commands support multiple output formats for scripting and automation:
 
 ```bash
 # View chip history (default: Rich terminal table)
@@ -174,37 +208,11 @@ python3 process_and_analyze.py show-history 67 --format json
 # Export as CSV for spreadsheets
 python3 process_and_analyze.py show-history 67 --format csv > history.csv
 
-# Inspect manifest data
-python3 process_and_analyze.py inspect-manifest --chip 67 --format json
-
-# Combine with filters
-python3 process_and_analyze.py show-history 67 --proc IVg --format json > ivg_data.json
-python3 process_and_analyze.py inspect-manifest --proc ITS --format csv > its_manifest.csv
-
-# Pipe to external tools (jq, column, etc.)
-python3 process_and_analyze.py show-history 67 --format json | jq '.metadata'
+# Pipe to external tools
 python3 process_and_analyze.py show-history 67 --format json | jq '.data[] | select(.procedure == "IVg")'
-python3 process_and_analyze.py inspect-manifest --format csv | column -t -s,
-
-# Scripting examples
-# Extract CNP voltages
-python3 process_and_analyze.py show-history 67 --format json | \
-  jq '.data[] | select(.cnp_voltage != null) | {seq, cnp_voltage}'
-
-# Count experiments by procedure
-python3 process_and_analyze.py show-history 67 --format json | \
-  jq '.data | group_by(.procedure) | map({proc: .[0].procedure, count: length})'
-
-# Check for failed experiments
-python3 process_and_analyze.py inspect-manifest --format json | \
-  jq '[.data[] | select(.status == "failed")] | length'
 ```
 
-**Available Formats:**
-- `table` (default) - Rich terminal table with colors and styling
-- `json` - Machine-readable JSON with metadata
-- `csv` - Spreadsheet-compatible CSV
-
+**Available Formats:** `table` (default), `json`, `csv`
 **See:** `docs/OUTPUT_FORMATTERS.md` for complete guide
 
 ### Terminal UI (For Lab Users)
@@ -249,7 +257,7 @@ The pipeline follows a four-stage data processing architecture:
 - Run IDs: deterministic SHA-1 hash of `(path|timestamp_utc)` for idempotency
 - `chip_histories/`: Per-chip Parquet histories with sequential experiment numbers
 
-**Stage 3: Derived Metrics** (`data/03_derived/`) **[New in v3.0]**
+**Stage 3: Derived Metrics** (`data/03_derived/`)
 - `_metrics/metrics.parquet`: Extracted derived metrics (CNP, photoresponse, etc.)
 - `chip_histories_enriched/`: Chip histories with derived metrics joined as columns
 - Contains laser calibration power associations (irradiated power values)
@@ -266,11 +274,12 @@ The pipeline follows a four-stage data processing architecture:
 
 **Core Processing** (`src/core/`)
 - `stage_raw_measurements.py`: Main staging pipeline (CSV → Parquet + manifest)
-- `schema_validator.py`: **Schema validation engine (validates CSV against procedures.yml)**
+- `schema_validator.py`: Schema validation engine (validates CSV against procedures.yml)
 - `history_builder.py`: Chip history generation from manifest
-- `pipeline.py`: **Formal pipeline builder** (error handling, rollback, checkpointing, retry logic)
+- `pipeline.py`: Formal pipeline builder (error handling, rollback, checkpointing, retry logic)
 - `utils.py`: Common utilities, numeric coercion, light detection, Parquet reading with `read_measurement_parquet()`
 - `stage_utils.py`: Validation helpers, type coercion for staging
+- `data_cache.py`: In-memory caching layer (LRU eviction, file modification tracking, cache statistics)
 - `parser.py`: CSV header parsing (legacy, still used for compatibility)
 - `timeline.py`: Day timeline builder for TUI (legacy)
 
@@ -280,7 +289,7 @@ The pipeline follows a four-stage data processing architecture:
 - `config.py`: TUI configuration state
 
 **Plotting** (`src/plotting/`)
-- `its.py`: Current vs time plots (photoresponse) - **reads from staged Parquet via `parquet_path`**
+- `its.py`: Current vs time plots (photoresponse)
 - `ivg.py`: Gate voltage sweep plots
 - `vvg.py`: Drain-source voltage vs gate voltage plots
 - `vt.py`: Voltage vs time plots
@@ -289,19 +298,22 @@ The pipeline follows a four-stage data processing architecture:
 - `photoresponse.py`: Photoresponse vs power/wavelength/gate/time
 - `laser_calibration.py`: Laser calibration curve plots
 - `its_presets.py`: Predefined ITS plot configurations
+- `batch.py`: Batch plotting engine (sequential/parallel execution, cached history, progress tracking)
+- `transforms.py`: Resistance/conductance transformations
 - `plot_utils.py`: Baseline interpolation, shared utilities
 - `overlays.py`: Multi-experiment overlay logic
 - `styles.py`: scienceplots styling configuration
+- `config.py`: Plot configuration and output path management
 - **IMPORTANT**: All plotting uses `read_measurement_parquet()` from `src/core/utils.py`
 
-**Derived Metrics** (`src/derived/`) **[New in v3.0]**
+**Derived Metrics** (`src/derived/`)
 - `metric_pipeline.py`: Main pipeline for extracting derived metrics
 - `extractors/`: Individual metric extractors (CNP, photoresponse, calibration matching, relaxation times)
   - `cnp_extractor.py`: Charge neutrality point (Dirac point) extraction
   - `photoresponse_extractor.py`: Simple photoresponse (ΔI) calculation
   - `calibration_matcher.py`: Laser calibration power association
-  - `its_relaxation_extractor.py`: **Single-phase relaxation time** (stretched exponential, Numba-accelerated)
-  - `its_three_phase_fit_extractor.py`: **Three-phase relaxation** (PRE-DARK, LIGHT, POST-DARK)
+  - `its_relaxation_extractor.py`: Single-phase relaxation time (stretched exponential, Numba-accelerated)
+  - `its_three_phase_fit_extractor.py`: Three-phase relaxation (PRE-DARK, LIGHT, POST-DARK)
 - `algorithms/`: Numba-accelerated fitting algorithms
   - `stretched_exponential.py`: Levenberg-Marquardt optimization (2-200x faster than SciPy)
 - `registry.py`: Plugin registry for auto-discovery of extractors
@@ -310,13 +322,13 @@ The pipeline follows a four-stage data processing architecture:
 
 **CLI** (`src/cli/`)
 - `main.py`: Typer app with plugin discovery system
-- `plugin_system.py`: **Auto-discovery and registration of commands via `@cli_command` decorator**
-- `config.py`: **Configuration management layer (Pydantic-based)**
-- `cache.py`: **Thread-safe caching for loaded data** (TTL-based, file modification tracking, LRU eviction)
-- `context.py`: **Session state management** (tracks loaded histories, config overrides)
+- `plugin_system.py`: Auto-discovery and registration of commands via `@cli_command` decorator
+- `config.py`: Configuration management layer (Pydantic-based)
+- `cache.py`: Thread-safe caching for loaded data (TTL-based, file modification tracking, LRU eviction)
+- `context.py`: Session state management (tracks loaded histories, config overrides)
 - `commands/`: Individual command modules (auto-discovered by plugin system)
   - `data_pipeline.py`: Full pipeline orchestration (legacy)
-  - `data_pipeline_v2.py`: **Pipeline builder-based orchestration** (error handling, rollback, checkpoints)
+  - `data_pipeline_v2.py`: Pipeline builder-based orchestration (error handling, rollback, checkpoints)
   - `history.py`: History viewing and generation
   - `stage.py`: Staging commands and validation
   - `derived_metrics.py`: Derived metrics extraction commands
@@ -329,12 +341,13 @@ The pipeline follows a four-stage data processing architecture:
   - `plot_cnp.py`: CNP evolution plotting
   - `plot_photoresponse.py`: Photoresponse analysis plotting
   - `plot_laser_calibration.py`: Laser calibration plotting
+  - `batch_plot.py`: Batch plot command (YAML-driven multi-plot generation)
   - `config.py`: Configuration management commands
   - `cache.py`: Cache management commands (stats, clear)
   - `utilities.py`: Utility commands (list-plugins, etc.)
 - `helpers.py`: Shared CLI utilities (seq parsing, output setup, Rich displays)
 - `history_utils.py`: History filtering logic shared by CLI and TUI
-- `formatters.py`: **Output formatters** (table, JSON, CSV) for data export
+- `formatters.py`: Output formatters (table, JSON, CSV) for data export
 - **Note**: `process_and_analyze.py` in project root is a thin wrapper
 
 **TUI** (`src/tui/`)
@@ -363,6 +376,13 @@ The pipeline follows a four-stage data processing architecture:
 - Controls which CLI command groups are enabled/disabled
 - Supports `enabled_groups` (e.g., `[pipeline, history, staging, plotting]` or `[all]`)
 - Supports `disabled_commands` for specific commands
+
+**`config/batch_plots/`**
+- YAML configuration files for batch plotting
+- Each file specifies chip number, chip group, and list of plots to generate
+- Supports all plot types: `plot-its`, `plot-ivg`, `plot-transconductance`, `plot-vvg`, `plot-vt`
+- Example: `alisson67_plots.yaml` (30+ plot configuration for chip 67)
+- **See**: `docs/BATCH_PLOTTING_GUIDE.md` for format specification
 
 ### Key Concepts
 
@@ -404,33 +424,28 @@ The pipeline follows a four-stage data processing architecture:
 - Converted to UTC for storage in manifest.parquet
 - `date_local` field preserves local calendar date for Hive partitioning
 
-## Key Concepts (Continued)
-
-**Derived Metrics Pipeline** **[New in v3.0]**
+**Derived Metrics Pipeline**
 - **Automated extraction**: Extracts derived quantities (CNP, photoresponse, relaxation times) from measurements
 - **Plugin-based extractors**: Auto-discovered metric extractors in `src/derived/extractors/`
 - **Incremental updates**: Only processes new/changed measurements (use `--force` to re-extract)
 - **Parallel processing**: Multi-worker extraction for performance
 - **Laser calibration matching**: Associates light experiments with nearest calibration curves
 - **Power interpolation**: Calculates irradiated power from laser voltage and calibration data
-- **Relaxation time extraction**: **Numba-accelerated stretched exponential fitting** (2-200x faster than SciPy)
+- **Relaxation time extraction**: Numba-accelerated stretched exponential fitting (2-200x faster than SciPy)
   - Single-phase: Extracts τ, β from LED ON period
   - Three-phase: Fits PRE-DARK, LIGHT, POST-DARK separately for complete dynamics
 - **Enriched histories**: Chip histories with derived metrics joined as columns for plotting
 - **See**: `docs/DERIVED_METRICS_ARCHITECTURE.md` for complete documentation
-- **See**: `docs/ITS_RELAXATION_TIME_EXTRACTOR.md` for relaxation time details
-- **See**: `docs/ITS_THREE_PHASE_FITTING_GUIDE.md` for three-phase fitting guide
 
-**Pipeline Builder** **[New in v3.2]**
+**Pipeline Builder**
 - **Formal pipeline orchestration**: Declarative pipeline definition with `Pipeline` class
 - **Error handling**: Automatic retry, skip-on-error, rollback capabilities
 - **Checkpointing**: Save/restore pipeline state for resumable execution
 - **Progress tracking**: Rich progress bars with real-time step status
 - **YAML export**: Save pipeline definitions for reuse
 - **See**: `src/core/pipeline.py` for implementation
-- **Use**: `full-pipeline-v2` command for error-resilient pipeline execution
 
-**CLI Caching & Performance** **[New in v3.2]**
+**CLI Caching & Performance**
 - **Thread-safe caching**: TTL-based cache with file modification tracking
 - **LRU eviction**: Automatic memory management (configurable max size)
 - **Cache statistics**: Hit rate monitoring via `cache-stats` command
@@ -611,9 +626,6 @@ python3 -m pytest tests/test_config.py -v
 # Run specific test function
 python3 -m pytest tests/test_config.py::test_function_name -v
 
-# Test staging on small dataset
-python3 process_and_analyze.py stage-all --dry-run  # Preview mode (if implemented)
-
 # Validate after staging
 python3 process_and_analyze.py validate-manifest
 
@@ -625,12 +637,6 @@ python3 process_and_analyze.py list-plugins
 
 # Test Numba-accelerated algorithms
 python3 -m src.derived.algorithms.benchmark_stretched_exp
-
-# Test caching system
-python3 -m pytest tests/test_cache.py -v
-
-# Test pipeline builder
-python3 -m pytest tests/test_pipeline.py -v
 ```
 
 ## Important Notes
@@ -679,79 +685,70 @@ python3 -m pytest tests/test_pipeline.py -v
 - `parse-all`: CSV headers → metadata CSV files (obsolete)
 - `chip-histories`: Generate histories from metadata folder (obsolete)
 - Functions in `src/core/parser.py` and `src/core/timeline.py` (kept for compatibility)
-- Some legacy functions still used by TUI, but being phased out
+- Some deprecated commands are hidden but still functional for backward compatibility
 
-**Deprecated Enrichment Commands (Still work, but hidden from help):**
-- `enrich-all-histories` → Use: `enrich-history -a`
-- `enrich-histories-with-calibrations` → Use: `link-calibrations` or `enrich-history -a --calibrations-only`
-- `enrich-history-old` → Use: `enrich-history <chip>`
-- These commands still function for backward compatibility but are hidden from `--help` output
-- Users are encouraged to migrate to the new unified `enrich-history` command
+## Recent Additions
 
-## Recent Additions & Features
+### Version 3.4 (November 2025) - Resistance & Conductance Plotting
 
-### Version 3.2 - Pipeline Builder & Advanced Relaxation Analysis (November 2025)
+**Implementation Status:**
+- ✅ Phase 1: VVg resistance plotting (R = V/I)
+- ✅ Phase 2: IVg conductance plotting (G = I/V)
+- ✅ Phase 3: Vt resistance plotting (R = V/I)
+- ✅ Phase 4: It conductance plotting (G = I/V) **COMPLETE**
 
-**New Pipeline Features:**
-- `full-pipeline-v2`: Formal pipeline builder with error handling, rollback, and checkpointing
-  - Resume from checkpoints: `--resume latest`
-  - Rollback on failure: `--enable-rollback`
-  - Retry failed steps automatically
-- **Pipeline class**: Declarative pipeline definition for custom workflows
-- **See**: `src/core/pipeline.py` for implementation
+**Features:**
+- **Resistance plotting**: `--resistance` flag for VVg and Vt plots (R = V/I)
+  - Requires `ids_v` (drain-source current) in metadata
+  - Automatic unit scaling: Ω, kΩ, MΩ based on magnitude
+  - Example: `plot-vt 81 --seq 238,239,240 --resistance`
+- **Conductance plotting**: `--conductance` flag for IVg and It plots (G = I/V)
+  - Requires `vds_v` (drain-source voltage) in metadata
+  - Automatic unit scaling: pS, nS, µS, mS, S based on magnitude
+  - Examples:
+    - IVg: `plot-ivg 67 --seq 2,8,14 --conductance`
+    - It: `plot-its 67 --seq 52,57,58 --conductance`
+- **Absolute value mode**: `--absolute` flag for unsigned analysis (|R| or |G|)
+  - Examples:
+    - `plot-vt 81 --auto --resistance --absolute`
+    - `plot-its 67 --auto --conductance --absolute`
+- **Zero division handling**: Gracefully skips curves with invalid metadata (warns user)
+- **New module**: `src/plotting/transforms.py` for reusable transformations
+- **Filename convention**: `_R` suffix for resistance, `_G` suffix for conductance
+  - Examples:
+    - `encap81_Vt_seq_238_239_240_R.png`
+    - `encap67_It_seq_52_57_58_G.png`
 
-**New Relaxation Time Extractors:**
-- **Single-phase relaxation**: Extracts τ, β from LED ON period using Numba-accelerated stretched exponential fitting
-  - 2-200x faster than SciPy (< 1ms per fit for typical ITS measurements)
-  - Command: `derive-all-metrics` (auto-included)
-  - Visualization: `plot-its-relaxation 67 --seq 52`
-- **Three-phase relaxation**: Fits PRE-DARK, LIGHT, POST-DARK separately
-  - Complete photoresponse dynamics (τ₁, τ₂, τ₃, β₁, β₂, β₃)
-  - Captures baseline stability, photoresponse buildup, and decay
-  - Command: `derive-all-metrics` (auto-included)
+**Output Examples:**
+- Current plot: `encap67_It_seq_52_57_58.png` → ΔIds (µA) vs time
+- Conductance plot: `encap67_It_seq_52_57_58_G.png` → G (µS) vs time
+- Absolute conductance: Same filename, shows |G| (µS) vs time
+- Voltage plot: `encap81_Vt_seq_238_239_240.png` → ΔVds (mV) vs time
+- Resistance plot: `encap81_Vt_seq_238_239_240_R.png` → R (Ω) vs time
+
+**See**: Command examples in "Plotting Commands" section above
+
+### Version 3.3 (January 2025) - Batch Plotting & Data Caching
+- **Batch plotting system**: YAML-driven multi-plot generation (3-15x faster)
+  - Sequential and parallel execution modes
+  - Automatic data caching with LRU eviction
+  - Progress tracking with Rich console output
+- **Data caching layer**: `src/core/data_cache.py` for in-memory caching
+  - File modification tracking
+  - Cache statistics (hit/miss rates)
+- **See**: "Batch Plotting" section above and `docs/BATCH_PLOTTING_GUIDE.md`
+
+### Version 3.2 (November 2025) - Pipeline Builder & Relaxation Analysis
+- **Pipeline builder**: `full-pipeline-v2` with error handling, rollback, checkpointing
+- **Relaxation time extractors**: Single-phase and three-phase fitting (Numba-accelerated)
+  - 2-200x faster than SciPy
+  - Visualization: `plot-its-relaxation` command
+- **CLI caching**: Thread-safe TTL-based cache with LRU eviction
 - **See**: `docs/ITS_RELAXATION_TIME_EXTRACTOR.md` and `docs/ITS_THREE_PHASE_FITTING_GUIDE.md`
 
-**CLI Performance Improvements:**
-- **Thread-safe caching**: TTL-based cache with LRU eviction (5-100x speedup for repeated commands)
-- **Session context**: Persistent state across commands
-- **Cache management**: `cache-stats`, `cache-clear` commands
-- **See**: `src/cli/cache.py` and `src/cli/context.py`
-
-**Workflow:**
-1. Stage data: `python3 process_and_analyze.py full-pipeline-v2` (with error recovery)
-2. Extract metrics: `python3 process_and_analyze.py derive-all-metrics` (includes relaxation times)
-3. Enrich histories: `python3 process_and_analyze.py enrich-history -a`
-4. Plot relaxation: `python3 process_and_analyze.py plot-its-relaxation 67 --auto`
-
-**Documentation:**
-- `docs/ITS_RELAXATION_TIME_EXTRACTOR.md`: Relaxation time extraction guide
-- `docs/ITS_THREE_PHASE_FITTING_GUIDE.md`: Three-phase fitting guide
-- `src/derived/algorithms/benchmark_stretched_exp.py`: Performance benchmarks
-
-### Version 3.0 - Derived Metrics Pipeline (October 2025)
-
-**New Commands:**
-- `derive-all-metrics`: Extract CNP, photoresponse, and laser calibration power
-- `enrich-history`: **UNIFIED COMMAND** - Join calibrations and metrics to chip histories
-  - Replaces: `enrich-all-histories`, `enrich-histories-with-calibrations` (now hidden)
-  - Examples: `enrich-history 75`, `enrich-history -a`, `enrich-history -a --calibrations-only`
-- `link-calibrations`: Associate light experiments with laser calibrations (advanced)
-  - Renamed from: `enrich-histories-with-calibrations` (kept as hidden alias)
-- `plot-cnp-time`: Plot CNP (Dirac point) evolution over time
-- `plot-photoresponse`: Plot photoresponse vs power, wavelength, gate voltage, or time
-- `plot-laser-calibration`: Visualize laser calibration curves
-
-**New Plotting Support:**
-- `plot-vvg`: Drain-source voltage vs gate voltage plots (VVg procedure)
-- `plot-vt`: Voltage vs time plots (Vt procedure)
-
-**Workflow:**
-1. Stage data: `python3 process_and_analyze.py full-pipeline`
-2. Extract metrics: `python3 process_and_analyze.py derive-all-metrics`
-3. **Enrich histories: `python3 process_and_analyze.py enrich-history -a`** ⭐ New unified command!
-4. Plot derived quantities: `python3 process_and_analyze.py plot-cnp-time 81`
-
-**Documentation:**
-- `docs/DERIVED_METRICS_ARCHITECTURE.md`: Complete architecture guide
-- `docs/ADDING_NEW_METRICS_GUIDE.md`: Step-by-step guide for adding extractors
-- `docs/CNP_EXTRACTOR_GUIDE.md`: CNP extractor implementation details
+### Version 3.0 (October 2025) - Derived Metrics Pipeline
+- **Derived metrics extraction**: CNP, photoresponse, laser calibration power
+- **Unified enrichment command**: `enrich-history` (replaces multiple old commands)
+- **New plot types**: CNP evolution, photoresponse analysis, laser calibration
+- **New procedure support**: VVg and Vt plotting
+- **See**: `docs/DERIVED_METRICS_ARCHITECTURE.md` for complete architecture

@@ -215,6 +215,18 @@ def plot_its_command(
         "--dry-run",
         help="Dry run mode: validate experiments and show output filename only (fastest)"
     ),
+    conductance: bool = typer.Option(
+        False,
+        "--conductance",
+        "-c",
+        help="Plot conductance G=I/V instead of current"
+    ),
+    absolute: bool = typer.Option(
+        False,
+        "--absolute",
+        "-a",
+        help="Plot absolute value |G| (only with --conductance)"
+    ),
     # === Plotting style options (Phase 2: CLI Integration) ===
     theme: Optional[str] = typer.Option(
         None,
@@ -243,6 +255,15 @@ def plot_its_command(
         # Plot specific experiments with LED voltage legend (default)
         python process_and_analyze.py plot-its 67 --seq 52,57,58
 
+        # Plot conductance G=I/V
+        python process_and_analyze.py plot-its 67 --seq 52,57,58 --conductance
+
+        # Plot absolute conductance |G|
+        python process_and_analyze.py plot-its 67 --seq 52,57,58 --conductance --absolute
+
+        # Auto-select all ITS with conductance
+        python process_and_analyze.py plot-its 67 --auto --conductance
+
         # Interactive selection (TUI)
         python process_and_analyze.py plot-its 67 --interactive
 
@@ -263,6 +284,11 @@ def plot_its_command(
         with calibration data. Run 'derive-all-metrics' to generate these.
     """
     ctx = get_context()
+
+    # Validate flag combinations
+    if absolute and not conductance:
+        ctx.print("[yellow]Warning:[/yellow] --absolute flag ignored (only valid with --conductance)")
+        absolute = False
 
     # === Phase 2: Get PlotConfig with command-specific overrides ===
     from src.cli.main import get_plot_config
@@ -501,7 +527,12 @@ def plot_its_command(
 
     # Step 7: Display plot settings
     ctx.print()
+    plot_mode = "Conductance (G = I/V)" if conductance else "Current (ΔIds)"
+    if conductance and absolute:
+        plot_mode = "Absolute Conductance (|G| = |I/V|)"
+
     settings = {
+        "Y-axis": plot_mode,
         "Legend by": legend_by,
         "Padding": f"{padding:.2%}",
         "Output directory": str(output_dir)
@@ -598,6 +629,8 @@ def plot_its_command(
                 padding=padding,
                 check_duration_mismatch=check_duration_mismatch,
                 duration_tolerance=duration_tolerance,
+                conductance=conductance,
+                absolute=absolute,
                 config=plot_config  # Phase 3: Pass PlotConfig
             )
     except Exception as e:

@@ -1,0 +1,110 @@
+---
+# Batch plot configuration for chip 67
+chip: 67
+output_base: "plots/chip67"
+
+# Common parameters
+defaults:
+  legend_by: irradiated_power
+
+# Plot specifications
+plots:
+  # IVG and transconductance
+  - type: plot-ivg
+    seq: 2
+  
+  - type: plot-transconductance
+    seq: 2
+    method: savgol
+    window: 21
+    polyorder: 7
+
+
+  
+  - type: plot-its-suite
+    seq: "4-7"
+    tag: "405nm_neg_gate_seq"
+
+
+  
+  - type: plot-its-suite
+    seq: "9-12"
+    tag: "405nm_neg_gate_seq_2"
+
+
+  
+  - type: plot-its-suite
+    seq: "15-18"
+    tag: "405nm_neg_gate_seq_3"
+
+
+  
+  - type: plot-its-suite
+    seq: "21-24"
+    tag: "405nm_pos_gate_seq"
+
+
+  
+  - type: plot-its-suite
+    seq: "27-30"
+    tag: "385nm_neg_gate_seq"
+
+
+  
+  - type: plot-its-suite
+    seq: "32-35"
+    tag: "385nm_pos_gate_seq"
+
+  # 365 nm sequences
+
+  
+  - type: plot-its-suite
+    seq: "38-39"
+    tag: "365nm_neg_gate_seq_1"
+
+  - type: plot-its
+    seq: [38, 41, 52, 57, 65]
+    tag: "365nm_same_power_diff_response"
+
+
+  
+  - type: plot-its-suite
+    seq: "40-44"
+    tag: "365nm_neg_gate_seq_2"
+
+
+  
+  - type: plot-its-suite
+    seq: "46-49"
+    tag: "365nm_pos_gate_seq"
+
+  
+  - type: plot-its-suite
+    seq: "57-60"
+    tag: "365nm_minus_040V_gate_seq"
+
+  - type: plot-its-suite
+    seq: [65, 66]
+    tag: "365nm_seq_65_66"
+
+  - type: plot-its-suite
+    seq: [73, 74]
+    tag: "365nm_seq_73_74"
+
+  - type: plot-its
+    seq: 76
+    tag: "365nm_76"
+
+  - type: plot-its
+    seq: [80, 82, 85, 87]
+    tag: "365nm_multi_1"
+
+  - type: plot-its
+    seq: [80, 82]
+    tag: "365nm_multi_2"
+
+  - type: plot-its-suite
+    seq: "85-87"
+    tag: "365nm_seq_85_87"
+
+ 

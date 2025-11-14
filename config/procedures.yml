@@ -405,6 +405,16 @@ procedures:
       Ambient T (degC): float
       Clock (ms): float
 
+    ManifestColumns:
+      ids_v: [Drain-Source current]
+      vg_fixed_v: [VG, Vg]
+      wavelength_nm: [Laser wavelength]
+      laser_voltage_V: [Laser voltage]
+      laser_period_s: [Laser ON+OFF period]
+
+    Config:
+      light_detection: standard
+
   Pt:
     Parameters:
       Irange: float

@@ -72,6 +72,13 @@ def plot_photoresponse(
 
     # Filter to selected measurements with photoresponse data and illumination
     # delta_current comes from It/ITt, delta_voltage comes from Vt
+
+    # Cast metric column to float if it's a string (old format compatibility)
+    if metric_col in history.columns and history.schema[metric_col] == pl.Utf8:
+        history = history.with_columns(
+            pl.col(metric_col).cast(pl.Float64, strict=False).alias(metric_col)
+        )
+
     photo_data = history.filter(
         pl.col("proc").is_in(procedures) &
         (pl.col("has_light") == True) &

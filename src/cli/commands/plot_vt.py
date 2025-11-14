@@ -121,6 +121,18 @@ def plot_vt_command(
         "--dry-run",
         help="Dry run mode: validate experiments and show output filename only (fastest)"
     ),
+    resistance: bool = typer.Option(
+        False,
+        "--resistance",
+        "-r",
+        help="Plot resistance R=V/I instead of voltage"
+    ),
+    absolute: bool = typer.Option(
+        False,
+        "--absolute",
+        "-a",
+        help="Plot absolute value |R| (only with --resistance)"
+    ),
     theme: Optional[str] = typer.Option(
         None,
         "--theme",
@@ -147,6 +159,15 @@ def plot_vt_command(
     Examples:
         # Plot specific experiments with wavelength legend (default)
         python process_and_analyze.py plot-vt 67 --seq 52,57,58
+
+        # Plot resistance R=V/I
+        python process_and_analyze.py plot-vt 67 --seq 52,57,58 --resistance
+
+        # Plot absolute resistance |R|
+        python process_and_analyze.py plot-vt 67 --seq 52,57,58 --resistance --absolute
+
+        # Auto-select all Vt experiments with resistance
+        python process_and_analyze.py plot-vt 67 --auto --resistance
 
         # Interactive selection (TUI)
         python process_and_analyze.py plot-vt 67 --interactive
@@ -178,6 +199,10 @@ def plot_vt_command(
     ))
     ctx.print()
 
+    # Validate flag combinations
+    if absolute and not resistance:
+        ctx.print("[yellow]Warning:[/yellow] --absolute flag ignored (only valid with --resistance)")
+        absolute = False
 
     if output_dir is None:
         output_dir = ctx.output_dir
@@ -276,7 +301,9 @@ def plot_vt_command(
         # Calculate output filename (using standardized naming)
         output_dir_calc = setup_output_dir(chip_number, chip_group, output_dir)
         plot_tag = generate_plot_tag(seq_numbers, custom_tag=tag)
-        output_file = output_dir_calc / f"encap{chip_number}_Vt_{plot_tag}.png"
+        raw_suffix = "_raw" if baseline_mode == "none" else ""
+        resistance_suffix = "_R" if resistance else ""
+        output_file = output_dir_calc / f"encap{chip_number}_Vt_{plot_tag}{raw_suffix}{resistance_suffix}.png"
 
         # Check if file already exists
         file_exists = output_file.exists()
@@ -349,8 +376,13 @@ def plot_vt_command(
 
     # Step 7: Display plot settings
     ctx.print()
+    plot_mode = "Resistance (R = V/I)" if resistance else "Voltage (ΔVds)"
+    if resistance and absolute:
+        plot_mode = "Absolute Resistance (|R| = |V/I|)"
+
     display_plot_settings({
-        "Plot type": "Vt overlay (Vds vs t)",
+        "Plot type": "Vt overlay (Vds vs t)" if not resistance else "Vt overlay (R vs t)",
+        "Y-axis": plot_mode,
         "Curves": f"{history.height} measurement(s)",
         "Baseline mode": baseline_mode,
         "Baseline time": f"{baseline_t}s" if baseline_mode == "fixed" else "auto" if baseline_mode == "auto" else "none",
@@ -366,7 +398,8 @@ def plot_vt_command(
 
     # Preview output filename
     raw_suffix = "_raw" if baseline_mode == "none" else ""
-    output_file = output_dir / f"encap{chip_number}_Vt_{plot_tag}{raw_suffix}.png"
+    resistance_suffix = "_R" if resistance else ""
+    output_file = output_dir / f"encap{chip_number}_Vt_{plot_tag}{raw_suffix}{resistance_suffix}.png"
 
     ctx.print()
     ctx.print(Panel(
@@ -420,6 +453,8 @@ def plot_vt_command(
             baseline_mode=baseline_mode,
             legend_by=legend_by,
             padding=padding,
+            resistance=resistance,
+            absolute=absolute,
             config=plot_config
         )
     except Exception as e:

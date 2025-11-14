@@ -119,10 +119,12 @@ def plot_vt_overlay(
     plot_start_time: float | None = None,  # Configurable start time (defaults to config.plot_start_time)
     legend_by: str = "wavelength",  # "wavelength", "vg", "led_voltage", "power", or "datetime"
     padding: float | None = None,  # fraction of data range to add as padding (defaults to config.padding_fraction)
+    resistance: bool = False,  # Plot resistance R=V/I instead of voltage
+    absolute: bool = False,  # Plot absolute value |R| (only with resistance=True)
     config: Optional[PlotConfig] = None,  # Plot configuration
 ):
     """
-    Overlay Vt traces with flexible baseline and preset support.
+    Overlay Vt traces with flexible baseline and preset support (voltage or resistance).
 
     Parameters
     ----------
@@ -156,6 +158,11 @@ def plot_vt_overlay(
         "datetime","date","time","dt" -> datetime.
     padding : float, optional
         Fraction of data range to add as padding on y-axis (default: config.padding_fraction = 0.02 = 2%).
+    resistance : bool, optional
+        If True, plot resistance R=V/I instead of voltage. Default: False
+    absolute : bool, optional
+        If True, plot |R| (absolute resistance). Only valid with resistance=True.
+        Default: False
     config : PlotConfig, optional
         Plot configuration (theme, DPI, output paths, etc.)
     """
@@ -170,7 +177,11 @@ def plot_vt_overlay(
 
     # Apply plot style from config
     from src.plotting.styles import set_plot_style
+    from src.plotting.transforms import calculate_resistance
     set_plot_style(config.theme)
+
+    # Track units for resistance plots (will be set in first iteration)
+    units = None
 
     # --- Handle baseline mode ---
     if baseline_mode == "auto":
@@ -257,12 +268,39 @@ def plot_vt_overlay(
         # Get label using centralized formatter
         lbl, legend_title = legend_formatter(row, config)
 
-        # Store y-values ONLY for the visible time window (t >= plot_start_time)
-        # Convert to mV for display
-        visible_mask = tt >= plot_start_time
-        all_y_values.extend((yy_corr * 1e3)[visible_mask])
+        # Plot resistance or voltage based on mode
+        if resistance:
+            # Extract IDS from metadata (check both column naming conventions)
+            ids = row.get("ids_v") or row.get("Drain-Source current")
 
-        plt.plot(tt, yy_corr * 1e3, label=lbl)  # Convert V to mV
+            if ids is None or ids == 0 or not np.isfinite(ids):
+                print(f"[warn] Skipping seq #{int(row.get('file_idx', 0))}: IDS={ids}A (cannot calculate resistance)")
+                continue
+
+            # Calculate resistance R = V/I for each point in the time series
+            # yy_corr is the baseline-corrected voltage
+            R, ylabel_text, units_temp = calculate_resistance(yy_corr, ids, absolute=absolute)
+
+            if R is None:
+                continue  # Skip this curve (already warned in calculate_resistance)
+
+            # Store units from first successful calculation
+            if units is None:
+                units = units_temp
+
+            # Store y-values ONLY for the visible time window (t >= plot_start_time)
+            visible_mask = tt >= plot_start_time
+            all_y_values.extend(R[visible_mask])
+
+            plt.plot(tt, R, label=lbl)
+        else:
+            # Store y-values ONLY for the visible time window (t >= plot_start_time)
+            # Convert to mV for display
+            visible_mask = tt >= plot_start_time
+            all_y_values.extend((yy_corr * 1e3)[visible_mask])
+
+            plt.plot(tt, yy_corr * 1e3, label=lbl)  # Convert V to mV
+
         curves_plotted += 1
 
         try:
@@ -339,7 +377,18 @@ def plot_vt_overlay(
         plt.axvspan(t0, t1, alpha=config.light_window_alpha)
 
     plt.xlabel(r"$t\ (\mathrm{s})$")
-    plt.ylabel(r"$\Delta V_{ds}\ (\mathrm{mV})$")
+
+    # Update y-axis label based on mode
+    if resistance:
+        # Use units from first successful calculation
+        if units is not None:
+            ylabel_latex = f"R\\ ({units})" if not absolute else f"|R|\\ ({units})"
+        else:
+            # Fallback if no successful calculations (shouldn't happen)
+            ylabel_latex = "R\\ (\\Omega)" if not absolute else "|R|\\ (\\Omega)"
+        plt.ylabel(f"$\\mathrm{{{ylabel_latex}}}$")
+    else:
+        plt.ylabel(r"$\Delta V_{ds}\ (\mathrm{mV})$")
 
     # Safeguard chip number
     try:
@@ -393,7 +442,9 @@ def plot_vt_overlay(
 
     # Add _raw suffix if baseline_mode is "none"
     raw_suffix = "_raw" if baseline_mode == "none" else ""
-    filename = f"encap{chipnum}_Vt_{tag}{raw_suffix}"
+    # Add _R suffix for resistance plots
+    resistance_suffix = "_R" if resistance else ""
+    filename = f"encap{chipnum}_Vt_{tag}{raw_suffix}{resistance_suffix}"
     out = config.get_output_path(
         filename,
         chip_number=chipnum,

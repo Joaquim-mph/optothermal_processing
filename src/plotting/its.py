@@ -207,6 +207,8 @@ def plot_its_overlay(
     padding: float | None = None,  # Y-axis padding (None = use config default)
     check_duration_mismatch: bool = False,  # Enable duration check
     duration_tolerance: float = 0.10,  # Tolerance for duration warnings (10%)
+    conductance: bool = False,  # Plot conductance G=I/V instead of current
+    absolute: bool = False,  # Plot absolute value |G| (only with conductance=True)
     config: Optional[PlotConfig] = None,  # Plot configuration (Phase 2 integration)
 ):
     """
@@ -251,6 +253,12 @@ def plot_its_overlay(
     duration_tolerance : float
         Maximum allowed variation in durations as fraction (0.10 = 10%).
         Only used if check_duration_mismatch=True.
+    conductance : bool
+        If True, plot conductance G=I/V instead of current. Default: False.
+        Requires `vds_v` (drain-source voltage) in metadata.
+    absolute : bool
+        If True, plot |G| (absolute conductance). Only valid with conductance=True.
+        Default: False.
 
     Examples
     --------
@@ -273,7 +281,11 @@ def plot_its_overlay(
 
     # Apply plot style from config
     from src.plotting.styles import set_plot_style
+    from src.plotting.transforms import calculate_conductance
     set_plot_style(config.theme)
+
+    # Track units for conductance plots (will be set in first iteration)
+    units = None
 
     # --- Handle baseline mode ---
     if baseline_mode == "auto":
@@ -419,12 +431,34 @@ def plot_its_overlay(
                 lbl = f"#{int(row['file_idx'])}"
                 legend_title = "Trace"
 
-        # Store y-values ONLY for the visible time window (t >= plot_start_time)
-        # This ensures padding is calculated from data actually shown in the plot
+        # Plot conductance or current based on mode
         visible_mask = tt >= plot_start_time
-        all_y_values.extend((yy_corr * 1e6)[visible_mask])
+        if conductance:
+            # Extract VDS from metadata (check both column naming conventions)
+            vds = row.get("vds_v") or row.get("VDS")
 
-        plt.plot(tt, yy_corr * 1e6, label=lbl)
+            if vds is None or vds == 0 or not np.isfinite(vds):
+                print(f"[warn] Skipping seq #{int(row.get('file_idx', 0))}: VDS={vds}V (cannot calculate conductance)")
+                continue
+
+            # Calculate conductance G = I/V
+            G, ylabel_text, units_temp = calculate_conductance(yy_corr, vds, absolute=absolute)
+
+            if G is None:
+                continue  # Skip this curve (already warned in calculate_conductance)
+
+            # Store units from first successful calculation
+            if units is None:
+                units = units_temp
+
+            # Store y-values for visible window only
+            all_y_values.extend(G[visible_mask])
+            plt.plot(tt, G, label=lbl)
+        else:
+            # Original current plot
+            all_y_values.extend((yy_corr * 1e6)[visible_mask])
+            plt.plot(tt, yy_corr * 1e6, label=lbl)
+
         curves_plotted += 1
 
         try:
@@ -494,7 +528,19 @@ def plot_its_overlay(
         plt.axvspan(t0, t1, alpha=config.light_window_alpha)
 
     plt.xlabel(r"$t\ (\mathrm{s})$")
-    plt.ylabel(r"$\Delta I_{ds}\ (\mu\mathrm{A})$")
+
+    # Update y-axis label based on mode
+    if conductance:
+        # Use units from first successful calculation
+        if units is not None:
+            ylabel_latex = f"G\\ ({units})" if not absolute else f"|G|\\ ({units})"
+        else:
+            # Fallback if no successful calculations (shouldn't happen)
+            ylabel_latex = "G\\ (S)" if not absolute else "|G|\\ (S)"
+        plt.ylabel(f"$\\mathrm{{{ylabel_latex}}}$")
+    else:
+        plt.ylabel(r"$\Delta I_{ds}\ (\mu\mathrm{A})$")
+
     chipnum = int(df["chip_number"][0])  # Use snake_case column name from history
     #plt.title(f"Chip {chipnum} — ITS overlay")
     plt.legend(title=legend_title)
@@ -551,7 +597,8 @@ def plot_its_overlay(
 
     # Add _raw suffix if baseline_mode is "none"
     raw_suffix = "_raw" if baseline_mode == "none" else ""
-    filename = f"encap{chipnum}_It_{tag}{raw_suffix}"
+    conductance_suffix = "_G" if conductance else ""
+    filename = f"encap{chipnum}_It_{tag}{raw_suffix}{conductance_suffix}"
     out = config.get_output_path(
         filename,
         chip_number=chipnum,

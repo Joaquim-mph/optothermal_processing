@@ -882,7 +882,7 @@ def optimize_for_display(path: Path, max_width: int = 2000) -> Path:
 - **Pillow Documentation:** https://pillow.readthedocs.io/
 - **Kitty Graphics Protocol:** https://sw.kovidgoyal.net/kitty/graphics-protocol/
 - **Project CLAUDE.md:** `/Users/mphstph/optothermal_processing/CLAUDE.md`
-- **Matplotlib Implementation Guide:** `matplotlib_plot_display_implementation_guide.md`
+- **Matplotlib Implementation Guide:** `../notes/implementation/matplotlib_plot_display_implementation_guide.md`
 
 ---
 

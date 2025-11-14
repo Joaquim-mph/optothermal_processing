@@ -1,0 +1,10 @@
+---
+# Test configuration to verify photoresponse path fix
+chip: 67
+chip_group: "Alisson"
+
+plots:
+  # Single ITS suite entry - should generate 3 plots including photoresponse
+  - type: plot-its-suite
+    seq: "4-7"
+    tag: "test_405nm"

@@ -146,6 +146,9 @@ def build_chip_history_from_manifest(
     if "vds_v" in df.columns:
         date_exprs.append(pl.col("vds_v").cast(pl.Float64).alias("vds_v"))
 
+    if "ids_v" in df.columns:
+        date_exprs.append(pl.col("ids_v").cast(pl.Float64).alias("ids_v"))
+
     if "vg_fixed_v" in df.columns:
         date_exprs.append(pl.col("vg_fixed_v").cast(pl.Float64).alias("vg_fixed_v"))
 
@@ -326,6 +329,7 @@ def build_chip_history_from_manifest(
         "laser_voltage_v",
         "wavelength_nm",
         "vds_v",
+        "ids_v",  # Drain-source current for VVg/Vt procedures
         "vg_fixed_v",
         "vg_start_v",
         "vg_end_v",

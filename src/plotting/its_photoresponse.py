@@ -395,8 +395,6 @@ def plot_its_photoresponse(
         title_parts.append(f'Vg={filter_vg:.2f}V')
     ax.set_title(' | '.join(title_parts), fontweight='bold')
 
-    ax.grid(True, alpha=0.3)
-
     # Add legend if multiple wavelengths
     if x_variable in ["power", "gate_voltage"] and "wavelength_nm" in its_data.columns:
         wavelengths_count = its_data["wavelength_nm"].n_unique()
@@ -452,8 +450,26 @@ def plot_its_photoresponse(
         filename_parts.append(plot_tag)
 
     filename = "_".join(filename_parts) + ".png"
-    output_file = config.get_output_path(filename, procedure="ITS")
+
+    # Extract chip number for path construction
+    chip_num = int(chip_number) if chip_number.isdigit() else None
+
+    # Build metadata for automatic subcategory detection
+    # Photoresponse plots are always from light experiments
+    metadata = {"has_light": True}
+
+    # Use correct procedure name ("It" not "ITS") and pass metadata for Light_It/ subfolder
+    output_file = config.get_output_path(
+        filename,
+        chip_number=chip_num,
+        procedure="It",
+        metadata=metadata,
+        create_dirs=True  # Create directory if it doesn't exist
+    )
+
     plt.savefig(output_file, dpi=config.dpi, bbox_inches='tight')
     plt.close()
+
+    print(f"saved {output_file}")
 
     return output_file

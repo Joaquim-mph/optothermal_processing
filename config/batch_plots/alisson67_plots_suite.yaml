@@ -1,0 +1,136 @@
+---
+# Batch plot configuration for chip 67 using ITS Suite
+# This is a modern, concise version using plot-its-suite
+# Generates 3 plots per entry: overlay, sequential, and photoresponse
+#
+# PREREQUISITES for power legends:
+#   1. Extract metrics with calibrations:
+#      python3 process_and_analyze.py derive-all-metrics --calibrations
+#   2. Enrich history with power data:
+#      python3 process_and_analyze.py enrich-history 67
+#
+# Without enrichment, plots still work but legends show LED voltage instead of power.
+
+chip: 67
+chip_group: "Alisson"
+
+# Common parameters
+defaults:
+  legend_by: irradiated_power
+
+# Plot specifications
+plots:
+  # ========================================
+  # CHARACTERIZATION
+  # ========================================
+
+  # IVG and transconductance
+  - type: plot-ivg
+    seq: 2
+    tag: "baseline_ivg"
+
+  - type: plot-transconductance
+    seq: 2
+    method: savgol
+    window: 21
+    polyorder: 7
+    tag: "baseline_gm"
+
+  # ========================================
+  # 405 nm PHOTORESPONSE
+  # ========================================
+
+  # Negative gate (3 measurement series)
+  - type: plot-its-suite
+    seq: "4-7"
+    tag: "405nm_neg_gate_1"
+
+  - type: plot-its-suite
+    seq: "9-12"
+    tag: "405nm_neg_gate_2"
+
+  - type: plot-its-suite
+    seq: "15-18"
+    tag: "405nm_neg_gate_3"
+
+  # Positive gate
+  - type: plot-its-suite
+    seq: "21-24"
+    tag: "405nm_pos_gate"
+
+  # ========================================
+  # 385 nm PHOTORESPONSE
+  # ========================================
+
+  - type: plot-its-suite
+    seq: "27-30"
+    tag: "385nm_neg_gate"
+
+  - type: plot-its-suite
+    seq: "32-35"
+    tag: "385nm_pos_gate"
+
+  # ========================================
+  # 365 nm PHOTORESPONSE
+  # ========================================
+
+  - type: plot-its-suite
+    seq: "38-39"
+    tag: "365nm_initial"
+
+  # Comprehensive 365nm analysis
+  - type: plot-its-suite
+    seq: "40-44"
+    tag: "365nm_main_series"
+
+  # CNP region exploration
+  - type: plot-its-suite
+    seq: "46-49"
+    tag: "365nm_pos_gate"
+
+  - type: plot-its-suite
+    seq: "57-60"
+    tag: "365nm_cnp_region"
+
+  # ========================================
+  # SPECIAL ANALYSES
+  # ========================================
+
+  # Same power, different responses (interesting comparison)
+  - type: plot-its-suite
+    seq: [38, 41, 52, 57, 65]
+    tag: "365nm_same_power_comparison"
+
+  # Time evolution (chronological order)
+  - type: plot-its-suite
+    seq: "4-87"
+    tag: "full_time_evolution"
+    photoresponse_x: time
+
+  # Wavelength dependence
+  - type: plot-its-suite
+    seq: "4-44"
+    tag: "wavelength_scan"
+    photoresponse_x: wavelength
+    legend_by: wavelength
+
+# Usage:
+#
+# Sequential mode (best for small batches):
+#   python3 process_and_analyze.py batch-plot config/batch_plots/alisson67_plots_suite.yaml
+#
+# Parallel mode with 4 workers (recommended for this config - 13 entries):
+#   python3 process_and_analyze.py batch-plot config/batch_plots/alisson67_plots_suite.yaml --parallel 4
+#
+# Preview mode (dry run):
+#   python3 process_and_analyze.py batch-plot config/batch_plots/alisson67_plots_suite.yaml --dry-run
+#
+# What this generates:
+#   - 2 characterization plots (IVg, transconductance)
+#   - 11 ITS suite entries × 3 plots each = 33 ITS plots
+#   - Total: 35 plots from 13 entries!
+#
+# Compare to original alisson67_plots.yaml:
+#   - Original: ~30 entries for ~30 plots
+#   - Suite version: 13 entries for 35 plots
+#   - Configuration reduction: 57% fewer entries!

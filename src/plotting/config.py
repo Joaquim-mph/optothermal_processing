@@ -149,7 +149,7 @@ class PlotConfig(BaseModel):
     # ============================================================================
 
     chip_subdir_enabled: bool = Field(
-        default=True,
+        default=False,
         description="Create chip-specific subdirectories (Encap81/, Encap67/). Enables chip-first hierarchy."
     )
 

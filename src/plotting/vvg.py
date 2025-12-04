@@ -175,6 +175,7 @@ def plot_vvg_sequence(
     else:
         plt.ylabel("$\\rm{V_{ds}\\ (mV)}$")
         title_suffix = ""
+        plt.ylim(bottom=0)  # Positive values only for voltage
 
     chipnum = int(df['chip_number'][0])  # Use snake_case column name from history
     plt.title(f"Encap{chipnum} — VVg{title_suffix}")

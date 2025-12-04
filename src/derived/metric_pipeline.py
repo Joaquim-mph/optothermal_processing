@@ -18,6 +18,7 @@ import multiprocessing
 from src.core.utils import read_measurement_parquet
 from src.models.derived_metrics import DerivedMetric
 from .extractors.base import MetricExtractor
+from .extractors.base_pairwise import PairwiseMetricExtractor
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -94,6 +95,7 @@ class MetricPipeline:
         self,
         base_dir: Path,
         extractors: Optional[List[MetricExtractor]] = None,
+        pairwise_extractors: Optional[List[PairwiseMetricExtractor]] = None,
         extraction_version: Optional[str] = None
     ):
         """Initialize pipeline with extractors."""
@@ -101,7 +103,7 @@ class MetricPipeline:
         self.stage_dir = self.base_dir / "data" / "02_stage"
         self.derived_dir = self.base_dir / "data" / "03_derived"
 
-        # Register extractors
+        # Register single-measurement extractors
         if extractors is None:
             self.extractors = self._default_extractors()
         else:
@@ -115,13 +117,28 @@ class MetricPipeline:
                     self.extractor_map[proc] = []
                 self.extractor_map[proc].append(extractor)
 
+        # Register pairwise extractors
+        if pairwise_extractors is None:
+            self.pairwise_extractors = self._default_pairwise_extractors()
+        else:
+            self.pairwise_extractors = pairwise_extractors
+
+        # Build pairwise extractor lookup by procedure
+        self.pairwise_extractor_map: Dict[str, List[PairwiseMetricExtractor]] = {}
+        for extractor in self.pairwise_extractors:
+            for proc in extractor.applicable_procedures:
+                if proc not in self.pairwise_extractor_map:
+                    self.pairwise_extractor_map[proc] = []
+                self.pairwise_extractor_map[proc].append(extractor)
+
         # Extraction version for provenance
         if extraction_version is None:
             extraction_version = self._get_git_version()
         self.extraction_version = extraction_version
 
         logger.info(
-            f"Initialized MetricPipeline with {len(self.extractors)} extractors "
+            f"Initialized MetricPipeline with {len(self.extractors)} single extractors "
+            f"and {len(self.pairwise_extractors)} pairwise extractors, "
             f"covering {len(self.extractor_map)} procedures"
         )
 
@@ -151,6 +168,25 @@ class MetricPipeline:
             ITSThreePhaseFitExtractor(vl_threshold=0.1, min_phase_duration=60.0, min_points_for_fit=50),
             # TODO: Add more extractors as they're implemented:
             # MobilityExtractor(),
+        ]
+
+    def _default_pairwise_extractors(self) -> List[PairwiseMetricExtractor]:
+        """
+        Return default set of pairwise metric extractors.
+
+        Returns
+        -------
+        List[PairwiseMetricExtractor]
+            Default pairwise extractors
+        """
+        from .extractors.consecutive_sweep_difference import ConsecutiveSweepDifferenceExtractor
+
+        return [
+            ConsecutiveSweepDifferenceExtractor(
+                vg_interpolation_points=200,
+                min_vg_overlap=1.0,
+                store_resistance=True
+            ),
         ]
 
     def _get_git_version(self) -> str:
@@ -253,16 +289,32 @@ class MetricPipeline:
                 existing_run_ids = set(existing_metrics["run_id"].unique().to_list())
                 logger.info(f"Found {len(existing_run_ids)} measurements with existing metrics")
 
-        # Extract metrics
+        # Extract single-measurement metrics
         if parallel:
             metrics = self._extract_parallel(manifest, workers, existing_run_ids)
         else:
             metrics = self._extract_sequential(manifest, existing_run_ids)
 
-        logger.info(f"Extracted {len(metrics)} metrics from {manifest.height} measurements")
+        logger.info(f"Extracted {len(metrics)} single-measurement metrics from {manifest.height} measurements")
+
+        # Extract pairwise metrics
+        try:
+            pairwise_metrics = self._extract_pairwise_metrics(manifest)
+            logger.info(f"Extracted {len(pairwise_metrics)} pairwise metrics")
+        except Exception as e:
+            logger.error(f"Pairwise metrics extraction failed: {e}", exc_info=True)
+            pairwise_metrics = []
+
+        # Combine all metrics
+        all_metrics = metrics + pairwise_metrics
+        logger.info(f"Total: {len(all_metrics)} metrics ({len(metrics)} single + {len(pairwise_metrics)} pairwise)")
 
         # Save metrics
-        metrics_path = self._save_metrics(metrics)
+        try:
+            metrics_path = self._save_metrics(all_metrics)
+        except Exception as e:
+            logger.error(f"Failed to save metrics: {e}", exc_info=True)
+            raise
 
         return metrics_path
 
@@ -355,13 +407,29 @@ class MetricPipeline:
                 existing_run_ids = set(existing_metrics["run_id"].unique().to_list())
                 logger.info(f"Found {len(existing_run_ids)} measurements with existing metrics")
 
-        # Extract metrics using thread-based parallel extraction
+        # Extract single-measurement metrics using thread-based parallel extraction
         metrics = self._extract_parallel_tui(manifest, workers, existing_run_ids)
 
-        logger.info(f"Extracted {len(metrics)} metrics from {manifest.height} measurements")
+        logger.info(f"Extracted {len(metrics)} single-measurement metrics from {manifest.height} measurements")
+
+        # Extract pairwise metrics
+        try:
+            pairwise_metrics = self._extract_pairwise_metrics(manifest)
+            logger.info(f"Extracted {len(pairwise_metrics)} pairwise metrics")
+        except Exception as e:
+            logger.error(f"Pairwise metrics extraction failed: {e}", exc_info=True)
+            pairwise_metrics = []
+
+        # Combine all metrics
+        all_metrics = metrics + pairwise_metrics
+        logger.info(f"Total: {len(all_metrics)} metrics ({len(metrics)} single + {len(pairwise_metrics)} pairwise)")
 
         # Save metrics
-        metrics_path = self._save_metrics(metrics)
+        try:
+            metrics_path = self._save_metrics(all_metrics)
+        except Exception as e:
+            logger.error(f"Failed to save metrics: {e}", exc_info=True)
+            raise
 
         return metrics_path
 
@@ -595,6 +663,145 @@ class MetricPipeline:
                     exc_info=True
                 )
 
+        return metrics
+
+    def _extract_pairwise_metrics(
+        self,
+        manifest: pl.DataFrame
+    ) -> List[DerivedMetric]:
+        """
+        Extract metrics from consecutive measurement pairs.
+
+        This method processes measurements in pairs to compute comparative metrics
+        like consecutive sweep differences. Pairs are formed by:
+        1. Grouping by (chip_number, proc)
+        2. Sorting by seq_num
+        3. Pairing consecutive measurements
+
+        Parameters
+        ----------
+        manifest : pl.DataFrame
+            Manifest DataFrame with measurement metadata
+
+        Returns
+        -------
+        List[DerivedMetric]
+            Extracted pairwise metrics
+        """
+        if not self.pairwise_extractors:
+            return []
+
+        metrics = []
+
+        # Group by chip and procedure
+        try:
+            grouped = manifest.group_by(["chip_number", "proc"])
+        except Exception as e:
+            logger.error(f"Failed to group manifest for pairwise extraction: {e}")
+            return metrics
+
+        for (chip_num, proc), group_df in grouped:
+            # Skip if no pairwise extractors for this procedure
+            if proc not in self.pairwise_extractor_map:
+                continue
+
+            extractors = self.pairwise_extractor_map[proc]
+
+            # Sort by start_time_utc to ensure chronological ordering
+            # and add temporary seq_num if not present (manifest doesn't have it)
+            try:
+                sorted_group = group_df.sort("start_time_utc")
+
+                # Add temporary seq_num based on chronological order
+                if "seq_num" not in sorted_group.columns:
+                    # Create seq_num using row index (starts at 1 for first measurement)
+                    sorted_group = sorted_group.with_row_count("seq_num", offset=1)
+
+                # Add parquet_path if not present (construct from run_id, proc, and date)
+                if "parquet_path" not in sorted_group.columns:
+                    # Parquet files are stored with Hive partitioning:
+                    # {stage_dir}/raw_measurements/proc={proc}/date={date_local}/run_id={run_id}/part-000.parquet
+                    base_path = str(self.stage_dir / "raw_measurements")
+                    sorted_group = sorted_group.with_columns(
+                        pl.format(
+                            f"{base_path}/proc={{}}/date={{}}/run_id={{}}/part-000.parquet",
+                            pl.col("proc"),
+                            pl.col("date_local"),
+                            pl.col("run_id")
+                        ).alias("parquet_path")
+                    )
+
+                rows = sorted_group.to_dicts()
+            except Exception as e:
+                logger.warning(f"Failed to sort group for chip {chip_num}, proc {proc}: {e}")
+                continue
+
+            # Process consecutive pairs
+            for i in range(len(rows) - 1):
+                metadata_1 = rows[i]
+                metadata_2 = rows[i + 1]
+
+                # Check if measurements should be paired (using extractor's logic)
+                should_pair = all(
+                    ext.should_pair(metadata_1, metadata_2)
+                    for ext in extractors
+                )
+
+                if not should_pair:
+                    logger.debug(
+                        f"Skipping pair: seq {metadata_1.get('seq_num')} and "
+                        f"{metadata_2.get('seq_num')} (not consecutive or different proc)"
+                    )
+                    continue
+
+                # Load both measurements
+                try:
+                    meas_1 = read_measurement_parquet(Path(metadata_1["parquet_path"]))
+                    meas_2 = read_measurement_parquet(Path(metadata_2["parquet_path"]))
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to load pair {metadata_1['run_id']}, {metadata_2['run_id']}: {e}"
+                    )
+                    continue
+
+                # Add extraction version to metadata
+                metadata_1["extraction_version"] = self.extraction_version
+                metadata_2["extraction_version"] = self.extraction_version
+
+                # Run pairwise extractors
+                for extractor in extractors:
+                    try:
+                        pair_metrics = extractor.extract_pairwise(
+                            meas_1, metadata_1,
+                            meas_2, metadata_2
+                        )
+
+                        if pair_metrics is None:
+                            logger.debug(
+                                f"Pairwise extractor {extractor.metric_name} returned None for "
+                                f"seq {metadata_1.get('seq_num')}→{metadata_2.get('seq_num')}"
+                            )
+                            continue
+
+                        # Validate and collect metrics
+                        for metric in pair_metrics:
+                            if not extractor.validate(metric):
+                                logger.warning(
+                                    f"Validation failed for pairwise {extractor.metric_name}: "
+                                    f"value={metric.value_float}"
+                                )
+                                # Still save but log warning
+
+                            metrics.append(metric)
+
+                    except Exception as e:
+                        logger.error(
+                            f"Pairwise extractor {extractor.metric_name} failed on "
+                            f"seq {metadata_1.get('seq_num')}→{metadata_2.get('seq_num')}: {e}",
+                            exc_info=True
+                        )
+
+        logger.info(f"Extracted {len(metrics)} pairwise metrics")
         return metrics
 
     # ═══════════════════════════════════════════════════════════════════

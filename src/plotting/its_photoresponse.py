@@ -468,7 +468,7 @@ def plot_its_photoresponse(
     )
 
     plt.savefig(output_file, dpi=config.dpi, bbox_inches='tight')
-    plt.close()
+    plt.close(fig)
 
     print(f"saved {output_file}")
 

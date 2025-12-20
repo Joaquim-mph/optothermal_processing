@@ -608,6 +608,7 @@ def plot_its_overlay(
     )
     plt.savefig(out, dpi=config.dpi)
     print(f"saved {out}")
+    plt.close()
 
 
 def plot_its_dark(
@@ -888,6 +889,7 @@ def plot_its_dark(
     )
     plt.savefig(out, dpi=config.dpi)
     print(f"saved {out}")
+    plt.close()
 
 
 def plot_its_sequential(
@@ -1153,6 +1155,7 @@ def plot_its_sequential(
     )
     plt.savefig(out, dpi=config.dpi)
     print(f"saved {out}")
+    plt.close()
 
     # Calculate total time from last segment
     if experiment_segments:

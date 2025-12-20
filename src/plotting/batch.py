@@ -345,7 +345,9 @@ def execute_plot(spec: PlotSpec, chip_group: str, quiet: bool = True) -> PlotRes
 
     try:
         # Load chip history (from cache if available)
-        history = get_chip_history(spec.chip, chip_group)
+        # Suppress output if quiet (handles worker reloading case)
+        with suppress_output() if quiet else null_context():
+            history = get_chip_history(spec.chip, chip_group)
 
         # Parse sequence list
         if isinstance(spec.seq, list):

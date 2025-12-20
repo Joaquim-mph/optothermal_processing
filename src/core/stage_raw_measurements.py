@@ -1021,14 +1021,13 @@ def ingest_file_task(
                 "run_id": rid,
                 "proc": proc,
                 "start_dt": start_dt,
-                "source_file": str(src),
-                "with_light": with_light,
-                "chip_group": params.get("Chip group name"),
-                "chip_number": params.get("Chip number"),
-                "sample": params.get("Sample"),
-                "procedure_version": params.get("Procedure version"),
-                # Dynamically extracted manifest columns (all procedure-specific fields)
-                **manifest_cols,
+                # Metadata is now ONLY in manifest, not duplicated in data files
+                # "with_light": with_light,
+                # "chip_group": params.get("Chip group name"),
+                # "chip_number": params.get("Chip number"),
+                # "sample": params.get("Sample"),
+                # "procedure_version": params.get("Procedure version"),
+                # **manifest_cols,
             }
             df = df.with_columns([pl.lit(v).alias(k) for k, v in extra_cols.items()])
             atomic_write_parquet(df, out_file)

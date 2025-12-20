@@ -171,8 +171,54 @@ def read_measurement_parquet(path: Path) -> pl.DataFrame:
     >>> print(df.columns)
     ['t (s)', 'I (A)', 'VL (V)', ...]
     """
+
     try:
-        return pl.read_parquet(path)
+        df = pl.read_parquet(path)
+        
+        # --- NEW: Join metadata from manifest ---
+        # The parquet file now only contains RunID and data. 
+        # We must look up the metadata (wavelength, chip, etc.) from the manifest.
+        if "run_id" in df.columns:
+            # 1. Infer manifest path (go up from .../proc=X/date=Y/run_id=Z/part-000.parquet)
+            # data/02_stage/raw_measurements/_manifest/manifest.parquet
+            try:
+                # Path(path) is like: roots/proc=X/date=Y/run_id=Z/part-000.parquet
+                # Parent x3 is 'roots' (raw_measurements)
+                stage_root = Path(path).parent.parent.parent.parent
+                manifest_path = stage_root / "_manifest" / "manifest.parquet"
+                
+                if manifest_path.exists():
+                    # Read only the row for this run_id for efficiency
+                    # But Polars scan_parquet doesn't support fast point lookup well without reading metadata
+                    # For now, let's cache the manifest or use scan
+                    # To keep it simple and robust:
+                    
+                    # We only need the metadata columns, not everything
+                    # And we filter by the run_id found in the data (should be single value)
+                    rid = df["run_id"][0]
+                    
+                    manifest_df = pl.read_parquet(manifest_path).filter(pl.col("run_id") == rid)
+                    
+                    if len(manifest_df) > 0:
+                        meta_row = manifest_df.row(0, named=True)
+                        
+                        # Columns to exclude from join (already in data or not needed)
+                        exclude = {"run_id", "proc", "path", "source_file", "rows", "status", "ts", "validation_errors", "validation_warnings", "validation_messages"}
+                        
+                        # Add metadata columns to df
+                        new_cols = []
+                        for k, v in meta_row.items():
+                            if k not in df.columns and k not in exclude and v is not None:
+                                new_cols.append(pl.lit(v).alias(k))
+                        
+                        if new_cols:
+                            df = df.with_columns(new_cols)
+            except Exception as e:
+                # If manifest lookup fails, just return what we have (graceful degradation)
+                # print(f"Warning: Failed to join manifest metadata: {e}")
+                pass
+
+        return df
     except FileNotFoundError:
         return pl.DataFrame()
     except Exception as e:

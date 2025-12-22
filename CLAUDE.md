@@ -689,6 +689,29 @@ python3 -m src.derived.algorithms.benchmark_stretched_exp
 
 ## Recent Additions
 
+### Version 3.5.0 (January 2025) - Pairwise Extraction Performance Analysis
+
+**Performance Optimization:**
+- **Analysis:** Benchmarked sequential vs parallel processing
+- **Result:** Sequential is 2-10x FASTER than parallel for all dataset sizes
+- **Implementation:** Uses sequential processing exclusively
+
+**Benchmark Results:**
+- Small (38 pairs): Sequential 0.20s vs Parallel 2.05s → **10x faster**
+- Medium (124 pairs): Sequential 0.54s vs Parallel 2.13s → **4x faster**
+- Large (293 pairs): Sequential 1.32s vs Parallel 2.31s → **1.8x faster**
+
+**Why Sequential Wins:**
+- Fast Parquet I/O (~0.004s per measurement)
+- Lightweight extraction (not CPU bound)
+- Parallel overhead (~2s) exceeds any benefit
+
+**Technical Details:**
+- Removed parallel processing code (ProcessPoolExecutor)
+- Simplified implementation with clean sequential loop
+- Progress logging every 10 pairs
+- See `BENCHMARK_RESULTS_PAIRWISE.md` for full analysis
+
 ### Version 3.4 (November 2025) - Resistance & Conductance Plotting
 
 **Implementation Status:**

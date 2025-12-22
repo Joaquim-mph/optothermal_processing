@@ -25,6 +25,10 @@ import json
 
 from src.derived.extractors.base import MetricExtractor, compute_confidence, build_flags
 from src.models.derived_metrics import DerivedMetric
+from src.derived.algorithms.sweep_difference_numba import compute_resistance_safe
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class CNPExtractor(MetricExtractor):
@@ -87,6 +91,10 @@ class CNPExtractor(MetricExtractor):
 
         # Validate columns and extract data based on procedure type
         if "Vg (V)" not in measurement.columns:
+            logger.debug(
+                f"Extractor {self.metric_name} skipped: MISSING_COLUMN (Vg (V))",
+                extra={"run_id": metadata.get("run_id"), "reason": "MISSING_COLUMN"}
+            )
             return None
 
         vg = measurement["Vg (V)"].to_numpy()
@@ -95,6 +103,10 @@ class CNPExtractor(MetricExtractor):
         if procedure == "IVg":
             # Check for current column
             if "I (A)" not in measurement.columns:
+                logger.debug(
+                    f"Extractor {self.metric_name} skipped: MISSING_COLUMN (I (A))",
+                    extra={"run_id": metadata.get("run_id"), "reason": "MISSING_COLUMN"}
+                )
                 return None
 
             i = measurement["I (A)"].to_numpy()
@@ -102,11 +114,14 @@ class CNPExtractor(MetricExtractor):
             # Get fixed Vds from metadata
             vds = metadata.get("vds_v")
             if vds is None or abs(vds) < 1e-9:
+                logger.debug(
+                    f"Extractor {self.metric_name} skipped: MISSING_METADATA (vds_v)",
+                    extra={"run_id": metadata.get("run_id"), "reason": "MISSING_METADATA"}
+                )
                 return None
 
             # Calculate resistance
-            with np.errstate(divide='ignore', invalid='ignore'):
-                resistance = np.abs(vds / i)
+            resistance = compute_resistance_safe(vds, i, min_current=1e-12)
 
         # VVg: Fixed Ids, measured Vds → R = Vds / Ids
         elif procedure == "VVg":
@@ -118,18 +133,26 @@ class CNPExtractor(MetricExtractor):
                     break
 
             if vds_col is None:
+                logger.debug(
+                    f"Extractor {self.metric_name} skipped: MISSING_COLUMN (Vds/VDS/V)",
+                    extra={"run_id": metadata.get("run_id"), "reason": "MISSING_COLUMN"}
+                )
                 return None
 
             vds = measurement[vds_col].to_numpy()
 
             # Get fixed Ids from metadata
-            ids = metadata.get("ids_v")
+            ids = metadata.get("ids_a")
             if ids is None or abs(ids) < 1e-12:
+                logger.debug(
+                    f"Extractor {self.metric_name} skipped: MISSING_METADATA (ids_a)",
+                    extra={"run_id": metadata.get("run_id"), "reason": "MISSING_METADATA"}
+                )
                 return None
 
             # Calculate resistance
-            with np.errstate(divide='ignore', invalid='ignore'):
-                resistance = np.abs(vds / ids)
+            # Pass array of ids to match vds array shape for safe computation
+            resistance = compute_resistance_safe(vds, np.full_like(vds, ids), min_current=1e-12)
 
         else:
             return None
@@ -137,6 +160,10 @@ class CNPExtractor(MetricExtractor):
         # Remove infinities/NaNs
         valid_mask = np.isfinite(resistance)
         if not np.any(valid_mask):
+            logger.debug(
+                f"Extractor {self.metric_name} skipped: DATA_QUALITY (No valid resistance values)",
+                extra={"run_id": metadata.get("run_id"), "reason": "DATA_QUALITY"}
+            )
             return None
 
         vg = vg[valid_mask]
@@ -159,6 +186,10 @@ class CNPExtractor(MetricExtractor):
             all_cnps.extend(cnp_candidates)
 
         if not all_cnps:
+            logger.debug(
+                f"Extractor {self.metric_name} skipped: ALGORITHM_FAILURE (No CNP candidates found)",
+                extra={"run_id": metadata.get("run_id"), "reason": "ALGORITHM_FAILURE"}
+            )
             return None
 
         # Cluster CNPs by voltage proximity

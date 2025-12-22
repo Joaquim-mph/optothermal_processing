@@ -21,6 +21,9 @@ from datetime import datetime, timezone
 from src.models.derived_metrics import DerivedMetric, MetricCategory
 from src.derived.algorithms import fit_stretched_exponential
 from .base import MetricExtractor
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class ITSRelaxationExtractor(MetricExtractor):
@@ -90,7 +93,7 @@ class ITSRelaxationExtractor(MetricExtractor):
 
     @property
     def metric_name(self) -> str:
-        return "relaxation_time"
+        return "tau_dark"
 
     @property
     def metric_category(self) -> MetricCategory:
@@ -126,6 +129,11 @@ class ITSRelaxationExtractor(MetricExtractor):
         # Validate columns
         required_cols = {"t (s)", "I (A)", "VL (V)"}
         if not required_cols.issubset(measurement.columns):
+            missing = required_cols - set(measurement.columns)
+            logger.debug(
+                f"Extractor {self.metric_name} skipped: MISSING_COLUMN ({missing})",
+                extra={"run_id": metadata.get("run_id"), "reason": "MISSING_COLUMN"}
+            )
             return None
 
         # Extract data
@@ -168,6 +176,10 @@ class ITSRelaxationExtractor(MetricExtractor):
             Metric for light relaxation, or None if fitting fails
         """
         if not np.any(led_on_mask):
+            logger.debug(
+                f"Extractor {self.metric_name} skipped: PRECONDITION_FAILED (No LED ON segment)",
+                extra={"run_id": metadata.get("run_id"), "reason": "PRECONDITION_FAILED"}
+            )
             return None
 
         # Find longest continuous LED ON segment
@@ -181,9 +193,17 @@ class ITSRelaxationExtractor(MetricExtractor):
 
         # Check if segment is long enough
         if segment_duration < self.min_led_on_time:
+            logger.debug(
+                f"Extractor {self.metric_name} skipped: PRECONDITION_FAILED (Duration {segment_duration:.2f}s < {self.min_led_on_time}s)",
+                extra={"run_id": metadata.get("run_id"), "reason": "PRECONDITION_FAILED"}
+            )
             return None
 
         if segment_end - segment_start < self.min_points_for_fit:
+            logger.debug(
+                f"Extractor {self.metric_name} skipped: PRECONDITION_FAILED (Points {segment_end - segment_start} < {self.min_points_for_fit})",
+                extra={"run_id": metadata.get("run_id"), "reason": "PRECONDITION_FAILED"}
+            )
             return None
 
         # Extract segment data and reset time to start at 0
@@ -198,11 +218,19 @@ class ITSRelaxationExtractor(MetricExtractor):
         # Fit stretched exponential (Numba-accelerated!)
         try:
             fit_result = fit_stretched_exponential(t_segment, i_segment)
-        except Exception:
+        except Exception as e:
+            logger.debug(
+                f"Extractor {self.metric_name} skipped: ALGORITHM_FAILURE (Fit exception: {e})",
+                extra={"run_id": metadata.get("run_id"), "reason": "ALGORITHM_FAILURE"}
+            )
             return None
 
         # Check fit quality
         if not fit_result['converged'] or fit_result['r_squared'] < 0.5:
+            logger.debug(
+                f"Extractor {self.metric_name} skipped: QUALITY_FAILURE (R2={fit_result['r_squared']:.4f}, Converged={fit_result['converged']})",
+                extra={"run_id": metadata.get("run_id"), "reason": "QUALITY_FAILURE"}
+            )
             return None
 
         # Extract fitted parameters

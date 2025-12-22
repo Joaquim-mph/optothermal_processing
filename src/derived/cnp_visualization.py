@@ -84,10 +84,10 @@ def plot_cnp_detection(
             raise ValueError("Vds/VDS column not found for VVg measurement")
 
         vds = measurement[vds_col].to_numpy()
-        ids = metadata.get("ids_v")
+        ids = metadata.get("ids_a")
 
         if ids is None or abs(ids) < 1e-12:
-            raise ValueError("ids_v must be provided in metadata for VVg")
+            raise ValueError("ids_a must be provided in metadata for VVg")
 
         # Calculate resistance
         with np.errstate(divide='ignore', invalid='ignore'):

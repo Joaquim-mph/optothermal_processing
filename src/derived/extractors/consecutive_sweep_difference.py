@@ -16,6 +16,9 @@ from scipy.interpolate import interp1d
 from src.models.derived_metrics import DerivedMetric
 from .base_pairwise import PairwiseMetricExtractor
 from .base import compute_confidence, build_flags
+import logging
+
+logger = logging.getLogger(__name__)
 
 # Import Numba-accelerated functions
 try:
@@ -100,7 +103,7 @@ class ConsecutiveSweepDifferenceExtractor(PairwiseMetricExtractor):
 
     @property
     def metric_name(self) -> str:
-        return "consecutive_sweep_difference"
+        return "sweep_delta"  # Generic base name, overridden in extract_pairwise
 
     @property
     def metric_category(self) -> str:
@@ -140,6 +143,10 @@ class ConsecutiveSweepDifferenceExtractor(PairwiseMetricExtractor):
 
         # Validate same procedure (should already be enforced by should_pair)
         if metadata_2.get("proc") != procedure:
+            logger.debug(
+                f"Extractor {self.metric_name} skipped: PRECONDITION_FAILED (Procedure mismatch: {procedure} vs {metadata_2.get('proc')})",
+                extra={"run_id": metadata_1.get("run_id"), "reason": "PRECONDITION_FAILED"}
+            )
             return None
 
         # Extract gate voltage (common to both IVg and VVg)
@@ -152,16 +159,32 @@ class ConsecutiveSweepDifferenceExtractor(PairwiseMetricExtractor):
             y_2 = measurement_2["I (A)"].to_numpy()
             y_label = "I"
             y_unit = "A"
+            metric_name_specific = "sweep_delta_current"
             vds = metadata_1.get("vds_v", 0.1)  # For resistance calculation
             r_divisor_1 = y_1  # R = V / I
             r_divisor_2 = y_2
             r_numerator = vds
         elif procedure == "VVg":
-            y_1 = measurement_1["Vds (V)"].to_numpy()
-            y_2 = measurement_2["Vds (V)"].to_numpy()
+            # Try multiple column names for VVg voltage
+            vds_col = None
+            for col in ["Vds (V)", "VDS (V)", "V (V)"]:
+                if col in measurement_1.columns and col in measurement_2.columns:
+                    vds_col = col
+                    break
+            
+            if vds_col is None:
+                logger.debug(
+                    f"Extractor {self.metric_name} skipped: MISSING_COLUMN (Vds/VDS/V column not found)",
+                    extra={"run_id": metadata_1.get("run_id"), "reason": "MISSING_COLUMN"}
+                )
+                return None
+            
+            y_1 = measurement_1[vds_col].to_numpy()
+            y_2 = measurement_2[vds_col].to_numpy()
             y_label = "Vds"
             y_unit = "V"
-            ids = metadata_1.get("ids_v", 1e-6)  # For resistance calculation
+            metric_name_specific = "sweep_delta_voltage"
+            ids = metadata_1.get("ids_a", 1e-6)  # For resistance calculation
             r_divisor_1 = ids  # R = V / I (constant current)
             r_divisor_2 = ids
             r_numerator = None  # Will use y values directly
@@ -175,6 +198,10 @@ class ConsecutiveSweepDifferenceExtractor(PairwiseMetricExtractor):
 
         if vg_overlap < self.min_vg_overlap:
             # Insufficient overlap - reject pair
+            logger.debug(
+                f"Extractor {self.metric_name} skipped: PRECONDITION_FAILED (Vg overlap {vg_overlap:.2f}V < {self.min_vg_overlap}V)",
+                extra={"run_id": metadata_1.get("run_id"), "reason": "PRECONDITION_FAILED"}
+            )
             return None
 
         # Interpolate both sweeps onto common grid
@@ -203,6 +230,10 @@ class ConsecutiveSweepDifferenceExtractor(PairwiseMetricExtractor):
                 delta_y = y_2_interp - y_1_interp
         except Exception as e:
             # Interpolation failed (e.g., not enough points, duplicate Vg values)
+            logger.debug(
+                f"Extractor {self.metric_name} skipped: ALGORITHM_FAILURE (Interpolation error: {e})",
+                extra={"run_id": metadata_1.get("run_id"), "reason": "ALGORITHM_FAILURE"}
+            )
             return None
 
         # Compute resistance difference (optional)
@@ -330,7 +361,7 @@ class ConsecutiveSweepDifferenceExtractor(PairwiseMetricExtractor):
             chip_group=metadata_2["chip_group"],
             procedure=procedure,
             seq_num=metadata_2.get("seq_num"),
-            metric_name=self.metric_name,
+            metric_name=metric_name_specific,
             metric_category=self.metric_category,
             value_float=max_delta_y,  # Primary value: max ΔI or ΔV
             value_json=json.dumps(results),

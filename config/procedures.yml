@@ -106,7 +106,7 @@ procedures:
       Clock (ms): float
 
     ManifestColumns:
-      ids_v: [Drain-Source current]
+      ids_a: [Drain-Source current]
       vg_start_v: [VG start, Vg start]
       vg_end_v: [VG end, Vg end]
       vg_step_v: [VG step, Vg step]
@@ -406,7 +406,7 @@ procedures:
       Clock (ms): float
 
     ManifestColumns:
-      ids_v: [Drain-Source current]
+      ids_a: [Drain-Source current]
       vg_fixed_v: [VG, Vg]
       wavelength_nm: [Laser wavelength]
       laser_voltage_V: [Laser voltage]

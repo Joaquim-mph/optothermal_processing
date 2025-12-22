@@ -468,7 +468,7 @@ def extract_cnp_for_plotting(
     measurement : pl.DataFrame
         Measurement data (from read_measurement_parquet)
     row_metadata : dict
-        Row metadata from history (includes vds_v for IVg or ids_v for VVg)
+        Row metadata from history (includes vds_v for IVg or ids_a for VVg)
     procedure : str
         Procedure type ("IVg" or "VVg")
 
@@ -510,7 +510,7 @@ def extract_cnp_for_plotting(
         elif procedure == "VVg":
             # For VVg, need fixed current
             # Try to get from metadata, or use default
-            metadata['ids_v'] = row_metadata.get('ids_v', 1e-5)  # Default 10 µA
+            metadata['ids_a'] = row_metadata.get('ids_a', 1e-5)  # Default 10 µA
 
         # Extract CNP
         extractor = CNPExtractor()

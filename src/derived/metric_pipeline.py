@@ -3,6 +3,24 @@ Metric pipeline for extracting derived analytical results from staged measuremen
 
 This module orchestrates the extraction of metrics like CNP, photoresponse,
 mobility, etc. from staged Parquet files using registered MetricExtractor instances.
+
+Performance Optimization
+------------------------
+v3.5.0 (2025-01-22):
+
+**Uses sequential processing exclusively** (benchmarked 2-10x faster than parallel).
+
+Benchmark results comparing sequential vs parallel (IVg procedure):
+- Small (38 pairs):    Sequential 0.20s  vs  Parallel 2.05s  →  10x faster
+- Medium (124 pairs):  Sequential 0.54s  vs  Parallel 2.13s  →  4x faster
+- Large (293 pairs):   Sequential 1.32s  vs  Parallel 2.31s  →  1.8x faster
+
+Why sequential wins:
+- Fast Parquet I/O (~0.004s per measurement)
+- Lightweight extraction (not CPU bound)
+- Parallel overhead (~2s) exceeds any parallel benefit
+
+See BENCHMARK_RESULTS_PAIRWISE.md for full analysis.
 """
 
 from __future__ import annotations
@@ -17,8 +35,8 @@ import multiprocessing
 
 from src.core.utils import read_measurement_parquet
 from src.models.derived_metrics import DerivedMetric
-from .extractors.base import MetricExtractor
-from .extractors.base_pairwise import PairwiseMetricExtractor
+from src.derived.extractors.base import MetricExtractor
+from src.derived.extractors.base_pairwise import PairwiseMetricExtractor
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -209,6 +227,50 @@ class MetricPipeline:
     # ═══════════════════════════════════════════════════════════════════
     # Main Pipeline Methods
     # ═══════════════════════════════════════════════════════════════════
+    def _load_and_filter_manifest(
+        self,
+        procedures: Optional[List[str]] = None,
+        chip_numbers: Optional[List[int]] = None
+    ) -> pl.DataFrame:
+        """
+        Load manifest and apply filters (DRY principle).
+
+        Parameters
+        ----------
+        procedures : Optional[List[str]]
+            List of procedures to include (e.g., ['IVg', 'It'])
+        chip_numbers : Optional[List[int]]
+            List of chip numbers to include
+
+        Returns
+        -------
+        pl.DataFrame
+            Filtered manifest
+        """
+        manifest_path = self.stage_dir / "raw_measurements" / "_manifest" / "manifest.parquet"
+        if not manifest_path.exists():
+            raise FileNotFoundError(f"Manifest not found: {manifest_path}")
+
+        manifest = pl.read_parquet(manifest_path)
+        logger.info(f"Loaded manifest with {manifest.height} measurements")
+
+        # Filter by procedure if specified
+        if procedures:
+            manifest = manifest.filter(pl.col("proc").is_in(procedures))
+            logger.info(f"Filtered to {manifest.height} measurements in procedures: {procedures}")
+
+        # Filter by chip numbers if specified
+        if chip_numbers:
+            manifest = manifest.filter(pl.col("chip_number").is_in(chip_numbers))
+            logger.info(f"Filtered to {manifest.height} measurements for chips: {chip_numbers}")
+
+        # Filter to only procedures with extractors
+        applicable_procs = list(self.extractor_map.keys())
+        manifest = manifest.filter(pl.col("proc").is_in(applicable_procs))
+        logger.info(f"Found {manifest.height} measurements with applicable extractors")
+
+        return manifest
+
 
     def derive_all_metrics(
         self,
@@ -253,28 +315,8 @@ class MetricPipeline:
         """
         logger.info("Starting metric extraction pipeline")
 
-        # Load manifest
-        manifest_path = self.stage_dir / "raw_measurements" / "_manifest" / "manifest.parquet"
-        if not manifest_path.exists():
-            raise FileNotFoundError(f"Manifest not found: {manifest_path}")
-
-        manifest = pl.read_parquet(manifest_path)
-        logger.info(f"Loaded manifest with {manifest.height} measurements")
-
-        # Filter by procedure if specified
-        if procedures:
-            manifest = manifest.filter(pl.col("proc").is_in(procedures))
-            logger.info(f"Filtered to {manifest.height} measurements in procedures: {procedures}")
-
-        # Filter by chip numbers if specified
-        if chip_numbers:
-            manifest = manifest.filter(pl.col("chip_number").is_in(chip_numbers))
-            logger.info(f"Filtered to {manifest.height} measurements for chips: {chip_numbers}")
-
-        # Filter to only procedures with extractors
-        applicable_procs = list(self.extractor_map.keys())
-        manifest = manifest.filter(pl.col("proc").is_in(applicable_procs))
-        logger.info(f"Found {manifest.height} measurements with applicable extractors")
+        # Load and filter manifest
+        manifest = self._load_and_filter_manifest(procedures, chip_numbers)
 
         if manifest.height == 0:
             logger.warning("No measurements to process")
@@ -371,28 +413,8 @@ class MetricPipeline:
         """
         logger.info("Starting metric extraction pipeline (TUI mode: ThreadPoolExecutor)")
 
-        # Load manifest
-        manifest_path = self.stage_dir / "raw_measurements" / "_manifest" / "manifest.parquet"
-        if not manifest_path.exists():
-            raise FileNotFoundError(f"Manifest not found: {manifest_path}")
-
-        manifest = pl.read_parquet(manifest_path)
-        logger.info(f"Loaded manifest with {manifest.height} measurements")
-
-        # Filter by procedure if specified
-        if procedures:
-            manifest = manifest.filter(pl.col("proc").is_in(procedures))
-            logger.info(f"Filtered to {manifest.height} measurements in procedures: {procedures}")
-
-        # Filter by chip numbers if specified
-        if chip_numbers:
-            manifest = manifest.filter(pl.col("chip_number").is_in(chip_numbers))
-            logger.info(f"Filtered to {manifest.height} measurements for chips: {chip_numbers}")
-
-        # Filter to only procedures with extractors
-        applicable_procs = list(self.extractor_map.keys())
-        manifest = manifest.filter(pl.col("proc").is_in(applicable_procs))
-        logger.info(f"Found {manifest.height} measurements with applicable extractors")
+        # Load and filter manifest
+        manifest = self._load_and_filter_manifest(procedures, chip_numbers)
 
         if manifest.height == 0:
             logger.warning("No measurements to process")
@@ -672,11 +694,13 @@ class MetricPipeline:
         """
         Extract metrics from consecutive measurement pairs.
 
+        Uses sequential processing (benchmarked 2-10x faster than parallel for typical workloads).
+
         This method processes measurements in pairs to compute comparative metrics
         like consecutive sweep differences. Pairs are formed by:
         1. Grouping by (chip_number, proc)
-        2. Sorting by seq_num
-        3. Pairing consecutive measurements
+        2. Sorting by start_time_utc (chronological order)
+        3. Pairing consecutive measurements that satisfy extractor pairing logic
 
         Parameters
         ----------
@@ -688,9 +712,12 @@ class MetricPipeline:
         List[DerivedMetric]
             Extracted pairwise metrics
         """
+        import time
+
         if not self.pairwise_extractors:
             return []
 
+        start_time = time.perf_counter()
         metrics = []
 
         # Group by chip and procedure
@@ -700,7 +727,12 @@ class MetricPipeline:
             logger.error(f"Failed to group manifest for pairwise extraction: {e}")
             return metrics
 
+        # Collect all pair tasks across all chip groups
+        all_pair_tasks = []
+        num_groups = 0
+
         for (chip_num, proc), group_df in grouped:
+            num_groups += 1
             # Skip if no pairwise extractors for this procedure
             if proc not in self.pairwise_extractor_map:
                 continue
@@ -714,13 +746,10 @@ class MetricPipeline:
 
                 # Add temporary seq_num based on chronological order
                 if "seq_num" not in sorted_group.columns:
-                    # Create seq_num using row index (starts at 1 for first measurement)
                     sorted_group = sorted_group.with_row_count("seq_num", offset=1)
 
-                # Add parquet_path if not present (construct from run_id, proc, and date)
+                # Add parquet_path if not present
                 if "parquet_path" not in sorted_group.columns:
-                    # Parquet files are stored with Hive partitioning:
-                    # {stage_dir}/raw_measurements/proc={proc}/date={date_local}/run_id={run_id}/part-000.parquet
                     base_path = str(self.stage_dir / "raw_measurements")
                     sorted_group = sorted_group.with_columns(
                         pl.format(
@@ -736,7 +765,7 @@ class MetricPipeline:
                 logger.warning(f"Failed to sort group for chip {chip_num}, proc {proc}: {e}")
                 continue
 
-            # Process consecutive pairs
+            # Identify valid pairs for this chip group
             for i in range(len(rows) - 1):
                 metadata_1 = rows[i]
                 metadata_2 = rows[i + 1]
@@ -747,61 +776,80 @@ class MetricPipeline:
                     for ext in extractors
                 )
 
-                if not should_pair:
+                if should_pair:
+                    # Store tuple: (metadata_1, metadata_2, extractors)
+                    all_pair_tasks.append((metadata_1, metadata_2, extractors))
+                else:
                     logger.debug(
                         f"Skipping pair: seq {metadata_1.get('seq_num')} and "
                         f"{metadata_2.get('seq_num')} (not consecutive or different proc)"
                     )
-                    continue
 
-                # Load both measurements
+        if not all_pair_tasks:
+            logger.info("No pairwise tasks to process")
+            return metrics
+
+        logger.info(
+            f"Processing {len(all_pair_tasks)} pairs across "
+            f"{num_groups} chip groups (sequential mode)"
+        )
+
+        # Process all pairs sequentially
+        for i, (metadata_1, metadata_2, extractors) in enumerate(all_pair_tasks, 1):
+            # Load both measurements
+            try:
+                meas_1 = read_measurement_parquet(Path(metadata_1["parquet_path"]))
+                meas_2 = read_measurement_parquet(Path(metadata_2["parquet_path"]))
+            except Exception as e:
+                logger.warning(
+                    f"Failed to load pair {metadata_1['run_id']}, {metadata_2['run_id']}: {e}"
+                )
+                continue
+
+            # Add extraction version
+            metadata_1["extraction_version"] = self.extraction_version
+            metadata_2["extraction_version"] = self.extraction_version
+
+            # Run pairwise extractors
+            for extractor in extractors:
                 try:
-                    meas_1 = read_measurement_parquet(Path(metadata_1["parquet_path"]))
-                    meas_2 = read_measurement_parquet(Path(metadata_2["parquet_path"]))
-                except Exception as e:
-                    logger.warning(
-                        f"Failed to load pair {metadata_1['run_id']}, {metadata_2['run_id']}: {e}"
+                    pair_metrics = extractor.extract_pairwise(
+                        meas_1, metadata_1,
+                        meas_2, metadata_2
                     )
-                    continue
 
-                # Add extraction version to metadata
-                metadata_1["extraction_version"] = self.extraction_version
-                metadata_2["extraction_version"] = self.extraction_version
+                    if pair_metrics is None:
+                        continue
 
-                # Run pairwise extractors
-                for extractor in extractors:
-                    try:
-                        pair_metrics = extractor.extract_pairwise(
-                            meas_1, metadata_1,
-                            meas_2, metadata_2
-                        )
-
-                        if pair_metrics is None:
-                            logger.debug(
-                                f"Pairwise extractor {extractor.metric_name} returned None for "
-                                f"seq {metadata_1.get('seq_num')}→{metadata_2.get('seq_num')}"
+                    # Validate and collect metrics
+                    for metric in pair_metrics:
+                        if not extractor.validate(metric):
+                            logger.warning(
+                                f"Validation failed for pairwise {extractor.metric_name}: "
+                                f"value={metric.value_float}"
                             )
-                            continue
+                        metrics.append(metric)
 
-                        # Validate and collect metrics
-                        for metric in pair_metrics:
-                            if not extractor.validate(metric):
-                                logger.warning(
-                                    f"Validation failed for pairwise {extractor.metric_name}: "
-                                    f"value={metric.value_float}"
-                                )
-                                # Still save but log warning
+                except Exception as e:
+                    logger.error(
+                        f"Pairwise extractor {extractor.metric_name} failed on "
+                        f"seq {metadata_1.get('seq_num')}→{metadata_2.get('seq_num')}: {e}",
+                        exc_info=True
+                    )
 
-                            metrics.append(metric)
+            # Progress logging every 10 pairs
+            if i % 10 == 0 or i == len(all_pair_tasks):
+                logger.info(
+                    f"Pairwise extraction progress: {i}/{len(all_pair_tasks)} pairs "
+                    f"({len(metrics)} metrics extracted so far)"
+                )
 
-                    except Exception as e:
-                        logger.error(
-                            f"Pairwise extractor {extractor.metric_name} failed on "
-                            f"seq {metadata_1.get('seq_num')}→{metadata_2.get('seq_num')}: {e}",
-                            exc_info=True
-                        )
-
-        logger.info(f"Extracted {len(metrics)} pairwise metrics")
+        elapsed = time.perf_counter() - start_time
+        logger.info(
+            f"Extracted {len(metrics)} pairwise metrics from "
+            f"{len(all_pair_tasks)} pairs across {num_groups} chip groups "
+            f"in {elapsed:.2f}s ({len(all_pair_tasks) / elapsed:.1f} pairs/sec)"
+        )
         return metrics
 
     # ═══════════════════════════════════════════════════════════════════
@@ -830,9 +878,35 @@ class MetricPipeline:
             logger.warning("No metrics to save - creating empty metrics.parquet")
             return self._save_empty_metrics()
 
-        # Convert to Polars DataFrame
+        # Convert to Polars DataFrame with explicit schema to avoid type inference issues
         metrics_dicts = [m.model_dump() for m in metrics]
-        metrics_df = pl.DataFrame(metrics_dicts)
+        
+        # Define explicit schema to ensure consistent types
+        schema = {
+            "run_id": pl.Utf8,
+            "chip_number": pl.Int64,
+            "chip_group": pl.Utf8,
+            "procedure": pl.Utf8,
+            "seq_num": pl.Int64,
+            "metric_name": pl.Utf8,
+            "metric_category": pl.Utf8,
+            "value_float": pl.Float64,
+            "value_str": pl.Utf8,
+            "value_json": pl.Utf8,
+            "unit": pl.Utf8,
+            "extraction_method": pl.Utf8,
+            "extraction_version": pl.Utf8,
+            "extraction_timestamp": pl.Datetime("us", "UTC"),
+            "confidence": pl.Float64,
+            "flags": pl.Utf8,
+        }
+        
+        try:
+            metrics_df = pl.DataFrame(metrics_dicts, schema=schema)
+        except Exception as e:
+            logger.error(f"Failed to create DataFrame with schema: {e}")
+            # Fallback: try with infer_schema_length
+            metrics_df = pl.DataFrame(metrics_dicts, infer_schema_length=len(metrics_dicts))
 
         # Sort by chip, procedure, sequence number for better compression
         metrics_df = metrics_df.sort(["chip_group", "chip_number", "procedure", "seq_num"])

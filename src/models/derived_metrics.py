@@ -281,6 +281,9 @@ def metric_display_name(metric_name: str) -> str:
     names = {
         "cnp_voltage": "Charge Neutrality Point Voltage",
         "cnp_resistance": "Resistance at CNP",
+        "tau_dark": "Dark Relaxation Time (τ)",
+        "sweep_delta_current": "Sweep ΔCurrent",
+        "sweep_delta_voltage": "Sweep ΔVoltage",
         "delta_ids": "Photocurrent (ΔI_ds)",
         "delta_vds": "Photovoltage (ΔV_ds)",
         "photoresponse_ratio": "Photoresponse Ratio (ΔI/I_dark)",

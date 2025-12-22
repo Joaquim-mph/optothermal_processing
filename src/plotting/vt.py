@@ -271,7 +271,7 @@ def plot_vt_overlay(
         # Plot resistance or voltage based on mode
         if resistance:
             # Extract IDS from metadata (check both column naming conventions)
-            ids = row.get("ids_v") or row.get("Drain-Source current")
+            ids = row.get("ids_a") or row.get("Drain-Source current")
 
             if ids is None or ids == 0 or not np.isfinite(ids):
                 print(f"[warn] Skipping seq #{int(row.get('file_idx', 0))}: IDS={ids}A (cannot calculate resistance)")

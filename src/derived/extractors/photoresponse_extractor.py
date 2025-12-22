@@ -15,6 +15,9 @@ from datetime import datetime, timezone
 
 from src.models.derived_metrics import DerivedMetric, MetricCategory
 from .base import MetricExtractor
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class PhotoresponseExtractor(MetricExtractor):
@@ -96,6 +99,10 @@ class PhotoresponseExtractor(MetricExtractor):
 
         # Validate VL column exists
         if "VL (V)" not in measurement.columns:
+            logger.debug(
+                f"Extractor {self.metric_name} skipped: MISSING_COLUMN (VL (V))",
+                extra={"run_id": metadata.get("run_id"), "reason": "MISSING_COLUMN"}
+            )
             return None
 
         vl = measurement["VL (V)"].to_numpy()
@@ -104,6 +111,10 @@ class PhotoresponseExtractor(MetricExtractor):
         if procedure in ["It", "ITt"]:
             # Current measurement
             if "I (A)" not in measurement.columns:
+                logger.debug(
+                    f"Extractor {self.metric_name} skipped: MISSING_COLUMN (I (A))",
+                    extra={"run_id": metadata.get("run_id"), "reason": "MISSING_COLUMN"}
+                )
                 return None
 
             measured_values = measurement["I (A)"].to_numpy()
@@ -113,6 +124,10 @@ class PhotoresponseExtractor(MetricExtractor):
         elif procedure == "Vt":
             # Voltage measurement
             if "VDS (V)" not in measurement.columns:
+                logger.debug(
+                    f"Extractor {self.metric_name} skipped: MISSING_COLUMN (VDS (V))",
+                    extra={"run_id": metadata.get("run_id"), "reason": "MISSING_COLUMN"}
+                )
                 return None
 
             measured_values = measurement["VDS (V)"].to_numpy()
@@ -130,6 +145,10 @@ class PhotoresponseExtractor(MetricExtractor):
         n_off = np.sum(led_off_mask)
 
         if n_on < self.min_samples_per_state or n_off < self.min_samples_per_state:
+            logger.debug(
+                f"Extractor {self.metric_name} skipped: PRECONDITION_FAILED (Samples ON={n_on}, OFF={n_off} < {self.min_samples_per_state})",
+                extra={"run_id": metadata.get("run_id"), "reason": "PRECONDITION_FAILED"}
+            )
             return None
 
         # Extract values during ON and OFF states

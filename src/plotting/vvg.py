@@ -92,7 +92,7 @@ def plot_vvg_sequence(
         # Plot resistance, inverse resistance, or voltage based on mode
         if resistance:
             # Extract IDS from metadata (check both column naming conventions)
-            ids = row.get("ids_v") or row.get("Drain-Source current")
+            ids = row.get("ids_a") or row.get("Drain-Source current")
 
             if ids is None or ids == 0 or not np.isfinite(ids):
                 mode_str = "inverse resistance" if inverse else "resistance"

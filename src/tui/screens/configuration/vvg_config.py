@@ -43,32 +43,6 @@ class VVgConfigScreen(WizardScreen):
         Binding("enter", "next", "Next", priority=True),
     ]
 
-    CSS = WizardScreen.CSS + """
-    #main-container {
-        max-height: 90%;
-        overflow-y: auto;
-    }
-
-    .info-text {
-        width: 100%;
-        padding: 2;
-        background: $panel;
-        color: $text;
-        margin-bottom: 2;
-    }
-
-    #button-container {
-        width: 100%;
-        height: auto;
-        layout: horizontal;
-        align: center middle;
-    }
-
-    #button-container Button {
-        margin: 0 1;
-    }
-    """
-
     def compose_header(self) -> ComposeResult:
         """Compose header with title and chip info."""
         yield Static(self.SCREEN_TITLE, id="title")

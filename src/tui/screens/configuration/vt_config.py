@@ -46,13 +46,6 @@ class VtConfigScreen(FormScreen):
         Binding("ctrl+s", "save_config", "Save Config", show=False),
     ]
 
-    CSS = FormScreen.CSS + """
-    #main-container {
-        max-height: 90%;
-        overflow-y: auto;
-    }
-    """
-
     def compose_header(self) -> ComposeResult:
         """Compose header with title, chip info, and step indicator."""
         if self.preset_mode:

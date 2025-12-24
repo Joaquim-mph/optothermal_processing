@@ -100,16 +100,16 @@ class WizardScreen(Screen):
         max-width: 120;
         min-width: 60;
         min-height: 50%;
-        height: auto;
+        height: 90%;
         background: $surface;
         border: thick $primary;
-        padding: 2 4;
+        padding: 1 4;
     }
 
     #header-container {
         width: 100%;
         height: auto;
-        margin-bottom: 2;
+        margin-bottom: 1;
     }
 
     #title {
@@ -131,14 +131,14 @@ class WizardScreen(Screen):
         content-align: center middle;
         color: $text-muted;
         text-style: dim;
-        margin-bottom: 2;
+        margin-bottom: 1;
     }
 
     #button-container {
         width: 100%;
         height: auto;
         layout: horizontal;
-        margin-top: 2;
+        margin-top: 1;
     }
 
     .nav-button {
@@ -163,6 +163,32 @@ class WizardScreen(Screen):
         text-style: bold;
         color: $accent;
         margin-top: 1;
+        margin-bottom: 1;
+    }
+
+    /* Subtitle styling (used by MainMenu and config screens) */
+    #subtitle {
+        width: 100%;
+        content-align: center middle;
+        color: $text-muted;
+        margin-bottom: 1;
+    }
+
+    /* Help text (bottom of screen) */
+    #help-text {
+        width: 100%;
+        content-align: center middle;
+        color: $text-muted;
+        margin-top: 1;
+        text-style: dim;
+    }
+
+    /* Info text boxes (standardized across screens) */
+    .info-text {
+        width: 100%;
+        padding: 2;
+        background: $panel;
+        color: $text;
         margin-bottom: 1;
     }
     """
@@ -245,10 +271,6 @@ class FormScreen(WizardScreen):
     """
 
     CSS = WizardScreen.CSS + """
-    #main-container {
-        overflow-y: auto;
-    }
-
     .form-row {
         height: auto;
         min-height: 3;

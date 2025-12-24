@@ -48,19 +48,6 @@ class CNPConfigScreen(WizardScreen):
     ]
 
     CSS = WizardScreen.CSS + """
-    #main-container {
-        max-height: 90%;
-        overflow-y: auto;
-    }
-
-    .info-text {
-        width: 100%;
-        padding: 2;
-        background: $panel;
-        color: $text;
-        margin-bottom: 2;
-    }
-
     .history-status {
         width: 100%;
         padding: 1 2;
@@ -72,14 +59,6 @@ class CNPConfigScreen(WizardScreen):
     .warning-status {
         border: tall $warning;
         color: $warning;
-    }
-
-    .section-header {
-        width: 100%;
-        color: $accent;
-        text-style: bold;
-        margin-top: 1;
-        margin-bottom: 1;
     }
 
     RadioSet {
@@ -96,17 +75,6 @@ class CNPConfigScreen(WizardScreen):
 
     Checkbox {
         margin: 1 0;
-    }
-
-    #button-container {
-        width: 100%;
-        height: auto;
-        layout: horizontal;
-        align: center middle;
-    }
-
-    #button-container Button {
-        margin: 0 1;
     }
     """
 
@@ -152,14 +120,14 @@ class CNPConfigScreen(WizardScreen):
         )
 
         # CNP metric selection
-        yield Static("Select CNP metric to plot:", classes="section-header")
+        yield Static("Select CNP metric to plot:", classes="section-title")
         with RadioSet(id="cnp-metric-radio"):
             yield RadioButton("CNP Voltage (Dirac Point)", id="cnp-voltage-radio", value=True)
             yield RadioButton("CNP Current", id="cnp-current-radio")
             yield RadioButton("Mobility", id="mobility-radio")
 
         # Options
-        yield Static("Display options:", classes="section-header")
+        yield Static("Display options:", classes="section-title")
         yield Checkbox("Show illumination periods", id="show-illumination", value=True)
 
         with Vertical(id="button-container"):

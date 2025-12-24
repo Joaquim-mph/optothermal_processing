@@ -22,18 +22,6 @@ class ITSPresetSelectorScreen(SelectorScreen):
 
     # Preset selector CSS (extends SelectorScreen CSS)
     CSS = SelectorScreen.CSS + """
-    #main-container {
-        max-height: 90%;
-        overflow-y: auto;
-    }
-
-    #subtitle {
-        width: 100%;
-        content-align: center middle;
-        color: $accent;
-        margin-bottom: 1;
-    }
-
     .preset-button {
         width: 100%;
         height: auto;

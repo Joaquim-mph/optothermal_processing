@@ -49,17 +49,6 @@ class PreviewScreen(WizardScreen):
 
     # Preview-specific CSS (extends WizardScreen CSS)
     CSS = WizardScreen.CSS + """
-    #main-container {
-        max-height: 90%;
-        overflow-y: auto;
-    }
-
-    .info-text {
-        color: $text;
-        margin-left: 2;
-        margin-bottom: 0;
-    }
-
     .warning-text {
         color: $warning;
         text-style: italic;

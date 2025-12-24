@@ -51,19 +51,6 @@ class PhotoresponseConfigScreen(WizardScreen):
     ]
 
     CSS = WizardScreen.CSS + """
-    #main-container {
-        max-height: 90%;
-        overflow-y: auto;
-    }
-
-    .info-text {
-        width: 100%;
-        padding: 2;
-        background: $panel;
-        color: $text;
-        margin-bottom: 2;
-    }
-
     .history-status {
         width: 100%;
         padding: 1 2;
@@ -75,14 +62,6 @@ class PhotoresponseConfigScreen(WizardScreen):
     .warning-status {
         border: tall $warning;
         color: $warning;
-    }
-
-    .section-header {
-        width: 100%;
-        color: $accent;
-        text-style: bold;
-        margin-top: 1;
-        margin-bottom: 1;
     }
 
     RadioSet {
@@ -100,18 +79,6 @@ class PhotoresponseConfigScreen(WizardScreen):
     .filter-input {
         width: 50%;
         margin: 1 0;
-    }
-
-    #button-container {
-        width: 100%;
-        height: auto;
-        layout: horizontal;
-        align: center middle;
-        margin-top: 2;
-    }
-
-    #button-container Button {
-        margin: 0 1;
     }
     """
 
@@ -152,7 +119,7 @@ class PhotoresponseConfigScreen(WizardScreen):
         )
 
         # Plot mode selection
-        yield Static("Select photoresponse plot mode:", classes="section-header")
+        yield Static("Select photoresponse plot mode:", classes="section-title")
         with RadioSet(id="photoresponse-mode-radio"):
             yield RadioButton("Photoresponse vs Power", id="power-radio", value=True)
             yield RadioButton("Photoresponse vs Wavelength", id="wavelength-radio")
@@ -160,7 +127,7 @@ class PhotoresponseConfigScreen(WizardScreen):
             yield RadioButton("Photoresponse vs Time", id="time-radio")
 
         # Filter options
-        yield Static("Filters (optional - leave blank to include all):", classes="section-header")
+        yield Static("Filters (optional - leave blank to include all):", classes="section-title")
         yield Static("[dim]Gate voltage filter (V):[/dim]")
         yield Input(
             placeholder="e.g., -0.4",

@@ -51,6 +51,11 @@ class PhotoresponseConfigScreen(WizardScreen):
     ]
 
     CSS = WizardScreen.CSS + """
+    #main-container {
+        max-height: 90%;
+        overflow-y: auto;
+    }
+
     .info-text {
         width: 100%;
         padding: 2;

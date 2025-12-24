@@ -30,6 +30,11 @@ class TransconductanceConfigScreen(FormScreen):
 
     # Transconductance-specific CSS (extends FormScreen CSS)
     CSS = FormScreen.CSS + """
+    #main-container {
+        max-height: 90%;
+        overflow-y: auto;
+    }
+
     #manual-indices-container,
     #window-length-container,
     #polyorder-container,

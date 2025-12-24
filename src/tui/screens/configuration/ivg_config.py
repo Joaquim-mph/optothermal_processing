@@ -28,6 +28,11 @@ class IVgConfigScreen(FormScreen):
 
     # IVg-specific CSS (extends FormScreen CSS)
     CSS = FormScreen.CSS + """
+    #main-container {
+        max-height: 90%;
+        overflow-y: auto;
+    }
+
     #manual-indices-container {
         height: auto;
         margin-bottom: 1;

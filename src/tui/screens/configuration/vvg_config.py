@@ -11,7 +11,7 @@ device behavior under different bias conditions.
 from __future__ import annotations
 
 from textual.app import ComposeResult
-from textual.containers import Vertical
+from textual.containers import Vertical, VerticalScroll
 from textual.widgets import Static, Button
 from textual.binding import Binding
 
@@ -43,6 +43,14 @@ class VVgConfigScreen(WizardScreen):
         Binding("enter", "next", "Next", priority=True),
     ]
 
+    CSS = WizardScreen.CSS + """
+    #content-scroll {
+        width: 100%;
+        height: 1fr;
+        min-height: 20;
+    }
+    """
+
     def compose_header(self) -> ComposeResult:
         """Compose header with title and chip info."""
         yield Static(self.SCREEN_TITLE, id="title")
@@ -51,19 +59,20 @@ class VVgConfigScreen(WizardScreen):
 
     def compose_content(self) -> ComposeResult:
         """Compose VVg configuration form."""
-        yield Static(
-            "[bold]VVg Plot Configuration[/bold]\n\n"
-            "VVg plots show drain-source voltage vs gate voltage sweeps.\n"
-            "These are output characteristic curves that show how the device\n"
-            "responds to different gate bias conditions.\n\n"
-            "[dim]Default settings work for most cases. Advanced options may\n"
-            "be added in future versions.[/dim]",
-            classes="info-text"
-        )
+        with VerticalScroll(id="content-scroll"):
+            yield Static(
+                "[bold]VVg Plot Configuration[/bold]\n\n"
+                "VVg plots show drain-source voltage vs gate voltage sweeps.\n"
+                "These are output characteristic curves that show how the device\n"
+                "responds to different gate bias conditions.\n\n"
+                "[dim]Default settings work for most cases. Advanced options may\n"
+                "be added in future versions.[/dim]",
+                classes="info-text"
+            )
 
-        with Vertical(id="button-container"):
-            yield Button("← Back", id="back-button", variant="default")
-            yield Button("Next →", id="next-button", variant="primary")
+            with Vertical(id="button-container"):
+                yield Button("← Back", id="back-button", variant="default")
+                yield Button("Next →", id="next-button", variant="primary")
 
     def on_mount(self) -> None:
         """Focus the next button when mounted."""

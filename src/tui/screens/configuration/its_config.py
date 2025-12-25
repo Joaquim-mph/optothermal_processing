@@ -7,7 +7,7 @@ Step 4b of the wizard: Configure parameters for ITS (Current vs Time) plots.
 from __future__ import annotations
 
 from textual.app import ComposeResult
-from textual.containers import Horizontal
+from textual.containers import Horizontal, VerticalScroll
 from textual.widgets import Static, Button, Input, Select, Label, Checkbox
 from textual.binding import Binding
 
@@ -30,6 +30,14 @@ class ITSConfigScreen(FormScreen):
     BINDINGS = FormScreen.BINDINGS + [
         Binding("ctrl+s", "save_config", "Save Config", show=False),
     ]
+
+    CSS = FormScreen.CSS + """
+    #content-scroll {
+        width: 100%;
+        height: 1fr;
+        min-height: 20;
+    }
+    """
 
     def compose_header(self) -> ComposeResult:
         """Compose header with title, chip info, and step indicator."""
@@ -62,84 +70,85 @@ class ITSConfigScreen(FormScreen):
 
     def compose_content(self) -> ComposeResult:
         """Compose ITS configuration form content."""
-        # Plot Options Section (show for both preset and custom mode)
-        yield Static("─── Plot Options ──────────────────────", classes="section-title")
+        with VerticalScroll(id="content-scroll"):
+            # Plot Options Section (show for both preset and custom mode)
+            yield Static("─── Plot Options ──────────────────────", classes="section-title")
 
-        # Get preset values if in preset mode to use as defaults
-        if self.preset_mode:
-            preset_name = self.app.session.preset or "custom"
-            from src.plotting.its_presets import get_preset
-            preset = get_preset(preset_name)
-            # Use preset values as defaults
-            default_legend = preset.legend_by if preset else "wavelength"
-            # For baseline: if none mode, show 0; if auto, show empty (will be calculated); if fixed, show value
-            if preset:
-                if preset.baseline_mode == "none":
-                    default_baseline = "0"
-                elif preset.baseline_mode == "auto":
-                    default_baseline = ""  # Empty means auto-calculate
-                else:  # fixed
-                    default_baseline = str(preset.baseline_value) if preset.baseline_value else "60.0"
-            else:
-                default_baseline = "60.0"
-            default_padding = str(preset.padding) if preset else "0.05"
-        else:
-            # Use standard defaults for custom mode
-            default_legend = "vg"
-            default_baseline = "60.0"
-            default_padding = "0.05"
-
-        with Horizontal(classes="form-row"):
-            yield Label("Legend by:", classes="form-label")
-            yield Select(
-                [
-                    ("Gate Voltage (Vg)", "vg"),
-                    ("LED Voltage", "led_voltage"),
-                    ("Wavelength", "wavelength"),
-                ],
-                value=default_legend,
-                id="legend-by-select",
-                classes="form-input"
-            )
-            yield Static("Legend grouping", classes="form-help")
-
-        # Baseline correction checkbox and input
-        with Horizontal(classes="form-row"):
-            yield Checkbox("Apply baseline correction", id="baseline-enabled", value=True)
-
-        with Horizontal(classes="form-row"):
-            yield Label("Baseline (s):", classes="form-label")
-            yield Input(
-                value=default_baseline,
-                placeholder="Empty = auto, 0 = none",
-                id="baseline-input",
-                classes="form-input"
-            )
-            yield Static("Empty=auto, 0=none, or value in seconds", classes="form-help")
-
-        with Horizontal(classes="form-row"):
-            yield Label("Padding:", classes="form-label")
-            yield Input(value=default_padding, id="padding-input", classes="form-input")
-            yield Static("Y-axis padding", classes="form-help")
-
-        with Horizontal(classes="form-row"):
-            yield Label("Output dir:", classes="form-label")
-            yield Input(
-                value="figs",
-                placeholder="figs",
-                id="output-dir-input",
-                classes="form-input"
-            )
-            yield Static(f"→ figs/{self.chip_group}{self.chip_number}/", classes="form-help")
-
-        # Buttons
-        with Horizontal(id="button-container"):
-            if not self.preset_mode:
-                yield Button("Save Config", id="save-button", variant="default", classes="nav-button")
-            yield Button("← Back", id="back-button", variant="default", classes="nav-button")
+            # Get preset values if in preset mode to use as defaults
             if self.preset_mode:
-                yield Button("Change Preset", id="change-preset-button", variant="default", classes="nav-button")
-            yield Button("Next: Select Experiments →", id="next-button", variant="primary", classes="nav-button")
+                preset_name = self.app.session.preset or "custom"
+                from src.plotting.its_presets import get_preset
+                preset = get_preset(preset_name)
+                # Use preset values as defaults
+                default_legend = preset.legend_by if preset else "wavelength"
+                # For baseline: if none mode, show 0; if auto, show empty (will be calculated); if fixed, show value
+                if preset:
+                    if preset.baseline_mode == "none":
+                        default_baseline = "0"
+                    elif preset.baseline_mode == "auto":
+                        default_baseline = ""  # Empty means auto-calculate
+                    else:  # fixed
+                        default_baseline = str(preset.baseline_value) if preset.baseline_value else "60.0"
+                else:
+                    default_baseline = "60.0"
+                default_padding = str(preset.padding) if preset else "0.05"
+            else:
+                # Use standard defaults for custom mode
+                default_legend = "vg"
+                default_baseline = "60.0"
+                default_padding = "0.05"
+
+            with Horizontal(classes="form-row"):
+                yield Label("Legend by:", classes="form-label")
+                yield Select(
+                    [
+                        ("Gate Voltage (Vg)", "vg"),
+                        ("LED Voltage", "led_voltage"),
+                        ("Wavelength", "wavelength"),
+                    ],
+                    value=default_legend,
+                    id="legend-by-select",
+                    classes="form-input"
+                )
+                yield Static("Legend grouping", classes="form-help")
+
+            # Baseline correction checkbox and input
+            with Horizontal(classes="form-row"):
+                yield Checkbox("Apply baseline correction", id="baseline-enabled", value=True)
+
+            with Horizontal(classes="form-row"):
+                yield Label("Baseline (s):", classes="form-label")
+                yield Input(
+                    value=default_baseline,
+                    placeholder="Empty = auto, 0 = none",
+                    id="baseline-input",
+                    classes="form-input"
+                )
+                yield Static("Empty=auto, 0=none, or value in seconds", classes="form-help")
+
+            with Horizontal(classes="form-row"):
+                yield Label("Padding:", classes="form-label")
+                yield Input(value=default_padding, id="padding-input", classes="form-input")
+                yield Static("Y-axis padding", classes="form-help")
+
+            with Horizontal(classes="form-row"):
+                yield Label("Output dir:", classes="form-label")
+                yield Input(
+                    value="figs",
+                    placeholder="figs",
+                    id="output-dir-input",
+                    classes="form-input"
+                )
+                yield Static(f"→ figs/{self.chip_group}{self.chip_number}/", classes="form-help")
+
+            # Buttons
+            with Horizontal(id="button-container"):
+                if not self.preset_mode:
+                    yield Button("Save Config", id="save-button", variant="default", classes="nav-button")
+                yield Button("← Back", id="back-button", variant="default", classes="nav-button")
+                if self.preset_mode:
+                    yield Button("Change Preset", id="change-preset-button", variant="default", classes="nav-button")
+                yield Button("Next: Select Experiments →", id="next-button", variant="primary", classes="nav-button")
 
     def on_mount(self) -> None:
         """Initialize screen."""

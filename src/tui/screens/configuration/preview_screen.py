@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from textual.app import ComposeResult
-from textual.containers import Horizontal
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.widgets import Static, Button
 from textual.binding import Binding
 from textual import events
@@ -49,6 +49,12 @@ class PreviewScreen(WizardScreen):
 
     # Preview-specific CSS (extends WizardScreen CSS)
     CSS = WizardScreen.CSS + """
+    #content-scroll {
+        width: 100%;
+        height: 1fr;
+        min-height: 20;
+    }
+
     .warning-text {
         color: $warning;
         text-style: italic;
@@ -74,76 +80,77 @@ class PreviewScreen(WizardScreen):
 
     def compose_content(self) -> ComposeResult:
         """Compose preview content."""
-        # Experiments Section
-        yield Static("─── Experiments ────────────────────────", classes="section-title")
-        yield Static(
-            f"Selected: [bold]{len(self.seq_numbers)}[/bold] experiments",
-            classes="info-text"
-        )
-
-        # Format seq numbers nicely
-        seq_str = ", ".join(map(str, self.seq_numbers[:20]))
-        if len(self.seq_numbers) > 20:
-            seq_str += f", ... ({len(self.seq_numbers) - 20} more)"
-        yield Static(f"Seq numbers: {seq_str}", classes="info-text")
-
-        # Check for duration warnings (ITS only)
-        duration_warning = self._check_duration_warnings()
-        if duration_warning:
+        with VerticalScroll(id="content-scroll"):
+            # Experiments Section
+            yield Static("─── Experiments ────────────────────────", classes="section-title")
             yield Static(
-                f"⚠ {duration_warning}",
-                classes="warning-text"
+                f"Selected: [bold]{len(self.seq_numbers)}[/bold] experiments",
+                classes="info-text"
             )
 
-        # Configuration Section
-        yield Static("─── Configuration ──────────────────────", classes="section-title")
+            # Format seq numbers nicely
+            seq_str = ", ".join(map(str, self.seq_numbers[:20]))
+            if len(self.seq_numbers) > 20:
+                seq_str += f", ... ({len(self.seq_numbers) - 20} more)"
+            yield Static(f"Seq numbers: {seq_str}", classes="info-text")
 
-        # Build config summary
-        config_lines = self._build_config_summary()
-        for line in config_lines:
-            yield Static(line, classes="info-text")
+            # Check for duration warnings (ITS only)
+            duration_warning = self._check_duration_warnings()
+            if duration_warning:
+                yield Static(
+                    f"⚠ {duration_warning}",
+                    classes="warning-text"
+                )
 
-        # Output Section
-        yield Static("─── Output ─────────────────────────────", classes="section-title")
+            # Configuration Section
+            yield Static("─── Configuration ──────────────────────", classes="section-title")
 
-        # Generate output filename and directory (with automatic chip subdirectory)
-        output_filename = self._generate_filename()
-        base_output_dir = self.config.get("output_dir", "figs")
+            # Build config summary
+            config_lines = self._build_config_summary()
+            for line in config_lines:
+                yield Static(line, classes="info-text")
 
-        # Apply same logic as plot_generation.py: always append chip subdirectory
-        base_str = str(base_output_dir)
-        chip_subdir_name = f"{self.chip_group}{self.chip_number}"
+            # Output Section
+            yield Static("─── Output ─────────────────────────────", classes="section-title")
 
-        # Check if the path already ends with the chip subdirectory
-        if base_str.endswith(f"/{chip_subdir_name}") or base_str.endswith(f"/{chip_subdir_name}/"):
-            output_dir = base_output_dir
-        elif base_str.endswith(chip_subdir_name):
-            output_dir = base_output_dir
-        else:
-            # Append chip subdirectory
-            output_dir = f"{base_output_dir}/{chip_subdir_name}"
+            # Generate output filename and directory (with automatic chip subdirectory)
+            output_filename = self._generate_filename()
+            base_output_dir = self.config.get("output_dir", "figs")
 
-        yield Static(f"Directory: {output_dir}", classes="info-text")
-        yield Static(f"Filename: {output_filename}", classes="info-text")
+            # Apply same logic as plot_generation.py: always append chip subdirectory
+            base_str = str(base_output_dir)
+            chip_subdir_name = f"{self.chip_group}{self.chip_number}"
 
-        # Check if file exists
-        output_path = Path(output_dir) / output_filename
-        if output_path.exists():
-            yield Static(
-                "⚠ Warning: File exists and will be overwritten",
-                classes="warning-text"
-            )
-        else:
-            yield Static(
-                "✓ Ready to generate (file does not exist)",
-                classes="success-text"
-            )
+            # Check if the path already ends with the chip subdirectory
+            if base_str.endswith(f"/{chip_subdir_name}") or base_str.endswith(f"/{chip_subdir_name}/"):
+                output_dir = base_output_dir
+            elif base_str.endswith(chip_subdir_name):
+                output_dir = base_output_dir
+            else:
+                # Append chip subdirectory
+                output_dir = f"{base_output_dir}/{chip_subdir_name}"
 
-        # Buttons
-        with Horizontal(id="button-container"):
-            yield Button("← Edit Config", id="back-button", variant="default", classes="nav-button")
-            yield Button("Generate Plot", id="generate-button", variant="primary", classes="nav-button")
-            yield Button("Save & Exit", id="save-button", variant="default", classes="nav-button")
+            yield Static(f"Directory: {output_dir}", classes="info-text")
+            yield Static(f"Filename: {output_filename}", classes="info-text")
+
+            # Check if file exists
+            output_path = Path(output_dir) / output_filename
+            if output_path.exists():
+                yield Static(
+                    "⚠ Warning: File exists and will be overwritten",
+                    classes="warning-text"
+                )
+            else:
+                yield Static(
+                    "✓ Ready to generate (file does not exist)",
+                    classes="success-text"
+                )
+
+            # Buttons
+            with Horizontal(id="button-container"):
+                yield Button("← Edit Config", id="back-button", variant="default", classes="nav-button")
+                yield Button("Generate Plot", id="generate-button", variant="primary", classes="nav-button")
+                yield Button("Save & Exit", id="save-button", variant="default", classes="nav-button")
 
     def on_mount(self) -> None:
         """Initialize screen."""

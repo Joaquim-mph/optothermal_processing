@@ -17,7 +17,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from textual.app import ComposeResult
-from textual.containers import Vertical
+from textual.containers import Vertical, VerticalScroll
 from textual.widgets import Static, Button, RadioButton, RadioSet, Input
 from textual.binding import Binding
 
@@ -51,6 +51,12 @@ class PhotoresponseConfigScreen(WizardScreen):
     ]
 
     CSS = WizardScreen.CSS + """
+    #content-scroll {
+        width: 100%;
+        height: 1fr;
+        min-height: 20;
+    }
+
     .history-status {
         width: 100%;
         padding: 1 2;
@@ -90,60 +96,61 @@ class PhotoresponseConfigScreen(WizardScreen):
 
     def compose_content(self) -> ComposeResult:
         """Compose photoresponse configuration form."""
-        # Get history status
-        history_dir = self.app.session.history_dir
-        enriched_dir = self.app.session.enriched_history_dir
-        status_msg = get_history_status_message(
-            self.chip_number, self.chip_group, history_dir, enriched_dir
-        )
-
-        # Check if enriched history is available
-        has_enriched = "✓" in status_msg
-
-        # Show history status with appropriate styling
-        if has_enriched:
-            yield Static(f"History Status: {status_msg}", classes="history-status")
-        else:
-            yield Static(
-                f"⚠ Warning: {status_msg}\n\n"
-                f"Photoresponse plots require enriched history with derived metrics.\n"
-                f"Run: python3 process_and_analyze.py enrich-history {self.chip_number}",
-                classes="history-status warning-status"
+        with VerticalScroll(id="content-scroll"):
+            # Get history status
+            history_dir = self.app.session.history_dir
+            enriched_dir = self.app.session.enriched_history_dir
+            status_msg = get_history_status_message(
+                self.chip_number, self.chip_group, history_dir, enriched_dir
             )
 
-        # Info text
-        yield Static(
-            "[bold]Photoresponse Analysis Plot[/bold]\n\n"
-            "Analyze device response to illumination. Choose analysis mode below.",
-            classes="info-text"
-        )
+            # Check if enriched history is available
+            has_enriched = "✓" in status_msg
 
-        # Plot mode selection
-        yield Static("Select photoresponse plot mode:", classes="section-title")
-        with RadioSet(id="photoresponse-mode-radio"):
-            yield RadioButton("Photoresponse vs Power", id="power-radio", value=True)
-            yield RadioButton("Photoresponse vs Wavelength", id="wavelength-radio")
-            yield RadioButton("Photoresponse vs Gate Voltage", id="gate-voltage-radio")
-            yield RadioButton("Photoresponse vs Time", id="time-radio")
+            # Show history status with appropriate styling
+            if has_enriched:
+                yield Static(f"History Status: {status_msg}", classes="history-status")
+            else:
+                yield Static(
+                    f"⚠ Warning: {status_msg}\n\n"
+                    f"Photoresponse plots require enriched history with derived metrics.\n"
+                    f"Run: python3 process_and_analyze.py enrich-history {self.chip_number}",
+                    classes="history-status warning-status"
+                )
 
-        # Filter options
-        yield Static("Filters (optional - leave blank to include all):", classes="section-title")
-        yield Static("[dim]Gate voltage filter (V):[/dim]")
-        yield Input(
-            placeholder="e.g., -0.4",
-            id="filter-vg-input",
-            classes="filter-input"
-        )
-        yield Static("[dim]Wavelength filter (nm):[/dim]")
-        yield Input(
-            placeholder="e.g., 660",
-            id="filter-wl-input",
-            classes="filter-input"
-        )
+            # Info text
+            yield Static(
+                "[bold]Photoresponse Analysis Plot[/bold]\n\n"
+                "Analyze device response to illumination. Choose analysis mode below.",
+                classes="info-text"
+            )
 
-        with Vertical(id="button-container"):
-            yield Button("← Back", id="back-button", variant="default")
-            yield Button("Generate Plot", id="next-button", variant="primary")
+            # Plot mode selection
+            yield Static("Select photoresponse plot mode:", classes="section-title")
+            with RadioSet(id="photoresponse-mode-radio"):
+                yield RadioButton("Photoresponse vs Power", id="power-radio", value=True)
+                yield RadioButton("Photoresponse vs Wavelength", id="wavelength-radio")
+                yield RadioButton("Photoresponse vs Gate Voltage", id="gate-voltage-radio")
+                yield RadioButton("Photoresponse vs Time", id="time-radio")
+
+            # Filter options
+            yield Static("Filters (optional - leave blank to include all):", classes="section-title")
+            yield Static("[dim]Gate voltage filter (V):[/dim]")
+            yield Input(
+                placeholder="e.g., -0.4",
+                id="filter-vg-input",
+                classes="filter-input"
+            )
+            yield Static("[dim]Wavelength filter (nm):[/dim]")
+            yield Input(
+                placeholder="e.g., 660",
+                id="filter-wl-input",
+                classes="filter-input"
+            )
+
+            with Vertical(id="button-container"):
+                yield Button("← Back", id="back-button", variant="default")
+                yield Button("Generate Plot", id="next-button", variant="primary")
 
     def on_mount(self) -> None:
         """Focus the mode selector when mounted."""

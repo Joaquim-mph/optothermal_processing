@@ -158,6 +158,17 @@ class VtConfigScreen(FormScreen):
                 )
                 yield Static(f"→ figs/{self.chip_group}{self.chip_number}/", classes="form-help")
 
+            # Transform Options Section
+            yield Static("─── Transform Options ──────────────────────", classes="section-title")
+
+            with Horizontal(classes="form-row"):
+                yield Checkbox("Plot resistance (R = V/I)", id="resistance-checkbox", value=False)
+                yield Static("Transform voltage to resistance", classes="form-help")
+
+            with Horizontal(classes="form-row"):
+                yield Checkbox("Absolute value |R|", id="absolute-checkbox", value=False)
+                yield Static("Only with resistance mode", classes="form-help")
+
             # Buttons
             with Horizontal(id="button-container"):
                 if not self.preset_mode:
@@ -172,12 +183,23 @@ class VtConfigScreen(FormScreen):
         # Focus the first input field (legend select)
         self.query_one("#legend-by-select", Select).focus()
 
+        # Disable absolute checkbox initially (resistance is unchecked)
+        absolute_checkbox = self.query_one("#absolute-checkbox", Checkbox)
+        absolute_checkbox.disabled = True
+
     def on_checkbox_changed(self, event: Checkbox.Changed) -> None:
         """Handle checkbox state changes."""
         if event.checkbox.id == "baseline-enabled":
             # Enable/disable baseline input based on checkbox state
             baseline_input = self.query_one("#baseline-input", Input)
             baseline_input.disabled = not event.value
+        elif event.checkbox.id == "resistance-checkbox":
+            # Enable/disable absolute checkbox based on resistance state
+            absolute_checkbox = self.query_one("#absolute-checkbox", Checkbox)
+            absolute_checkbox.disabled = not event.value
+            # If disabling resistance, uncheck absolute too
+            if not event.value:
+                absolute_checkbox.value = False
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle button presses."""
@@ -379,5 +401,11 @@ class VtConfigScreen(FormScreen):
             "output_dir": output_dir or "figs",
             "config_mode": "custom",
         }
+
+        # Add transform options
+        resistance = self.query_one("#resistance-checkbox", Checkbox).value
+        absolute = self.query_one("#absolute-checkbox", Checkbox).value
+        config["resistance"] = resistance
+        config["absolute"] = absolute if resistance else False  # Ignore absolute if not resistance
 
         return config

@@ -178,7 +178,11 @@ def plot_vvg_sequence(
         plt.ylim(bottom=0)  # Positive values only for voltage
 
     chipnum = int(df['chip_number'][0])  # Use snake_case column name from history
-    plt.title(f"Encap{chipnum} — VVg{title_suffix}")
+    chip_group = None
+    if "chip_group" in df.columns:
+        chip_group = df["chip_group"][0]
+    prefix = f"{chip_group}{chipnum}" if chip_group else f"encap{chipnum}"
+    plt.title(f"{prefix} — VVg{title_suffix}")
     plt.legend()
     plt.tight_layout()
 
@@ -201,7 +205,7 @@ def plot_vvg_sequence(
         tag_suffix = "_R"
     else:
         tag_suffix = ""
-    filename = f"encap{chipnum}_VVg_{tag}{tag_suffix}"
+    filename = f"{prefix}_VVg_{tag}{tag_suffix}"
     out = config.get_output_path(
         filename,
         chip_number=chipnum,

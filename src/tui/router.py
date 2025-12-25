@@ -370,6 +370,28 @@ class Router:
             chip_group=self.app.session.chip_group
         ))
 
+    def go_to_its_relaxation_config(self) -> None:
+        """
+        Navigate to ITS Relaxation configuration screen (Step 3).
+
+        ITS relaxation plots show stretched exponential fits with τ, β, R² parameters.
+        Requires derived metrics.
+
+        Raises
+        ------
+        ValueError
+            If required session fields not set
+        """
+        from src.tui.screens.configuration.its_relaxation_config import ITSRelaxationConfigScreen
+
+        if self.app.session.chip_number is None:
+            raise ValueError("chip_number must be set")
+
+        self.app.push_screen(ITSRelaxationConfigScreen(
+            chip_number=self.app.session.chip_number,
+            chip_group=self.app.session.chip_group
+        ))
+
     def go_to_recent_configs(self) -> None:
         """
         Navigate to recent configurations screen.
@@ -760,6 +782,7 @@ class Router:
             # v3.0 derived metric plots
             "CNP": self.go_to_cnp_config,
             "Photoresponse": self.go_to_photoresponse_config,
+            "ITSRelaxation": self.go_to_its_relaxation_config,
 
             # v3.0 specialized plots
             "LaserCalibration": self.go_to_laser_calibration_config,

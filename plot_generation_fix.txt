@@ -1,0 +1,71 @@
+
+• Here’s a deep, focused analysis of src/tui/screens/processing/
+  plot_generation.py with concrete errors/mistakes tied to the current
+  logs and plotting APIs.
+
+  Critical runtime errors
+
+  - _on_success is called with the wrong arguments in the
+    LaserCalibration and ITSRelaxation branches, causing the exact
+    TypeError in tui_plot_generation.log (missing 1 required positional
+    argument: 'file_size'). You pass (output_path, file_size) but
+    _on_success expects (elapsed, output_path, file_size). See src/tui/
+    screens/processing/plot_generation.py:633 and src/tui/screens/
+    processing/plot_generation.py:697 and the traceback in
+    tui_plot_generation.log.
+  - CNP plotting calls a non‑existent function:
+    cnp_time.plot_cnp_time(...) doesn’t exist. The module defines
+    plot_cnp_vs_time(...) in src/plotting/cnp_time.py. This will raise
+    AttributeError as soon as a CNP plot is run. See src/tui/screens/
+    processing/plot_generation.py:453 and src/plotting/cnp_time.py:16.
+  - Photoresponse plotting passes the wrong parameters and wrong argument
+    order. plot_photoresponse expects (history, chip_name,
+    x_variable, ...) but you pass (history, output_dir, chip_name,
+    mode=..., filter_wl=...). mode/filter_wl aren’t valid parameters
+    either. This will raise TypeError or produce invalid behavior. See
+    src/tui/screens/processing/plot_generation.py:503 and src/plotting/
+    photoresponse.py:15.
+
+  High‑impact logic mistakes
+
+  - Output directory handling is largely ignored for several plotters.
+    You set its.FIG_DIR, ivg.FIG_DIR, etc., but those modules now use
+    PlotConfig and ignore FIG_DIR entirely (e.g., src/plotting/ivg.py
+    uses config.get_output_path). This means the TUI’s output_dir is not
+    honored, and the computed output_path in the TUI can be wrong. Expect
+    “output file does not exist at expected path” even when plotting
+    succeeded. See src/tui/screens/processing/plot_generation.py:259+,
+    src/tui/screens/processing/plot_generation.py:712+, and src/plotting/
+    ivg.py:204.
+  - LaserCalibration and ITSRelaxation assume plotting always returns a
+    valid path; but both plot_laser_calibration and
+    plot_laser_calibration_comparison can return None when there’s no
+    data. You immediately call PathLib(output_file) without guarding,
+    which will throw TypeError: expected str, bytes or os.PathLike. See
+    src/plotting/laser_calibration.py:59 and src/tui/screens/processing/
+    plot_generation.py:621.
+
+  Medium‑impact inconsistencies
+
+  - LaserCalibration uses a hardcoded manifest path and ignores
+    stage_dir/history_dir config. If the user’s pipeline is pointed
+    elsewhere, this path will break silently. See src/tui/screens/
+    processing/plot_generation.py:565.
+  - Output file naming always uses the encap{chip_number} prefix
+    regardless of chip_group, which is inconsistent with other parts of
+    the TUI that use chip_group. This can confuse users and produce
+    filenames that don’t match the plots saved by PlotConfig. See src/
+    tui/screens/processing/plot_generation.py:724.
+  - logging.basicConfig(...) writes to tui_plot_generation.log instead of
+    the TUI logging system (logs/tui_YYYYMMDD.log). That splits
+    diagnostics and makes the “TUI logs” ambiguous; it’s easy to miss
+    errors in the main log viewer. See src/tui/screens/processing/
+    plot_generation.py:86 and src/tui/logging_config.py.
+
+  Evidence from your log
+
+  - The failure you’re seeing is directly caused by the _on_success call
+    signature mismatch in the LaserCalibration branch. The log shows the
+    plot completes and then crashes when returning to the UI. This is in
+    tui_plot_generation.log near line 4420, matching src/tui/screens/
+    processing/plot_generation.py:633.

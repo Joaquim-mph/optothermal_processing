@@ -321,38 +321,48 @@ class PreviewScreen(WizardScreen):
 
         Format: encap{N}_plottype_seq_X_Y_Z.png
         """
-        # Generate plot tag from seq numbers (same logic as CLI)
-        sorted_seqs = sorted(self.seq_numbers)
-
-        if len(sorted_seqs) <= 5:
-            # Short lists: readable format
-            seq_str = "_".join(str(s) for s in sorted_seqs)
-            plot_tag = f"seq_{seq_str}"
-        else:
-            # Long lists: first 3 + count + hash
-            first_three = "_".join(str(s) for s in sorted_seqs[:3])
-            import hashlib
-            seq_hash = hashlib.md5("_".join(str(s) for s in sorted_seqs).encode()).hexdigest()[:6]
-            plot_tag = f"seq_{first_three}_plus{len(sorted_seqs)-3}_{seq_hash}"
+        # Generate plot tag from seq numbers (matches plot_generation.py)
+        seq_str = "_".join(map(str, self.seq_numbers[:10]))
+        if len(self.seq_numbers) > 10:
+            seq_str += f"_plus{len(self.seq_numbers) - 10}more"
+        plot_tag = seq_str
 
         # Standardized format: encap{N}_plottype_tag.png
+        chip_prefix = (
+            f"{self.chip_group}{self.chip_number}"
+            if self.chip_group
+            else f"encap{self.chip_number}"
+        )
+
         if self.plot_type == "ITS":
             # Check if raw data mode (add _raw suffix)
             baseline_mode = self.config.get("baseline_mode", "fixed")
             raw_suffix = "_raw" if baseline_mode == "none" else ""
 
-            filename = f"encap{self.chip_number}_ITS_{plot_tag}{raw_suffix}.png"
+            filename = f"{chip_prefix}_It_{plot_tag}{raw_suffix}.png"
         elif self.plot_type == "IVg":
-            filename = f"encap{self.chip_number}_IVg_{plot_tag}.png"
+            filename = f"{chip_prefix}_IVg_{plot_tag}.png"
         elif self.plot_type == "Transconductance":
             method = self.config.get("method", "gradient")
             if method == "savgol":
-                filename = f"encap{self.chip_number}_gm_savgol_{plot_tag}.png"
+                filename = f"{chip_prefix}_gm_savgol_{plot_tag}.png"
             else:
-                filename = f"encap{self.chip_number}_gm_{plot_tag}.png"
+                filename = f"{chip_prefix}_gm_{plot_tag}.png"
+        elif self.plot_type == "CNP":
+            chip_name = f"{self.chip_group}{self.chip_number}".lower()
+            filename = f"{chip_name}_cnp_vs_time.png"
+        elif self.plot_type == "Photoresponse":
+            chip_name = f"{self.chip_group}{self.chip_number}".lower()
+            mode = self.config.get("photoresponse_mode", "power")
+            filename = f"{chip_name}_photoresponse_delta_current_vs_{mode}.png"
+        elif self.plot_type == "LaserCalibration":
+            filename = "laser_calibration_calibrations.png"
+        elif self.plot_type == "ITSRelaxation":
+            chip_name = f"{self.chip_group}{self.chip_number}"
+            filename = f"{chip_name}_It_relaxation.png"
         else:
             # Fallback
-            filename = f"encap{self.chip_number}_{self.plot_type}_{plot_tag}.png"
+            filename = f"{chip_prefix}_{self.plot_type}_{plot_tag}.png"
 
         return filename
 

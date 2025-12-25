@@ -238,13 +238,34 @@ class ExperimentSelectorScreen(Screen):
         # Apply text filter
         if filter_text:
             filter_lower = filter_text.lower()
-            # Filter by multiple columns
-            mask = (
-                pl.col("summary").cast(pl.Utf8).str.to_lowercase().str.contains(filter_lower) |
-                pl.col("proc").cast(pl.Utf8).str.to_lowercase().str.contains(filter_lower) |
-                pl.col("date").cast(pl.Utf8).str.contains(filter_lower)
-            )
-            df = df.filter(mask)
+            # Build filter mask from available columns
+            filter_conditions = []
+
+            # Check which columns are available and add to filter
+            if "summary" in df.columns:
+                filter_conditions.append(
+                    pl.col("summary").cast(pl.Utf8).str.to_lowercase().str.contains(filter_lower)
+                )
+            if "proc" in df.columns:
+                filter_conditions.append(
+                    pl.col("proc").cast(pl.Utf8).str.to_lowercase().str.contains(filter_lower)
+                )
+            if "date" in df.columns:
+                filter_conditions.append(
+                    pl.col("date").cast(pl.Utf8).str.contains(filter_lower)
+                )
+            elif "date_local" in df.columns:
+                filter_conditions.append(
+                    pl.col("date_local").cast(pl.Utf8).str.contains(filter_lower)
+                )
+
+            # Apply combined filter if we have any conditions
+            if filter_conditions:
+                # Combine all conditions with OR
+                mask = filter_conditions[0]
+                for condition in filter_conditions[1:]:
+                    mask = mask | condition
+                df = df.filter(mask)
 
         # Sort by seq
         df = df.sort("seq")

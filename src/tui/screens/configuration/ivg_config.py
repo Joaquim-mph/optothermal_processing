@@ -2,7 +2,7 @@
 
 from pathlib import Path
 from textual.app import ComposeResult
-from textual.widgets import Button, Static, Input, RadioSet, RadioButton
+from textual.widgets import Button, Static, Input, RadioSet, RadioButton, Checkbox
 from textual.containers import Vertical, Horizontal, VerticalScroll
 from textual.binding import Binding
 from textual import events
@@ -122,6 +122,17 @@ class IVgConfigScreen(FormScreen):
                 )
                 yield Static(f"→ figs/{self.chip_group}{self.chip_number}/", classes="form-help")
 
+            # Transform Options Section
+            yield Static("─── Transform Options ───", classes="section-title")
+
+            with Horizontal(classes="form-row"):
+                yield Checkbox("Plot conductance (G = I/V)", id="conductance-checkbox", value=False)
+                yield Static("Transform current to conductance", classes="form-help")
+
+            with Horizontal(classes="form-row"):
+                yield Checkbox("Absolute value |G|", id="absolute-checkbox", value=False)
+                yield Static("Only with conductance mode", classes="form-help")
+
             # Buttons
             with Horizontal(id="button-container"):
                 yield Button("Save Config", id="save-button", variant="default", classes="nav-button")
@@ -134,8 +145,22 @@ class IVgConfigScreen(FormScreen):
         manual_container = self.query_one("#manual-indices-container")
         manual_container.display = False
 
+        # Disable absolute checkbox initially (conductance is unchecked)
+        absolute_checkbox = self.query_one("#absolute-checkbox", Checkbox)
+        absolute_checkbox.disabled = True
+
         # Focus the first radio button
         self.query_one("#interactive-radio").focus()
+
+    def on_checkbox_changed(self, event: Checkbox.Changed) -> None:
+        """Handle checkbox state changes."""
+        if event.checkbox.id == "conductance-checkbox":
+            # Enable/disable absolute checkbox based on conductance state
+            absolute_checkbox = self.query_one("#absolute-checkbox", Checkbox)
+            absolute_checkbox.disabled = not event.value
+            # If disabling conductance, uncheck absolute too
+            if not event.value:
+                absolute_checkbox.value = False
 
     def on_radio_set_changed(self, event: RadioSet.Changed) -> None:
         """Show/hide manual indices input based on selection mode."""
@@ -290,5 +315,11 @@ class IVgConfigScreen(FormScreen):
         # Output directory
         output_dir = self.query_one("#output-dir-input", Input).value.strip()
         config["output_dir"] = output_dir if output_dir else "figs/"
+
+        # Add transform options
+        conductance = self.query_one("#conductance-checkbox", Checkbox).value
+        absolute = self.query_one("#absolute-checkbox", Checkbox).value
+        config["conductance"] = conductance
+        config["absolute"] = absolute if conductance else False  # Ignore absolute if not conductance
 
         return config

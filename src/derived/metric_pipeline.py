@@ -114,12 +114,16 @@ class MetricPipeline:
         base_dir: Path,
         extractors: Optional[List[MetricExtractor]] = None,
         pairwise_extractors: Optional[List[PairwiseMetricExtractor]] = None,
-        extraction_version: Optional[str] = None
+        extraction_version: Optional[str] = None,
+        stage_root: Optional[Path] = None,
+        manifest_path: Optional[Path] = None,
     ):
         """Initialize pipeline with extractors."""
         self.base_dir = Path(base_dir)
         self.stage_dir = self.base_dir / "data" / "02_stage"
         self.derived_dir = self.base_dir / "data" / "03_derived"
+        self.raw_stage_dir = Path(stage_root) if stage_root else self.stage_dir / "raw_measurements"
+        self.manifest_path = Path(manifest_path) if manifest_path else self.raw_stage_dir / "_manifest" / "manifest.parquet"
 
         # Register single-measurement extractors
         if extractors is None:
@@ -247,7 +251,7 @@ class MetricPipeline:
         pl.DataFrame
             Filtered manifest
         """
-        manifest_path = self.stage_dir / "raw_measurements" / "_manifest" / "manifest.parquet"
+        manifest_path = self.manifest_path
         if not manifest_path.exists():
             raise FileNotFoundError(f"Manifest not found: {manifest_path}")
 
@@ -750,7 +754,7 @@ class MetricPipeline:
 
                 # Add parquet_path if not present
                 if "parquet_path" not in sorted_group.columns:
-                    base_path = str(self.stage_dir / "raw_measurements")
+                    base_path = str(self.raw_stage_dir)
                     sorted_group = sorted_group.with_columns(
                         pl.format(
                             f"{base_path}/proc={{}}/date={{}}/run_id={{}}/part-000.parquet",
@@ -1070,7 +1074,7 @@ class MetricPipeline:
         >>> print(f"Created {len(paths)} enriched histories")
         """
         # Load manifest to find all chips
-        manifest_path = self.stage_dir / "_manifest" / "manifest.parquet"
+        manifest_path = self.manifest_path
         manifest = pl.read_parquet(manifest_path)
 
         # Get unique chip combinations

@@ -74,6 +74,10 @@ class PlotTypeSelectorScreen(SelectorScreen):
             # v3.0 derived metric plot types (requires enriched histories)
             yield RadioButton("CNP Time Evolution ⭐", id="cnp-radio")
             yield RadioButton("Photoresponse Analysis ⭐", id="photoresponse-radio")
+            yield RadioButton("It Relaxation Fits ⭐", id="its-relaxation-radio")
+
+            # Global measurement plots (not chip-specific)
+            yield RadioButton("Laser Calibration 🔬", id="laser-calibration-radio")
 
         # Descriptions below radio buttons
         yield Static(
@@ -109,6 +113,16 @@ class PlotTypeSelectorScreen(SelectorScreen):
         yield Static(
             "[bold]Photoresponse Analysis ⭐[/bold]\n"
             "Analyze device response vs power, wavelength, gate voltage, or time. Requires enriched history.",
+            classes="plot-description"
+        )
+        yield Static(
+            "[bold]It Relaxation Fits ⭐[/bold]\n"
+            "Visualize stretched exponential relaxation time fits. Shows τ, β, R² parameters. Requires derived metrics.",
+            classes="plot-description"
+        )
+        yield Static(
+            "[bold]Laser Calibration 🔬[/bold]\n"
+            "Plot laser power vs control voltage calibration curves. Global (not chip-specific).",
             classes="plot-description"
         )
 
@@ -185,6 +199,10 @@ class PlotTypeSelectorScreen(SelectorScreen):
             # v3.0 derived metric plot types (requires enriched histories)
             "cnp-radio": "CNP",
             "photoresponse-radio": "Photoresponse",
+            "its-relaxation-radio": "ITSRelaxation",
+
+            # Global measurement plots (not chip-specific)
+            "laser-calibration-radio": "LaserCalibration",
         }
 
         plot_type = plot_type_map.get(selected.id)

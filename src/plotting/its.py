@@ -542,6 +542,10 @@ def plot_its_overlay(
         plt.ylabel(r"$\Delta I_{ds}\ (\mu\mathrm{A})$")
 
     chipnum = int(df["chip_number"][0])  # Use snake_case column name from history
+    chip_group = None
+    if "chip_group" in df.columns:
+        chip_group = df["chip_group"][0]
+    prefix = f"{chip_group}{chipnum}" if chip_group else f"encap{chipnum}"
     #plt.title(f"Chip {chipnum} — ITS overlay")
     plt.legend(title=legend_title)
 
@@ -598,7 +602,7 @@ def plot_its_overlay(
     # Add _raw suffix if baseline_mode is "none"
     raw_suffix = "_raw" if baseline_mode == "none" else ""
     conductance_suffix = "_G" if conductance else ""
-    filename = f"encap{chipnum}_It_{tag}{raw_suffix}{conductance_suffix}"
+    filename = f"{prefix}_It_{tag}{raw_suffix}{conductance_suffix}"
     out = config.get_output_path(
         filename,
         chip_number=chipnum,
@@ -844,6 +848,10 @@ def plot_its_dark(
     plt.xlabel(r"$t\ (\mathrm{s})$")
     plt.ylabel(r"$\Delta I_{ds}\ (\mu\mathrm{A})$")
     chipnum = int(df["chip_number"][0])  # Use snake_case column name from history
+    chip_group = None
+    if "chip_group" in df.columns:
+        chip_group = df["chip_group"][0]
+    prefix = f"{chip_group}{chipnum}" if chip_group else f"encap{chipnum}"
     #plt.title(f"Chip {chipnum} — ITS overlay (dark)")
     plt.legend(title=legend_title)
 
@@ -879,7 +887,7 @@ def plot_its_dark(
 
     # Add _raw suffix if baseline_mode is "none"
     raw_suffix = "_raw" if baseline_mode == "none" else ""
-    filename = f"encap{chipnum}_It_dark_{tag}{raw_suffix}"
+    filename = f"{prefix}_It_dark_{tag}{raw_suffix}"
     out = config.get_output_path(
         filename,
         chip_number=chipnum,
@@ -1112,6 +1120,10 @@ def plot_its_sequential(
     plt.xlabel("Time (s)")
     plt.ylabel(r"$I_{ds}\ (\mu\mathrm{A})$")
     chipnum = int(df["chip_number"][0])
+    chip_group = None
+    if "chip_group" in df.columns:
+        chip_group = df["chip_group"][0]
+    prefix = f"{chip_group}{chipnum}" if chip_group else f"encap{chipnum}"
 
     # Add legend
     plt.legend(title=legend_title, loc='best')
@@ -1145,7 +1157,7 @@ def plot_its_sequential(
             )
 
     # Save figure
-    filename = f"encap{chipnum}_It_sequential_{tag}"
+    filename = f"{prefix}_It_sequential_{tag}"
     out = config.get_output_path(
         filename,
         chip_number=chipnum,

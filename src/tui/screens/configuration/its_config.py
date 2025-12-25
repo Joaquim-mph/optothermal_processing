@@ -141,6 +141,17 @@ class ITSConfigScreen(FormScreen):
                 )
                 yield Static(f"→ figs/{self.chip_group}{self.chip_number}/", classes="form-help")
 
+            # Transform Options Section
+            yield Static("─── Transform Options ──────────────────────", classes="section-title")
+
+            with Horizontal(classes="form-row"):
+                yield Checkbox("Plot conductance (G = I/V)", id="conductance-checkbox", value=False)
+                yield Static("Transform current to conductance", classes="form-help")
+
+            with Horizontal(classes="form-row"):
+                yield Checkbox("Absolute value |G|", id="absolute-checkbox", value=False)
+                yield Static("Only with conductance mode", classes="form-help")
+
             # Buttons
             with Horizontal(id="button-container"):
                 if not self.preset_mode:
@@ -155,12 +166,23 @@ class ITSConfigScreen(FormScreen):
         # Focus the first input field (legend select)
         self.query_one("#legend-by-select", Select).focus()
 
+        # Disable absolute checkbox initially (conductance is unchecked)
+        absolute_checkbox = self.query_one("#absolute-checkbox", Checkbox)
+        absolute_checkbox.disabled = True
+
     def on_checkbox_changed(self, event: Checkbox.Changed) -> None:
         """Handle checkbox state changes."""
         if event.checkbox.id == "baseline-enabled":
             # Enable/disable baseline input based on checkbox state
             baseline_input = self.query_one("#baseline-input", Input)
             baseline_input.disabled = not event.value
+        elif event.checkbox.id == "conductance-checkbox":
+            # Enable/disable absolute checkbox based on conductance state
+            absolute_checkbox = self.query_one("#absolute-checkbox", Checkbox)
+            absolute_checkbox.disabled = not event.value
+            # If disabling conductance, uncheck absolute too
+            if not event.value:
+                absolute_checkbox.value = False
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle button presses."""
@@ -344,5 +366,11 @@ class ITSConfigScreen(FormScreen):
         config["plot_start_time"] = plot_start_time
         config["check_duration_mismatch"] = check_duration_mismatch
         config["duration_tolerance"] = duration_tolerance
+
+        # Add transform options
+        conductance = self.query_one("#conductance-checkbox", Checkbox).value
+        absolute = self.query_one("#absolute-checkbox", Checkbox).value
+        config["conductance"] = conductance
+        config["absolute"] = absolute if conductance else False  # Ignore absolute if not conductance
 
         return config

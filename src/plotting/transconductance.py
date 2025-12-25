@@ -274,7 +274,15 @@ def plot_ivg_transconductance(
     ax.set_xlabel("VG (V)")
     ax.set_ylabel("Transconductance gm (µS)")
     chipnum = int(df['chip_number'][0])  # Use snake_case column name from history
-    ax.set_title(f"Encap{chipnum} — Transconductance (np.gradient, joined, no sort)")
+    chip_group = None
+    if "chip_group" in df.columns:
+        chip_group = df["chip_group"][0]
+    prefix = f"{chip_group}{chipnum}" if chip_group else f"encap{chipnum}"
+    chip_group = None
+    if "chip_group" in df.columns:
+        chip_group = df["chip_group"][0]
+    prefix = f"{chip_group}{chipnum}" if chip_group else f"encap{chipnum}"
+    ax.set_title(f"{prefix} — Transconductance (np.gradient, joined, no sort)")
     ax.legend()
     ax.axhline(y=0, color='k', linestyle=':')
 
@@ -292,7 +300,7 @@ def plot_ivg_transconductance(
             from src.plotting.plot_utils import print_warning
             print_warning("Mixed illumination experiments - saving to Transconductance root folder")
 
-    filename = f"encap{chipnum}_gm_{tag}"
+    filename = f"{prefix}_gm_{tag}"
     out = config.get_output_path(
         filename,
         chip_number=chipnum,
@@ -483,7 +491,7 @@ def plot_ivg_transconductance_savgol(
             from src.plotting.plot_utils import print_warning
             print_warning("Mixed illumination experiments - saving to Transconductance root folder")
 
-    filename = f"encap{chipnum}_gm_savgol_{tag}"
+    filename = f"{prefix}_gm_savgol_{tag}"
     out = config.get_output_path(
         filename,
         chip_number=chipnum,

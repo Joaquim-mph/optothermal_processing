@@ -55,6 +55,18 @@ class PreviewScreen(WizardScreen):
         min-height: 20;
     }
 
+    #button-container {
+        layout: grid;
+        grid-size: 3;
+        grid-gutter: 1 2;
+        align: center middle;
+    }
+
+    .nav-button {
+        height: 3;
+        min-height: 3;
+    }
+
     .warning-text {
         color: $warning;
         text-style: italic;

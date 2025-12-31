@@ -22,6 +22,23 @@ class PlotSuccessScreen(SuccessScreen):
     """Success screen after plot generation."""
 
     SCREEN_TITLE = "Plot Generated Successfully! ✓"
+    CSS = SuccessScreen.CSS + """
+    #button-container {
+        layout: grid;
+        grid-size: 3;
+        grid-gutter: 1 2;
+        align: center middle;
+    }
+
+    .nav-button {
+        height: 3;
+        min-height: 3;
+    }
+
+    #menu-button {
+        column-span: 3;
+    }
+    """
 
     def __init__(
         self,

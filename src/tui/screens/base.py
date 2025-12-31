@@ -139,12 +139,16 @@ class WizardScreen(Screen):
         height: auto;
         layout: horizontal;
         margin-top: 1;
+        align-horizontal: center;
     }
 
     .nav-button {
         width: 1fr;
+        max-width: 1fr;
+        min-width: 0;
+        height: 1;
         margin: 0 1;
-        min-height: 3;
+        padding: 0 1;
     }
 
     .nav-button:focus {
@@ -186,10 +190,10 @@ class WizardScreen(Screen):
     /* Info text boxes (standardized across screens) */
     .info-text {
         width: 100%;
-        padding: 2;
+        padding: 1;
         background: $panel;
         color: $text;
-        margin-bottom: 1;
+        margin-bottom: 0;
     }
     """
 

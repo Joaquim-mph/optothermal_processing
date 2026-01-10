@@ -1,7 +1,7 @@
 """Vt Preset Selector Screen for TUI."""
 
 from textual.app import ComposeResult
-from textual.containers import Vertical, Horizontal
+from textual.containers import Vertical, Horizontal, VerticalScroll
 from textual.widgets import Static, Button
 from textual.binding import Binding
 
@@ -22,16 +22,10 @@ class VtPresetSelectorScreen(SelectorScreen):
 
     # Preset selector CSS (extends SelectorScreen CSS)
     CSS = SelectorScreen.CSS + """
-    #main-container {
-        max-height: 90%;
-        overflow-y: auto;
-    }
-
-    #subtitle {
+    #content-scroll {
         width: 100%;
-        content-align: center middle;
-        color: $accent;
-        margin-bottom: 1;
+        height: 1fr;
+        min-height: 20;
     }
 
     .preset-button {
@@ -79,33 +73,34 @@ class VtPresetSelectorScreen(SelectorScreen):
 
     def compose_content(self) -> ComposeResult:
         """Compose preset selector content."""
-        # Preset buttons (compact format with color coding)
-        for preset_key, preset in PRESETS.items():
-            # Build compact button label with color
-            if preset.baseline_mode == "none":
-                baseline_info = "[dim]No baseline[/dim]"
-            elif preset.baseline_mode == "auto":
-                baseline_info = f"[darkorange]Auto baseline (ON-OFF Period/{preset.baseline_auto_divisor})[/darkorange]"
-            else:
-                baseline_info = f"[dim]Fixed baseline: {preset.baseline_value}s[/dim]"
+        with VerticalScroll(id="content-scroll"):
+            # Preset buttons (compact format with color coding)
+            for preset_key, preset in PRESETS.items():
+                # Build compact button label with color
+                if preset.baseline_mode == "none":
+                    baseline_info = "[dim]No baseline[/dim]"
+                elif preset.baseline_mode == "auto":
+                    baseline_info = f"[darkorange]Auto baseline (ON-OFF Period/{preset.baseline_auto_divisor})[/darkorange]"
+                else:
+                    baseline_info = f"[dim]Fixed baseline: {preset.baseline_value}s[/dim]"
 
-            # Make title bigger and bold (same color as rest of text)
-            button_label = (
-                f"[bold]{preset.name.upper()}[/bold]\n"
-                f"{preset.description}\n"
-                f"→ {baseline_info}, legend by [bold]{preset.legend_by}[/bold]"
-            )
+                # Make title bigger and bold (same color as rest of text)
+                button_label = (
+                    f"[bold]{preset.name.upper()}[/bold]\n"
+                    f"{preset.description}\n"
+                    f"→ {baseline_info}, legend by [bold]{preset.legend_by}[/bold]"
+                )
 
-            yield Button(
-                button_label,
-                id=f"preset-{preset_key}",
-                variant="default",
-                classes="preset-button"
-            )
+                yield Button(
+                    button_label,
+                    id=f"preset-{preset_key}",
+                    variant="default",
+                    classes="preset-button"
+                )
 
-        # Navigation buttons
-        with Horizontal(id="button-bar"):
-            yield Button("← Back", id="back-btn", variant="default", classes="nav-button")
+            # Navigation buttons
+            with Horizontal(id="button-bar"):
+                yield Button("← Back", id="back-btn", variant="default", classes="nav-button")
 
     def on_mount(self) -> None:
         """Initialize screen - focus first preset button."""

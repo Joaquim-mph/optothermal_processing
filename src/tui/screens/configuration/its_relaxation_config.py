@@ -1,40 +1,32 @@
 """
-VVg Configuration Screen.
+ITS Relaxation Configuration Screen.
 
-Step 3/4 of the wizard: Configure parameters for VVg (drain-source voltage vs gate voltage) plots.
+Configure ITS relaxation time visualization. Shows raw current vs time data
+with overlaid stretched exponential fits and extracted parameters (τ, β, R²).
 
-VVg plots show the output characteristics of the device - how the drain-source
-voltage varies with gate voltage sweeps. This is useful for understanding
-device behavior under different bias conditions.
+Requires:
+- data/03_derived/_metrics/metrics.parquet (relaxation_time metrics)
+- Chip history with run_id column
 """
 
 from __future__ import annotations
+from pathlib import Path
 
 from textual.app import ComposeResult
-from textual.containers import Horizontal, VerticalScroll
-from textual.widgets import Static, Button, Input, Label, Checkbox
+from textual.containers import Vertical, Horizontal, VerticalScroll
+from textual.widgets import Static, Button, Input, Select, Checkbox
 from textual.binding import Binding
 
 from src.tui.screens.base import FormScreen
 
 
-class VVgConfigScreen(FormScreen):
-    """VVg plot configuration screen (Step 3/4)."""
+class ITSRelaxationConfigScreen(FormScreen):
+    """ITS relaxation fit configuration screen."""
 
-    SCREEN_TITLE = "Custom Configuration - VVg"
+    SCREEN_TITLE = "Configure It Relaxation Fits"
     STEP_NUMBER = 3
 
     def __init__(self, chip_number: int, chip_group: str):
-        """
-        Initialize VVg configuration screen.
-
-        Parameters
-        ----------
-        chip_number : int
-            Chip number
-        chip_group : str
-            Chip group name
-        """
         super().__init__()
         self.chip_number = chip_number
         self.chip_group = chip_group
@@ -54,26 +46,51 @@ class VVgConfigScreen(FormScreen):
     def compose_header(self) -> ComposeResult:
         """Compose header with title and chip info."""
         yield Static(self.SCREEN_TITLE, id="title")
-        yield Static(f"Chip: [bold]{self.chip_group}{self.chip_number}[/bold]", id="chip-info")
+        yield Static(
+            f"Chip: [bold]{self.chip_group}{self.chip_number}[/bold]",
+            id="chip-info"
+        )
         yield Static(f"[Step {self.STEP_NUMBER}/{self.TOTAL_STEPS}]", id="step-indicator")
 
     def compose_content(self) -> ComposeResult:
-        """Compose VVg configuration form."""
+        """Compose ITS relaxation configuration form."""
         with VerticalScroll(id="content-scroll"):
             # Info section
             yield Static(
-                "[bold]VVg Plot Configuration[/bold]\n\n"
-                "VVg plots show drain-source voltage vs gate voltage sweeps.\n"
-                "These are output characteristic curves that show how the device\n"
-                "responds to different gate bias conditions.\n",
+                "[bold]It Relaxation Time Fits[/bold]\n\n"
+                "Visualize stretched exponential relaxation time extraction.\n"
+                "Shows raw current data with overlaid fits and extracted\n"
+                "parameters: τ (relaxation time), β (stretch exponent), R².\n\n"
+                "[dim]Requires: derive-all-metrics to have been run[/dim]",
                 classes="info-text"
             )
 
-            # Plot Options Section
-            yield Static("─── Plot Options ──────────────────────", classes="section-title")
+            # Filter Options Section
+            yield Static("─── Filter Options ────────────────────────", classes="section-title")
 
             with Horizontal(classes="form-row"):
-                yield Label("Output dir:", classes="form-label")
+                yield Static("Fit segment:", classes="form-label")
+                yield Select(
+                    [
+                        ("All segments", "both"),
+                        ("Light segment only", "light"),
+                        ("Dark segment only", "dark"),
+                    ],
+                    value="both",
+                    id="segment-filter-select",
+                    classes="form-input"
+                )
+                yield Static("Which fit segment to include", classes="form-help")
+
+            with Horizontal(classes="form-row"):
+                yield Checkbox("Dark-only measurements", id="dark-only-checkbox", value=True)
+                yield Static("Only show truly dark It (no laser)", classes="form-help")
+
+            # Plot Options Section
+            yield Static("─── Plot Options ──────────────────────────", classes="section-title")
+
+            with Horizontal(classes="form-row"):
+                yield Static("Output dir:", classes="form-label")
                 yield Input(
                     value="figs",
                     placeholder="figs",
@@ -81,17 +98,6 @@ class VVgConfigScreen(FormScreen):
                     classes="form-input"
                 )
                 yield Static(f"→ figs/{self.chip_group}{self.chip_number}/", classes="form-help")
-
-            # Transform Options Section
-            yield Static("─── Transform Options ──────────────────────", classes="section-title")
-
-            with Horizontal(classes="form-row"):
-                yield Checkbox("Plot resistance (R = V/I)", id="resistance-checkbox", value=False)
-                yield Static("Transform voltage to resistance", classes="form-help")
-
-            with Horizontal(classes="form-row"):
-                yield Checkbox("Absolute value |R|", id="absolute-checkbox", value=False)
-                yield Static("Only with resistance mode", classes="form-help")
 
             # Buttons
             with Horizontal(id="button-container"):
@@ -101,22 +107,7 @@ class VVgConfigScreen(FormScreen):
 
     def on_mount(self) -> None:
         """Initialize screen."""
-        # Disable absolute checkbox initially (resistance is unchecked)
-        absolute_checkbox = self.query_one("#absolute-checkbox", Checkbox)
-        absolute_checkbox.disabled = True
-
-        # Focus the output dir input
-        self.query_one("#output-dir-input", Input).focus()
-
-    def on_checkbox_changed(self, event: Checkbox.Changed) -> None:
-        """Handle checkbox state changes."""
-        if event.checkbox.id == "resistance-checkbox":
-            # Enable/disable absolute checkbox based on resistance state
-            absolute_checkbox = self.query_one("#absolute-checkbox", Checkbox)
-            absolute_checkbox.disabled = not event.value
-            # If disabling resistance, uncheck absolute too
-            if not event.value:
-                absolute_checkbox.value = False
+        self.query_one("#segment-filter-select", Select).focus()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle button presses."""
@@ -137,21 +128,20 @@ class VVgConfigScreen(FormScreen):
                 setattr(self.app.session, key, value)
 
         # Navigate to experiment selector
+        # NOTE: Experiment selector needs to filter to It experiments with relaxation metrics
         self.app.router.go_to_experiment_selector()
 
     def action_save_config(self) -> None:
         """Save configuration to JSON file."""
         config = self._collect_config()
 
-        # Add chip info to config
         config_to_save = {
             **config,
             "chip_number": self.chip_number,
             "chip_group": self.chip_group,
-            "plot_type": "VVg",
+            "plot_type": "ITSRelaxation",
         }
 
-        # Save to ConfigManager
         try:
             config_id = self.app.config_manager.save_config(config_to_save)
             self.notify(
@@ -168,19 +158,17 @@ class VVgConfigScreen(FormScreen):
 
     def _collect_config(self) -> dict:
         """Collect all configuration values from the form."""
-        # Get output directory
-        output_dir = self.query_one("#output-dir-input", Input).value.strip()
-
-        # Build config dict
         config = {
             "selection_mode": "interactive",
-            "output_dir": output_dir if output_dir else "figs",
+            "plot_type": "ITSRelaxation",
         }
 
-        # Add transform options
-        resistance = self.query_one("#resistance-checkbox", Checkbox).value
-        absolute = self.query_one("#absolute-checkbox", Checkbox).value
-        config["resistance"] = resistance
-        config["absolute"] = absolute if resistance else False  # Ignore absolute if not resistance
+        # Filters
+        config["fit_segment"] = self.query_one("#segment-filter-select", Select).value
+        config["dark_only"] = self.query_one("#dark-only-checkbox", Checkbox).value
+
+        # Output
+        output_dir = self.query_one("#output-dir-input", Input).value.strip()
+        config["output_dir"] = output_dir if output_dir else "figs"
 
         return config

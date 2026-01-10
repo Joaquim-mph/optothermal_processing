@@ -14,7 +14,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from textual.app import ComposeResult
-from textual.containers import Vertical
+from textual.containers import Vertical, VerticalScroll
 from textual.widgets import Static, Button, RadioButton, RadioSet, Checkbox
 from textual.binding import Binding
 
@@ -48,12 +48,10 @@ class CNPConfigScreen(WizardScreen):
     ]
 
     CSS = WizardScreen.CSS + """
-    .info-text {
+    #content-scroll {
         width: 100%;
-        padding: 2;
-        background: $panel;
-        color: $text;
-        margin-bottom: 2;
+        height: 1fr;
+        min-height: 20;
     }
 
     .history-status {
@@ -67,14 +65,6 @@ class CNPConfigScreen(WizardScreen):
     .warning-status {
         border: tall $warning;
         color: $warning;
-    }
-
-    .section-header {
-        width: 100%;
-        color: $accent;
-        text-style: bold;
-        margin-top: 1;
-        margin-bottom: 1;
     }
 
     RadioSet {
@@ -92,17 +82,6 @@ class CNPConfigScreen(WizardScreen):
     Checkbox {
         margin: 1 0;
     }
-
-    #button-container {
-        width: 100%;
-        height: auto;
-        layout: horizontal;
-        align: center middle;
-    }
-
-    #button-container Button {
-        margin: 0 1;
-    }
     """
 
     def compose_header(self) -> ComposeResult:
@@ -113,53 +92,54 @@ class CNPConfigScreen(WizardScreen):
 
     def compose_content(self) -> ComposeResult:
         """Compose CNP configuration form."""
-        # Get history status
-        history_dir = self.app.session.history_dir
-        enriched_dir = self.app.session.enriched_history_dir
-        status_msg = get_history_status_message(
-            self.chip_number, self.chip_group, history_dir, enriched_dir
-        )
-
-        # Check if enriched history is available
-        has_enriched = "✓" in status_msg
-
-        # Show history status with appropriate styling
-        if has_enriched:
-            yield Static(f"History Status: {status_msg}", classes="history-status")
-        else:
-            yield Static(
-                f"⚠ Warning: {status_msg}\n\n"
-                f"CNP plots require enriched history with derived metrics.\n"
-                f"Run: python3 process_and_analyze.py enrich-history {self.chip_number}",
-                classes="history-status warning-status"
+        with VerticalScroll(id="content-scroll"):
+            # Get history status
+            history_dir = self.app.session.history_dir
+            enriched_dir = self.app.session.enriched_history_dir
+            status_msg = get_history_status_message(
+                self.chip_number, self.chip_group, history_dir, enriched_dir
             )
 
-        # Info text
-        yield Static(
-            "[bold]CNP Time Evolution Plot[/bold]\n\n"
-            "Track Charge Neutrality Point (Dirac point) voltage changes over time.\n"
-            "Useful for monitoring device behavior during experiments:\n"
-            "  • Identify doping effects\n"
-            "  • Track device degradation\n"
-            "  • Correlate CNP shifts with experimental conditions\n"
-            "  • Study photodoping effects",
-            classes="info-text"
-        )
+            # Check if enriched history is available
+            has_enriched = "✓" in status_msg
 
-        # CNP metric selection
-        yield Static("Select CNP metric to plot:", classes="section-header")
-        with RadioSet(id="cnp-metric-radio"):
-            yield RadioButton("CNP Voltage (Dirac Point)", id="cnp-voltage-radio", value=True)
-            yield RadioButton("CNP Current", id="cnp-current-radio")
-            yield RadioButton("Mobility", id="mobility-radio")
+            # Show history status with appropriate styling
+            if has_enriched:
+                yield Static(f"History Status: {status_msg}", classes="history-status")
+            else:
+                yield Static(
+                    f"⚠ Warning: {status_msg}\n\n"
+                    f"CNP plots require enriched history with derived metrics.\n"
+                    f"Run: python3 process_and_analyze.py enrich-history {self.chip_number}",
+                    classes="history-status warning-status"
+                )
 
-        # Options
-        yield Static("Display options:", classes="section-header")
-        yield Checkbox("Show illumination periods", id="show-illumination", value=True)
+            # Info text
+            yield Static(
+                "[bold]CNP Time Evolution Plot[/bold]\n\n"
+                "Track Charge Neutrality Point (Dirac point) voltage changes over time.\n"
+                "Useful for monitoring device behavior during experiments:\n"
+                "  • Identify doping effects\n"
+                "  • Track device degradation\n"
+                "  • Correlate CNP shifts with experimental conditions\n"
+                "  • Study photodoping effects",
+                classes="info-text"
+            )
 
-        with Vertical(id="button-container"):
-            yield Button("← Back", id="back-button", variant="default")
-            yield Button("Generate Plot", id="next-button", variant="primary")
+            # CNP metric selection
+            yield Static("Select CNP metric to plot:", classes="section-title")
+            with RadioSet(id="cnp-metric-radio"):
+                yield RadioButton("CNP Voltage (Dirac Point)", id="cnp-voltage-radio", value=True)
+                yield RadioButton("CNP Current", id="cnp-current-radio")
+                yield RadioButton("Mobility", id="mobility-radio")
+
+            # Options
+            yield Static("Display options:", classes="section-title")
+            yield Checkbox("Show illumination periods", id="show-illumination", value=True)
+
+            with Vertical(id="button-container"):
+                yield Button("← Back", id="back-button", variant="default")
+                yield Button("Generate Plot", id="next-button", variant="primary")
 
     def on_mount(self) -> None:
         """Focus the metric selector when mounted."""

@@ -6,6 +6,8 @@ Shows results after successful plot generation.
 
 from __future__ import annotations
 from pathlib import Path
+import subprocess
+import platform
 
 from textual.app import ComposeResult
 from textual.containers import Horizontal
@@ -20,6 +22,23 @@ class PlotSuccessScreen(SuccessScreen):
     """Success screen after plot generation."""
 
     SCREEN_TITLE = "Plot Generated Successfully! ✓"
+    CSS = SuccessScreen.CSS + """
+    #button-container {
+        layout: grid;
+        grid-size: 3;
+        grid-gutter: 1 2;
+        align: center middle;
+    }
+
+    .nav-button {
+        height: 3;
+        min-height: 3;
+    }
+
+    #menu-button {
+        column-span: 3;
+    }
+    """
 
     def __init__(
         self,
@@ -58,6 +77,7 @@ class PlotSuccessScreen(SuccessScreen):
 
         with Horizontal(id="button-container"):
             yield Button("Open File", id="open-button", variant="default", classes="nav-button")
+            yield Button("Browse Plots", id="browse-button", variant="default", classes="nav-button")
             yield Button("Plot Another", id="another-button", variant="default", classes="nav-button")
             yield Button("Main Menu", id="menu-button", variant="default", classes="nav-button")
 
@@ -69,6 +89,7 @@ class PlotSuccessScreen(SuccessScreen):
         """Handle arrow key navigation between buttons."""
         buttons = [
             self.query_one("#open-button", Button),
+            self.query_one("#browse-button", Button),
             self.query_one("#another-button", Button),
             self.query_one("#menu-button", Button),
         ]
@@ -103,15 +124,34 @@ class PlotSuccessScreen(SuccessScreen):
         """Handle button presses."""
         if event.button.id == "open-button":
             self.action_open_file()
+        elif event.button.id == "browse-button":
+            self.action_browse_plots()
         elif event.button.id == "another-button":
             self.action_plot_another()
         elif event.button.id == "menu-button":
             self.action_main_menu()
 
     def action_open_file(self) -> None:
-        """Open the generated file."""
-        # TODO: Implement file opening
-        self.app.notify(f"Opening {self.output_path.name}...", severity="information")
+        """Open the generated file with the default application (cross-platform, non-blocking)."""
+        try:
+            # Get the appropriate open command for the OS
+            if platform.system() == "Darwin":  # macOS
+                cmd = ["open", str(self.output_path)]
+            elif platform.system() == "Linux":
+                cmd = ["xdg-open", str(self.output_path)]
+            else:  # Windows
+                cmd = ["start", str(self.output_path)]
+
+            # Use Popen for non-blocking execution, suppress output
+            subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            self.app.notify(f"Opening {self.output_path.name}", severity="information")
+
+        except Exception as e:
+            self.app.notify(f"Error opening file: {str(e)}", severity="error")
+
+    def action_browse_plots(self) -> None:
+        """Open plot browser to view all existing plots."""
+        self.app.router.go_to_plot_browser()
 
     def action_plot_another(self) -> None:
         """Start a new plot of the same type using router."""

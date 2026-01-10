@@ -287,7 +287,9 @@ class ProcessLoadingScreen(WizardScreen):
                 # Initialize pipeline
                 pipeline = MetricPipeline(
                     base_dir=Path("."),
-                    extraction_version=None  # Auto-detect from git
+                    extraction_version=None,  # Auto-detect from git
+                    stage_root=stage_root,
+                    manifest_path=manifest_path,
                 )
 
                 # Extract metrics
@@ -315,15 +317,41 @@ class ProcessLoadingScreen(WizardScreen):
                     f"✓ Extracted {metrics_count} metrics"
                 )
             except Exception as e:
-                # Non-fatal: Continue to enrichment even if metrics fail
+                # Non-fatal: try serial extraction before continuing
                 logger.warning(f"⚠ STEP 3 WARNING: Metrics extraction had errors: {e}")
-                logger.debug(f"Metrics extraction error details", exc_info=True)
+                logger.debug("Metrics extraction error details", exc_info=True)
 
-                self.app.call_from_thread(
-                    self._update_progress,
-                    87,
-                    f"⚠ Metrics extraction had errors: {str(e)[:50]}..."
-                )
+                try:
+                    logger.info("Retrying metrics extraction in serial mode")
+                    metrics_path = pipeline.derive_all_metrics(
+                        procedures=None,
+                        chip_numbers=None,
+                        parallel=False,
+                        workers=1,
+                        skip_existing=True
+                    )
+
+                    import polars as pl
+                    if metrics_path.exists():
+                        metrics_df = pl.read_parquet(metrics_path)
+                        metrics_count = metrics_df.height
+                    else:
+                        metrics_count = 0
+
+                    logger.info(f"✓ STEP 3 COMPLETE (serial): Extracted {metrics_count} metrics")
+                    self.app.call_from_thread(
+                        self._update_progress,
+                        87,
+                        f"✓ Extracted {metrics_count} metrics (serial)"
+                    )
+                except Exception as serial_error:
+                    logger.warning(f"⚠ STEP 3 WARNING: Serial metrics extraction failed: {serial_error}")
+                    logger.debug("Serial extraction error details", exc_info=True)
+                    self.app.call_from_thread(
+                        self._update_progress,
+                        87,
+                        f"⚠ Metrics extraction had errors: {str(e)[:50]}..."
+                    )
 
             time.sleep(0.3)
 

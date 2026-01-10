@@ -13,7 +13,7 @@ The entry point for the TUI wizard, providing options to:
 from __future__ import annotations
 
 from textual.app import ComposeResult
-from textual.containers import Vertical
+from textual.containers import Vertical, VerticalScroll
 from textual.widgets import Static, Button
 from textual.binding import Binding
 
@@ -45,18 +45,32 @@ class MainMenuScreen(WizardScreen):
     CSS = WizardScreen.CSS + """
     #main-container {
         max-width: 80;
+        height: 90%;
+        padding: 1 4;
+    }
+
+    #header-container {
+        margin-bottom: 1;
     }
 
     #subtitle {
         width: 100%;
         content-align: center middle;
         color: $text-muted;
-        margin-bottom: 2;
+        margin-bottom: 1;
+    }
+
+    #menu-scroll-container {
+        width: 100%;
+        height: 1fr;
+        min-height: 20;
     }
 
     .menu-button {
         width: 100%;
-        margin: 1 0;
+        height: 3;
+        margin: 0;
+        margin-bottom: 1;
     }
 
     .menu-button:focus {
@@ -75,7 +89,7 @@ class MainMenuScreen(WizardScreen):
         width: 100%;
         content-align: center middle;
         color: $text-muted;
-        margin-top: 2;
+        margin-top: 1;
         text-style: dim;
     }
     """
@@ -87,7 +101,7 @@ class MainMenuScreen(WizardScreen):
 
     def compose_content(self) -> ComposeResult:
         """Compose main menu buttons."""
-        with Vertical():
+        with VerticalScroll(id="menu-scroll-container"):
             yield Button("New Plot", id="new-plot", variant="default", classes="menu-button")
             yield Button("View Chip Histories", id="history", variant="default", classes="menu-button")
             yield Button("Browse Plots", id="browse-plots", variant="default", classes="menu-button")

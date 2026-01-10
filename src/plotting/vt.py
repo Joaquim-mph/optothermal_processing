@@ -395,6 +395,10 @@ def plot_vt_overlay(
         chipnum = int(df["chip_number"][0])
     except Exception:
         chipnum = 0
+    chip_group = None
+    if "chip_group" in df.columns:
+        chip_group = df["chip_group"][0]
+    prefix = f"{chip_group}{chipnum}" if chip_group else f"encap{chipnum}"
 
     plt.legend(title=legend_title)
 
@@ -444,7 +448,7 @@ def plot_vt_overlay(
     raw_suffix = "_raw" if baseline_mode == "none" else ""
     # Add _R suffix for resistance plots
     resistance_suffix = "_R" if resistance else ""
-    filename = f"encap{chipnum}_Vt_{tag}{raw_suffix}{resistance_suffix}"
+    filename = f"{prefix}_Vt_{tag}{raw_suffix}{resistance_suffix}"
     out = config.get_output_path(
         filename,
         chip_number=chipnum,

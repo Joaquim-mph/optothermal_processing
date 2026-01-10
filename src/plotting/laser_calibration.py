@@ -207,7 +207,7 @@ def plot_laser_calibration(
 
     # Extract chip number if available in df
     chip_number = None
-    if "chip_number" in df.columns:
+    if "chip_number" in df.columns and df["chip_number"][0] is not None:
         chip_number = int(df["chip_number"][0])
 
     # Save figure (LaserCalibration is a derived/calibration metric - no illumination subcategory)
@@ -361,7 +361,7 @@ def plot_laser_calibration_comparison(
 
     # Extract chip number if available in df
     chip_number = None
-    if "chip_number" in df.columns:
+    if "chip_number" in df.columns and df["chip_number"][0] is not None:
         chip_number = int(df["chip_number"][0])
 
     # Save figure (LaserCalibration is a derived/calibration metric)

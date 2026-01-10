@@ -10,6 +10,7 @@ Available extractors:
 - CalibrationMatcher: Laser calibration association and power interpolation
 - ITSRelaxationExtractor: Photoresponse relaxation time from ITS measurements (Numba-accelerated)
 - ITSThreePhaseFitExtractor: Three-phase relaxation fitting (PRE-DARK, LIGHT, POST-DARK)
+- DriftExtractor: Linear drift rate from time-series measurements (ITS, Vt, Tt)
 
 Pairwise extractors:
 - ConsecutiveSweepDifferenceExtractor: Differences between consecutive IVg/VVg sweeps
@@ -23,6 +24,7 @@ from .calibration_matcher import CalibrationMatcher, EnrichmentReport, print_enr
 from .its_relaxation_extractor import ITSRelaxationExtractor
 from .its_three_phase_fit_extractor import ITSThreePhaseFitExtractor
 from .consecutive_sweep_difference import ConsecutiveSweepDifferenceExtractor
+from .drift_extractor import DriftExtractor
 
 __all__ = [
     "MetricExtractor",
@@ -35,4 +37,5 @@ __all__ = [
     "ITSRelaxationExtractor",
     "ITSThreePhaseFitExtractor",
     "ConsecutiveSweepDifferenceExtractor",
+    "DriftExtractor",
 ]

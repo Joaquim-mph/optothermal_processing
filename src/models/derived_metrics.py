@@ -20,7 +20,7 @@ from pydantic import BaseModel, Field, field_validator, ConfigDict
 # Metric Category Enum
 # ══════════════════════════════════════════════════════════════════════
 
-MetricCategory = Literal["electrical", "photoresponse", "thermal", "optical", "structural"]
+MetricCategory = Literal["electrical", "photoresponse", "thermal", "optical", "structural", "stability"]
 """
 Metric categories for organizing derived results.
 
@@ -28,6 +28,7 @@ Metric categories for organizing derived results.
 - photoresponse: Light-induced changes (ΔI, ΔV, responsivity, etc.)
 - thermal: Temperature-dependent properties
 - optical: Optical properties (absorption, reflection, etc.)
+- stability: Drift, noise, baseline stability metrics
 - structural: Physical/structural properties (thickness, roughness, etc.)
 """
 

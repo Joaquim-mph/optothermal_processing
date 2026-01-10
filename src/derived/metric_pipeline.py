@@ -173,6 +173,7 @@ class MetricPipeline:
         from .extractors.photoresponse_extractor import PhotoresponseExtractor
         from .extractors.its_relaxation_extractor import ITSRelaxationExtractor
         from .extractors.its_three_phase_fit_extractor import ITSThreePhaseFitExtractor
+        from .extractors.drift_extractor import DriftExtractor
 
         return [
             CNPExtractor(cluster_threshold_v=0.5, prominence_factor=0.1),
@@ -184,6 +185,7 @@ class MetricPipeline:
                 fit_segment="dark"  # Fit dark It measurements only
             ),
             ITSThreePhaseFitExtractor(vl_threshold=0.1, min_phase_duration=60.0, min_points_for_fit=50),
+            DriftExtractor(min_r_squared=0.7, dark_only=True),
             # TODO: Add more extractors as they're implemented:
             # MobilityExtractor(),
         ]

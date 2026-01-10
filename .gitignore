@@ -87,6 +87,7 @@ data/**
 figs/**
 notebooks/figures/**
 plots/
+*.png
 # except their sub-folders
 !data/**/
 

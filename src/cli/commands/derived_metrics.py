@@ -13,6 +13,157 @@ import polars as pl
 console = Console()
 
 
+def _parse_procedures(procedures: Optional[str]) -> Optional[List[str]]:
+    if not procedures:
+        return None
+    return [p.strip() for p in procedures.split(',') if p.strip()]
+
+
+def _merge_with_existing_metrics(metrics_path: Path, existing_metrics: Optional[pl.DataFrame]) -> None:
+    if existing_metrics is None or existing_metrics.is_empty():
+        return
+
+    new_metrics = pl.read_parquet(metrics_path)
+    combined = pl.concat([new_metrics, existing_metrics], how="vertical")
+    combined = combined.unique(
+        subset=["run_id", "metric_name", "procedure", "seq_num"],
+        keep="first"
+    )
+    combined = combined.sort(["chip_group", "chip_number", "procedure", "seq_num"])
+    combined.write_parquet(metrics_path)
+
+
+def _run_metric_extraction(
+    *,
+    title: str,
+    procedures: Optional[str],
+    chip_group: Optional[str],
+    chip_number: Optional[int],
+    workers: int,
+    force: bool,
+    dry_run: bool,
+    pipeline,
+) -> Path:
+    console.print()
+    console.print(Panel.fit(
+        title,
+        border_style="green"
+    ))
+    console.print()
+
+    procedure_list = _parse_procedures(procedures)
+    if procedure_list:
+        console.print(f"[cyan]Filtering procedures:[/cyan] {', '.join(procedure_list)}")
+
+    from src.cli.main import get_config
+    config = get_config()
+
+    chip_numbers_list = None
+    if chip_number:
+        chip_numbers_list = [chip_number]
+
+    if chip_group or chip_number:
+        console.print("[cyan]Applying filters...[/cyan]")
+        if chip_group:
+            console.print(f"  • Chip group: {chip_group}")
+        if chip_number:
+            console.print(f"  • Chip number: {chip_number}")
+
+    if dry_run:
+        console.print()
+        console.print("[bold yellow]DRY RUN MODE[/bold yellow] - Preview only, no metrics will be extracted")
+        console.print()
+
+        manifest_path = Path("data/02_stage/raw_measurements/_manifest/manifest.parquet")
+        if not manifest_path.exists():
+            raise FileNotFoundError(f"Manifest not found: {manifest_path}")
+
+        manifest = pl.read_parquet(manifest_path)
+
+        if chip_group:
+            manifest = manifest.filter(pl.col("chip_group") == chip_group)
+        if chip_numbers_list:
+            manifest = manifest.filter(pl.col("chip_number").is_in(chip_numbers_list))
+        if procedure_list:
+            manifest = manifest.filter(pl.col("proc").is_in(procedure_list))
+
+        console.print(f"[green]✓[/green] Would process {manifest.height} measurements")
+
+        by_proc = manifest.group_by("proc").agg(pl.count().alias("count"))
+
+        table = Table(title="Measurements by Procedure")
+        table.add_column("Procedure", style="cyan")
+        table.add_column("Count", justify="right", style="green")
+
+        for row in by_proc.iter_rows(named=True):
+            table.add_row(row["proc"], str(row["count"]))
+
+        console.print()
+        console.print(table)
+        console.print()
+        console.print("[dim]Run without --dry-run to extract metrics[/dim]")
+        raise typer.Exit(0)
+
+    if chip_group and not chip_numbers_list:
+        manifest_path = Path("data/02_stage/raw_measurements/_manifest/manifest.parquet")
+        manifest = pl.read_parquet(manifest_path)
+        chip_numbers_list = (manifest
+                             .filter(pl.col("chip_group") == chip_group)
+                             .select("chip_number")
+                             .unique()
+                             .to_series()
+                             .to_list())
+        console.print(f"[dim]Found {len(chip_numbers_list)} chips in group '{chip_group}'[/dim]")
+
+    console.print()
+    console.print("[cyan]Extracting metrics...[/cyan]")
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        console=console
+    ) as progress:
+        task = progress.add_task("Processing measurements...", total=None)
+
+        metrics_path = pipeline.derive_all_metrics(
+            procedures=procedure_list,
+            chip_numbers=chip_numbers_list,
+            parallel=(workers > 1),
+            workers=workers,
+            skip_existing=(not force)
+        )
+
+        progress.update(task, completed=True)
+
+    metrics_df = pl.read_parquet(metrics_path)
+
+    console.print()
+    console.print(Panel(
+        f"[green]✓ Extracted {metrics_df.height} metrics[/green]\n"
+        f"[cyan]Output:[/cyan] {metrics_path}",
+        title="[bold]Extraction Complete[/bold]",
+        border_style="green"
+    ))
+
+    if metrics_df.height > 0:
+        metric_summary = (metrics_df
+                          .group_by("metric_name")
+                          .agg(pl.count().alias("count"))
+                          .sort("metric_name"))
+
+        table = Table(title="Extracted Metrics Summary")
+        table.add_column("Metric", style="cyan")
+        table.add_column("Count", justify="right", style="green")
+
+        for row in metric_summary.iter_rows(named=True):
+            table.add_row(row["metric_name"], str(row["count"]))
+
+        console.print()
+        console.print(table)
+
+    return metrics_path
+
+
 @cli_command(
     name="derive-all-metrics",
     group="pipeline",
@@ -20,10 +171,10 @@ console = Console()
 )
 def derive_all_metrics_command(
     procedures: Optional[str] = typer.Option(
-        None,
+        "IVg,VVg,It,ITt,Vt",
         "--procedures",
         "-p",
-        help="Comma-separated list of procedures to process (e.g., 'IVg,VVg'). Default: all applicable procedures"
+        help="Comma-separated list of procedures to process (default: IVg,VVg,It,ITt,Vt)"
     ),
     chip_group: Optional[str] = typer.Option(
         None,
@@ -66,17 +217,17 @@ def derive_all_metrics_command(
     ),
 ):
     """
-    Extract derived metrics from staged measurements.
+    Extract core derived metrics from staged measurements.
 
-    This command runs metric extractors (CNP, photoresponse, etc.) on all
-    applicable measurements and saves results to the derived metrics database.
+    This command runs the core extractors (CNP voltage and delta current)
+    on applicable measurements and saves results to the derived metrics database.
 
     Optionally (enabled by default) also performs laser calibration power
     extraction, associating light experiments with calibrations and interpolating
     irradiated power values.
 
     Examples:
-        # Extract all metrics from all measurements (includes calibrations)
+        # Extract core metrics from default procedures (includes calibrations)
         python process_and_analyze.py derive-all-metrics
 
         # Extract only CNP metrics from IVg/VVg
@@ -91,20 +242,6 @@ def derive_all_metrics_command(
         # Preview without processing
         python process_and_analyze.py derive-all-metrics --dry-run
     """
-    console.print()
-    console.print(Panel.fit(
-        "[bold green]Derived Metrics Extraction Pipeline[/bold green]",
-        border_style="green"
-    ))
-    console.print()
-
-    # Parse procedure list
-    procedure_list = None
-    if procedures:
-        procedure_list = [p.strip() for p in procedures.split(',')]
-        console.print(f"[cyan]Filtering procedures:[/cyan] {', '.join(procedure_list)}")
-
-    # Load config for defaults
     from src.cli.main import get_config
     config = get_config()
 
@@ -117,123 +254,16 @@ def derive_all_metrics_command(
             base_dir=Path("."),  # Project root
             extraction_version=None  # Auto-detect from git
         )
-
-        # Prepare chip number filter
-        chip_numbers_list = None
-        if chip_number:
-            chip_numbers_list = [chip_number]
-
-        # Apply filters
-        if chip_group or chip_number:
-            console.print("[cyan]Applying filters...[/cyan]")
-            if chip_group:
-                console.print(f"  • Chip group: {chip_group}")
-            if chip_number:
-                console.print(f"  • Chip number: {chip_number}")
-
-        # Dry run mode
-        if dry_run:
-            console.print()
-            console.print("[bold yellow]DRY RUN MODE[/bold yellow] - Preview only, no metrics will be extracted")
-            console.print()
-
-            # Load manifest to show what would be processed
-            manifest_path = Path("data/02_stage/raw_measurements/_manifest/manifest.parquet")
-            if not manifest_path.exists():
-                raise FileNotFoundError(f"Manifest not found: {manifest_path}")
-
-            manifest = pl.read_parquet(manifest_path)
-
-            # Apply filters
-            if chip_group:
-                manifest = manifest.filter(pl.col("chip_group") == chip_group)
-            if chip_numbers_list:
-                manifest = manifest.filter(pl.col("chip_number").is_in(chip_numbers_list))
-            if procedure_list:
-                manifest = manifest.filter(pl.col("proc").is_in(procedure_list))
-
-            # Show summary
-            console.print(f"[green]✓[/green] Would process {manifest.height} measurements")
-
-            # Group by procedure
-            by_proc = manifest.group_by("proc").agg(pl.count().alias("count"))
-
-            table = Table(title="Measurements by Procedure")
-            table.add_column("Procedure", style="cyan")
-            table.add_column("Count", justify="right", style="green")
-
-            for row in by_proc.iter_rows(named=True):
-                table.add_row(row["proc"], str(row["count"]))
-
-            console.print()
-            console.print(table)
-            console.print()
-            console.print("[dim]Run without --dry-run to extract metrics[/dim]")
-            raise typer.Exit(0)
-
-        # Note: chip_group filtering requires loading manifest first
-        # since MetricPipeline doesn't support chip_group filter
-        if chip_group and not chip_numbers_list:
-            # Need to find chip numbers for this group
-            manifest_path = Path("data/02_stage/raw_measurements/_manifest/manifest.parquet")
-            manifest = pl.read_parquet(manifest_path)
-            chip_numbers_list = (manifest
-                                .filter(pl.col("chip_group") == chip_group)
-                                .select("chip_number")
-                                .unique()
-                                .to_series()
-                                .to_list())
-            console.print(f"[dim]Found {len(chip_numbers_list)} chips in group '{chip_group}'[/dim]")
-
-        # Run extraction
-        console.print()
-        console.print("[cyan]Extracting metrics...[/cyan]")
-
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            console=console
-        ) as progress:
-            task = progress.add_task("Processing measurements...", total=None)
-
-            metrics_path = pipeline.derive_all_metrics(
-                procedures=procedure_list,
-                chip_numbers=chip_numbers_list,
-                parallel=(workers > 1),
-                workers=workers,
-                skip_existing=(not force)
-            )
-
-            progress.update(task, completed=True)
-
-        # Load results to show stats
-        metrics_df = pl.read_parquet(metrics_path)
-
-        # Display results
-        console.print()
-        console.print(Panel(
-            f"[green]✓ Extracted {metrics_df.height} metrics[/green]\n"
-            f"[cyan]Output:[/cyan] {metrics_path}",
-            title="[bold]Extraction Complete[/bold]",
-            border_style="green"
-        ))
-
-        # Show summary by metric type
-        if metrics_df.height > 0:
-            metric_summary = (metrics_df
-                            .group_by("metric_name")
-                            .agg(pl.count().alias("count"))
-                            .sort("metric_name"))
-
-            table = Table(title="Extracted Metrics Summary")
-            table.add_column("Metric", style="cyan")
-            table.add_column("Count", justify="right", style="green")
-
-            for row in metric_summary.iter_rows(named=True):
-                table.add_row(row["metric_name"], str(row["count"]))
-
-            console.print()
-            console.print(table)
+        metrics_path = _run_metric_extraction(
+            title="[bold green]Derived Metrics Extraction Pipeline[/bold green]",
+            procedures=procedures,
+            chip_group=chip_group,
+            chip_number=chip_number,
+            workers=workers,
+            force=force,
+            dry_run=dry_run,
+            pipeline=pipeline
+        )
 
         # ══════════════════════════════════════════════════════════════════
         # Step 2: Laser Calibration Power Extraction
@@ -349,6 +379,203 @@ def derive_all_metrics_command(
 
     console.print()
 
+
+@cli_command(
+    name="derive-fitting-metrics",
+    group="pipeline",
+    description="Extract fitting-based metrics (relaxation fits and drift)"
+)
+def derive_fitting_metrics_command(
+    procedures: Optional[str] = typer.Option(
+        "It,ITS,ITt,Vt,Tt",
+        "--procedures",
+        "-p",
+        help="Comma-separated list of procedures to process (default: It,ITS,ITt,Vt,Tt)"
+    ),
+    chip_group: Optional[str] = typer.Option(
+        None,
+        "--group",
+        "-g",
+        help="Filter by chip group (e.g., 'Alisson')"
+    ),
+    chip_number: Optional[int] = typer.Option(
+        None,
+        "--chip",
+        "-c",
+        help="Filter by specific chip number"
+    ),
+    workers: int = typer.Option(
+        6,
+        "--workers",
+        "-w",
+        help="Number of parallel worker processes"
+    ),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        "-f",
+        help="Force re-extraction (overwrite existing metrics for matching keys)"
+    ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Preview what would be extracted without actually processing"
+    ),
+):
+    """
+    Extract fitting-based metrics (relaxation fits and drift) from staged measurements.
+
+    Metrics include:
+    - ITSRelaxationExtractor (stretched exponential fits)
+    - ITSThreePhaseFitExtractor (three-phase fits)
+    - DriftExtractor (linear drift fit)
+
+    Examples:
+        # Extract fitting metrics from all relevant procedures
+        python process_and_analyze.py derive-fitting-metrics
+
+        # Limit to ITS only
+        python process_and_analyze.py derive-fitting-metrics --procedures ITS
+    """
+    from src.derived.metric_pipeline import MetricPipeline
+    from src.derived.extractors.its_relaxation_extractor import ITSRelaxationExtractor
+    from src.derived.extractors.its_three_phase_fit_extractor import ITSThreePhaseFitExtractor
+    from src.derived.extractors.drift_extractor import DriftExtractor
+
+    console.print("[cyan]Initializing metric pipeline (fitting metrics only)...[/cyan]")
+    pipeline = MetricPipeline(
+        base_dir=Path("."),
+        extractors=[
+            ITSRelaxationExtractor(
+                vl_threshold=0.1,
+                min_led_on_time=10.0,
+                min_points_for_fit=50,
+                fit_segment="dark"
+            ),
+            ITSThreePhaseFitExtractor(
+                vl_threshold=0.1,
+                min_phase_duration=60.0,
+                min_points_for_fit=50
+            ),
+            DriftExtractor(min_r_squared=0.7, dark_only=True),
+        ],
+        pairwise_extractors=[],
+        extraction_version=None
+    )
+
+    existing_metrics = None
+    metrics_path = pipeline.derived_dir / "_metrics" / "metrics.parquet"
+    if metrics_path.exists():
+        existing_metrics = pl.read_parquet(metrics_path)
+
+    metrics_path = _run_metric_extraction(
+        title="[bold green]Fitting Metrics Extraction[/bold green]",
+        procedures=procedures,
+        chip_group=chip_group,
+        chip_number=chip_number,
+        workers=workers,
+        force=force,
+        dry_run=dry_run,
+        pipeline=pipeline
+    )
+
+    _merge_with_existing_metrics(metrics_path, existing_metrics)
+    if existing_metrics is not None and not existing_metrics.is_empty():
+        console.print(f"[dim]Merged with existing metrics: {metrics_path}[/dim]")
+
+    console.print()
+
+
+@cli_command(
+    name="derive-consecutive-sweeps",
+    group="pipeline",
+    description="Extract consecutive sweep difference metrics (IVg/VVg)"
+)
+def derive_consecutive_sweeps_command(
+    procedures: Optional[str] = typer.Option(
+        "IVg,VVg",
+        "--procedures",
+        "-p",
+        help="Comma-separated list of procedures to process (default: IVg,VVg)"
+    ),
+    chip_group: Optional[str] = typer.Option(
+        None,
+        "--group",
+        "-g",
+        help="Filter by chip group (e.g., 'Alisson')"
+    ),
+    chip_number: Optional[int] = typer.Option(
+        None,
+        "--chip",
+        "-c",
+        help="Filter by specific chip number"
+    ),
+    workers: int = typer.Option(
+        6,
+        "--workers",
+        "-w",
+        help="Number of parallel worker processes"
+    ),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        "-f",
+        help="Force re-extraction (overwrite existing metrics for matching keys)"
+    ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Preview what would be extracted without actually processing"
+    ),
+):
+    """
+    Extract consecutive sweep difference metrics (ΔI/ΔV/ΔR, ΔCNP) from IVg/VVg.
+
+    Examples:
+        # Extract consecutive sweep differences
+        python process_and_analyze.py derive-consecutive-sweeps
+
+        # Limit to a single chip
+        python process_and_analyze.py derive-consecutive-sweeps --chip 75
+    """
+    from src.derived.metric_pipeline import MetricPipeline
+    from src.derived.extractors.consecutive_sweep_difference import ConsecutiveSweepDifferenceExtractor
+
+    console.print("[cyan]Initializing metric pipeline (consecutive sweeps only)...[/cyan]")
+    pipeline = MetricPipeline(
+        base_dir=Path("."),
+        extractors=[],
+        pairwise_extractors=[
+            ConsecutiveSweepDifferenceExtractor(
+                vg_interpolation_points=200,
+                min_vg_overlap=1.0,
+                store_resistance=True
+            )
+        ],
+        extraction_version=None
+    )
+
+    existing_metrics = None
+    metrics_path = pipeline.derived_dir / "_metrics" / "metrics.parquet"
+    if metrics_path.exists():
+        existing_metrics = pl.read_parquet(metrics_path)
+
+    metrics_path = _run_metric_extraction(
+        title="[bold green]Consecutive Sweep Metrics Extraction[/bold green]",
+        procedures=procedures,
+        chip_group=chip_group,
+        chip_number=chip_number,
+        workers=workers,
+        force=force,
+        dry_run=dry_run,
+        pipeline=pipeline
+    )
+
+    _merge_with_existing_metrics(metrics_path, existing_metrics)
+    if existing_metrics is not None and not existing_metrics.is_empty():
+        console.print(f"[dim]Merged with existing metrics: {metrics_path}[/dim]")
+
+    console.print()
 
 @cli_command(
     name="enrich-history-old",

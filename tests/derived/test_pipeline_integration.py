@@ -82,11 +82,13 @@ class TestMetricPipelineIntegration:
     
     def test_pipeline_initialization(self, temp_stage_dir):
         """Test pipeline can be initialized with default extractors."""
-        pipeline = MetricPipeline(base_dir=temp_stage_dir, max_workers=2)
-        
-        assert pipeline.max_workers == 2
-        assert len(pipeline.extractors) > 0
-        assert len(pipeline.pairwise_extractors) > 0
+        pipeline = MetricPipeline(base_dir=temp_stage_dir)
+
+        extractor_names = {extractor.__class__.__name__ for extractor in pipeline.extractors}
+
+        assert "CNPExtractor" in extractor_names
+        assert "PhotoresponseExtractor" in extractor_names
+        assert pipeline.pairwise_extractors == []
     
     def test_single_measurement_extraction(self, temp_stage_dir):
         """Test extraction from a single IVg measurement."""
@@ -109,7 +111,7 @@ class TestMetricPipelineIntegration:
         }])
         
         # Execute
-        pipeline = MetricPipeline(base_dir=temp_stage_dir, max_workers=1)
+        pipeline = MetricPipeline(base_dir=temp_stage_dir)
         metrics = pipeline._extract_sequential(manifest, skip_run_ids=set())
         
         # Verify - should extract at least CNP

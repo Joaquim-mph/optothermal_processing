@@ -175,23 +175,10 @@ class MetricPipeline:
         """
         from .extractors.cnp_extractor import CNPExtractor
         from .extractors.photoresponse_extractor import PhotoresponseExtractor
-        from .extractors.its_relaxation_extractor import ITSRelaxationExtractor
-        from .extractors.its_three_phase_fit_extractor import ITSThreePhaseFitExtractor
-        from .extractors.drift_extractor import DriftExtractor
 
         return [
             CNPExtractor(cluster_threshold_v=0.5, prominence_factor=0.1),
             PhotoresponseExtractor(vl_threshold=0.1, min_samples_per_state=5),
-            ITSRelaxationExtractor(
-                vl_threshold=0.1,
-                min_led_on_time=10.0,
-                min_points_for_fit=50,
-                fit_segment="dark"  # Fit dark It measurements only
-            ),
-            ITSThreePhaseFitExtractor(vl_threshold=0.1, min_phase_duration=60.0, min_points_for_fit=50),
-            DriftExtractor(min_r_squared=0.7, dark_only=True),
-            # TODO: Add more extractors as they're implemented:
-            # MobilityExtractor(),
         ]
 
     def _default_pairwise_extractors(self) -> List[PairwiseMetricExtractor]:
@@ -203,15 +190,7 @@ class MetricPipeline:
         List[PairwiseMetricExtractor]
             Default pairwise extractors
         """
-        from .extractors.consecutive_sweep_difference import ConsecutiveSweepDifferenceExtractor
-
-        return [
-            ConsecutiveSweepDifferenceExtractor(
-                vg_interpolation_points=200,
-                min_vg_overlap=1.0,
-                store_resistance=True
-            ),
-        ]
+        return []
 
     def _get_git_version(self) -> str:
         """Get git version for provenance tracking."""

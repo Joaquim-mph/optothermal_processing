@@ -491,6 +491,11 @@ def plot_ivg_transconductance_savgol(
             from src.plotting.plot_utils import print_warning
             print_warning("Mixed illumination experiments - saving to Transconductance root folder")
 
+    chip_group = None
+    if "chip_group" in df.columns:
+        chip_group = df["chip_group"][0]
+    prefix = f"{chip_group}{chipnum}" if chip_group else f"encap{chipnum}"
+
     filename = f"{prefix}_gm_savgol_{tag}"
     out = config.get_output_path(
         filename,

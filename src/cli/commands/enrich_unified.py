@@ -496,7 +496,7 @@ def _enrich_metrics(
 
         # Load enriched history (may already have calibrations)
         enriched_path = output_dir / f"{chip_name}_history.parquet"
-        if enriched_path.exists() and not force:
+        if enriched_path.exists():
             history = pl.read_parquet(enriched_path)
         else:
             # Load from base directory

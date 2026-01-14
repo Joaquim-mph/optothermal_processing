@@ -899,6 +899,10 @@ def get_irradiated_power(row: dict, format_display: bool = True) -> tuple[Option
             except (ValueError, TypeError):
                 pass
 
+    has_light = row.get("has_light")
+    if has_light is False:
+        return 0.0, ("0 W" if format_display else None)
+
     return None, None
 
 
@@ -1121,4 +1125,3 @@ def print_error(message: str):
 def print_success(message: str):
     """Print success message with rich formatting."""
     get_console().print(f"[green]✓ {message}[/green]")
-

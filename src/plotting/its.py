@@ -194,6 +194,17 @@ def _get_experiment_durations(df: pl.DataFrame, base_dir: Path) -> list[float]:
     return durations
 
 
+def _sort_its_for_datetime(df: pl.DataFrame) -> pl.DataFrame:
+    """Sort ITS metadata by datetime columns when available."""
+    for col in ("datetime_local", "start_time_utc", "start_dt", "start_time"):
+        if col in df.columns:
+            return df.sort(col)
+    for col in ("seq", "file_idx"):
+        if col in df.columns:
+            return df.sort(col)
+    return df
+
+
 def plot_its_overlay(
     df: pl.DataFrame,
     base_dir: Path,
@@ -332,7 +343,11 @@ def plot_its_overlay(
         print_info(f"legend_by='{legend_by}' not recognized; using wavelength")
         lb = "wavelength"
 
-    its = df.filter(pl.col("proc") == "It").sort("file_idx")
+    its = df.filter(pl.col("proc") == "It")
+    if lb == "datetime":
+        its = _sort_its_for_datetime(its)
+    else:
+        its = its.sort("file_idx")
     if its.height == 0:
         print("[warn] no ITS rows in metadata")
         return
@@ -738,7 +753,11 @@ def plot_its_dark(
         print(f"[info] legend_by='{legend_by}' not recognized; using vg")
         lb = "vg"
 
-    its = df.filter(pl.col("proc") == "It").sort("file_idx")
+    its = df.filter(pl.col("proc") == "It")
+    if lb == "datetime":
+        its = _sort_its_for_datetime(its)
+    else:
+        its = its.sort("file_idx")
     if its.height == 0:
         print("[warn] no ITS rows in metadata")
         return
@@ -1040,6 +1059,9 @@ def plot_its_sequential(
     # Color palette
     colors = PRISM_RAIN_PALETTE
     num_colors = len(colors)
+
+    if lb == "datetime":
+        df = _sort_its_for_datetime(df)
 
     print(f"[info] Plotting {len(df)} ITS experiments sequentially (raw data, no baseline)")
 

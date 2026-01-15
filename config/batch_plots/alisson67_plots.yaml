@@ -1,7 +1,18 @@
 ---
-# Batch plot configuration for chip 67
+# Batch plot configuration for chip 67 using ITS Suite
+# This is a modern, concise version using plot-its-suite
+# Generates 3 plots per entry: overlay, sequential, and photoresponse
+#
+# PREREQUISITES for power legends:
+#   1. Extract metrics with calibrations:
+#      python3 process_and_analyze.py derive-all-metrics --calibrations
+#   2. Enrich history with power data:
+#      python3 process_and_analyze.py enrich-history 67
+#
+# Without enrichment, plots still work but legends show LED voltage instead of power.
+
 chip: 67
-output_base: "plots/chip67"
+chip_group: "Alisson"
 
 # Common parameters
 defaults:
@@ -9,102 +20,111 @@ defaults:
 
 # Plot specifications
 plots:
+  # ========================================
+  # CHARACTERIZATION
+  # ========================================
+
   # IVG and transconductance
   - type: plot-ivg
     seq: 2
-  
+    tag: "baseline_ivg"
+
   - type: plot-transconductance
     seq: 2
     method: savgol
     window: 21
     polyorder: 7
+    tag: "baseline_gm"
 
+  # ========================================
+  # 455 nm PHOTORESPONSE
+  # ========================================
 
-  
   - type: plot-its-suite
     seq: "4-7"
-    tag: "405nm_neg_gate_seq"
+    tag: "455nm_neg_gate"
 
-
-  
   - type: plot-its-suite
     seq: "9-12"
-    tag: "405nm_neg_gate_seq_2"
+    tag: "455nm_pos_gate"
 
+  # ========================================
+  # 405 nm PHOTORESPONSE
+  # ========================================
 
-  
   - type: plot-its-suite
     seq: "15-18"
-    tag: "405nm_neg_gate_seq_3"
+    tag: "405nm_neg_gate"
 
-
-  
+  # Positive gate
   - type: plot-its-suite
     seq: "21-24"
-    tag: "405nm_pos_gate_seq"
+    tag: "405nm_pos_gate"
 
+  # ========================================
+  # 385 nm PHOTORESPONSE
+  # ========================================
 
-  
   - type: plot-its-suite
     seq: "27-30"
-    tag: "385nm_neg_gate_seq"
+    tag: "385nm_neg_gate"
 
-
-  
   - type: plot-its-suite
     seq: "32-35"
-    tag: "385nm_pos_gate_seq"
+    tag: "385nm_pos_gate"
 
-  # 365 nm sequences
+  # ========================================
+  # 365 nm PHOTORESPONSE
+  # ========================================
 
-  
+  #trash (pump fail)
   - type: plot-its-suite
     seq: "38-39"
-    tag: "365nm_neg_gate_seq_1"
+    tag: "365nm_initial"
 
-  - type: plot-its
-    seq: [38, 41, 52, 57, 65]
-    tag: "365nm_same_power_diff_response"
-
-
-  
   - type: plot-its-suite
-    seq: "40-44"
-    tag: "365nm_neg_gate_seq_2"
+    seq: "41-44"
+    tag: "365nm_neg_gate"
 
-
-  
   - type: plot-its-suite
     seq: "46-49"
-    tag: "365nm_pos_gate_seq"
+    tag: "365nm_pos_gate"
 
-  
   - type: plot-its-suite
     seq: "57-60"
-    tag: "365nm_minus_040V_gate_seq"
+    tag: "365nm_neg_gate_2"
 
+  # ========================================
+  # SPECIAL ANALYSES
+  # ========================================
+
+  # Same power, different responses (interesting comparison)
   - type: plot-its-suite
+    seq: [38, 41, 52, 57, 65]
+    tag: "365nm_same_power_comparison"
+    legend_by: datetime
+
+  - type: plot-its-sequential
     seq: [65, 66]
-    tag: "365nm_seq_65_66"
+    tag: "its_seq_65_66"
 
-  - type: plot-its-suite
+  - type: plot-its-sequential
     seq: [73, 74]
-    tag: "365nm_seq_73_74"
+    tag: "its_seq_38_41"
 
-  - type: plot-its
-    seq: 76
-    tag: "365nm_76"
+  - type: plot-its-sequential
+    seq: [82, 83, 84]
+    tag: "its_seq_82_83_84"
 
-  - type: plot-its
-    seq: [80, 82, 85, 87]
-    tag: "365nm_multi_1"
+  - type: plot-its-sequential
+    seq: [85, 86, 87]
+    tag: "its_seq_85_86_87"
 
-  - type: plot-its
-    seq: [80, 82]
-    tag: "365nm_multi_2"
+  - type: plot-its-sequential
+    seq: [65, 66]
+    tag: "its_seq_38_41"
 
   - type: plot-its-suite
-    seq: "85-87"
-    tag: "365nm_seq_85_87"
-
- 
+    seq: [80, 82, 85, 87]
+    tag: "365nm_same_max_power_comparison"
+    legend_by: datetime

@@ -1,0 +1,60 @@
+---
+# Batch plot configuration for chip 67
+chip: 75
+output_base: "plots/chip75"
+
+# Common parameters
+defaults:
+  legend_by: irradiated_power
+
+# Plot specifications
+plots:
+  # IVG and transconductance
+  - type: plot-ivg
+    seq: 4
+
+  - type: plot-transconductance
+    seq: 4
+    method: savgol
+    window: 21
+    polyorder: 7
+
+  #365
+
+  - type: plot-its-suite
+    seq: "5-9"
+    tag: "365nm_neg_gate_seq"
+
+  - type: plot-its-suite
+    seq: "11-15"
+    tag: "365nm_pos_gate_seq"
+
+  # 455
+
+  - type: plot-its-suite
+    seq: "18-22"
+    tag: "455nm_neg_gate_seq"
+
+  - type: plot-its-suite
+    seq: "24-28"
+    tag: "455nm_pos_gate_seq"
+
+  # 565
+
+  - type: plot-its-suite
+    seq: "35-39"
+    tag: "565nm_neg_gate_seq"
+
+  - type: plot-its-suite
+    seq: "41-45"
+    tag: "565nm_pos_gate_seq"
+
+  # Illuminated IVgs
+
+  - type: plot-ivg
+    seq: [29, 30, 31]
+    tag: "455nm_three_ivgs"
+
+  - type: plot-ivg
+    seq: [46, 47, 48]
+    tag: "565nm_three_ivgs"

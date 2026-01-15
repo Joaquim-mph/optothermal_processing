@@ -1,0 +1,32 @@
+---
+# Batch plot configuration for chip 67
+chip: 68
+output_base: "plots/chip68"
+
+# Common parameters
+defaults:
+  legend_by: irradiated_power
+
+# Plot specifications
+plots:
+  # IVG and transconductance
+  - type: plot-ivg
+    seq: 6
+
+  - type: plot-transconductance
+    seq: 6
+    method: savgol
+    window: 21
+    polyorder: 7
+
+  - type: plot-its-suite
+    seq: [7, 11, 15, 17, 20, 25, 28, 30, 32, 38]
+    tag: "alisson68_same_pwr_wl_sweep"
+    legend_by: wavelength
+    photoresponse_x: wavelength
+
+  # Don't know why I repeated it
+  - type: plot-its-suite
+    seq: [14, 15]
+    tag: "625_same_power_comparison"
+    legend_by: datetime

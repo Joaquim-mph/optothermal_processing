@@ -1,0 +1,30 @@
+---
+# Batch plot configuration for chip 67
+chip: 72
+output_base: "plots/chip72"
+
+# Common parameters
+defaults:
+  legend_by: irradiated_power
+
+# Plot specifications
+plots:
+  # IVG and transconductance
+  - type: plot-ivg
+    seq: 3
+
+  - type: plot-transconductance
+    seq: 3
+    method: savgol
+    window: 21
+    polyorder: 7
+
+  - type: plot-its-suite
+    seq: "4-6"
+    tag: "850nm_neg_gate"
+
+  - type: plot-its-suite
+    seq: [11, 16, 20, 24, 26, 28, 30, 32, 34, 36]
+    tag: "alisson72_same_pwr_wl_sweep"
+    legend_by: wavelength
+    photoresponse_x: wavelength

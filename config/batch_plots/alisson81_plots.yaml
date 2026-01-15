@@ -1,0 +1,62 @@
+---
+# Batch plot configuration for chip 67
+chip: 81
+output_base: "plots/chip81"
+
+# Common parameters
+defaults:
+  legend_by: irradiated_power
+
+# Plot specifications
+plots:
+  # IVG and transconductance
+  - type: plot-vvg
+    seq: 237
+
+  - type: plot-vvg
+    seq: "203-205"
+    tag: "vvg_sweep_light"
+
+  - type: plot-vvg
+    seq: "237-268"
+    tag: "vvg_sweep_move"
+
+  - type: plot-vvg
+    seq: "237-241"
+    tag: "vvg_sweep_1"
+
+  - type: plot-vvg
+    seq: [242, 247]
+    tag: "vvg_sweep_2"
+
+  - type: plot-vvg
+    seq: [247, 249]
+    tag: "vvg_sweep_3"
+
+  - type: plot-vvg
+    seq: [249, 261]
+    tag: "vvg_sweep_4"
+
+  - type: plot-vvg
+    seq: [261, 268]
+    tag: "vvg_sweep_5"
+
+  - type: plot-vts-suite
+    seq: "239-240"
+    tag: "sweep0"
+    #legend_by: vg
+
+  - type: plot-vts-suite
+    seq: "243-248"
+    tag: "sweep1"
+    legend_by: vg
+
+  - type: plot-vts-suite
+    seq: "250-260"
+    tag: "sweep2"
+    legend_by: datetime
+
+  - type: plot-vts-suite
+    seq: "263-267"
+    tag: "sweep3"
+    legend_by: vg

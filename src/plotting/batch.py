@@ -53,8 +53,9 @@ from src.plotting.transconductance import (
     plot_ivg_transconductance_savgol,
 )
 from src.plotting.vvg import plot_vvg_sequence
-from src.plotting.vt import plot_vt_overlay
+from src.plotting.vt import plot_vt_overlay, plot_vt_sequential
 from src.plotting import its_photoresponse
+from src.plotting.photoresponse import plot_photoresponse
 from src.plotting.config import PlotConfig
 
 # Import CLI utilities
@@ -509,6 +510,85 @@ def execute_plot(spec: PlotSpec, chip_group: str, quiet: bool = True) -> PlotRes
                         # Photoresponse plotting may fail if metrics not extracted
                         # Don't fail the whole suite, just capture warning
                         warnings.append(f"Photoresponse plot skipped for {tag}: {str(e)}")
+
+        elif spec.type == "plot-vts-suite":
+            # Unified Vt plotting: overlay, sequential, and photoresponse (delta voltage)
+            df_vt = df.filter(pl.col("proc") == "Vt") if "proc" in df.columns else df
+            if df_vt.height == 0:
+                return PlotResult(
+                    spec=spec,
+                    success=False,
+                    elapsed=time.time() - start,
+                    error="No Vt experiments found in selection",
+                )
+
+            chip_name = f"{chip_group}{spec.chip}"
+
+            baseline_t = spec.extra_args.get("baseline_t", 60.0)
+            baseline_mode = spec.extra_args.get("baseline_mode", "fixed")
+            baseline_auto_divisor = spec.extra_args.get("baseline_auto_divisor", 2.0)
+            plot_start_time = spec.extra_args.get("plot_start_time", None)
+            padding = spec.extra_args.get("padding", None)
+            resistance = spec.extra_args.get("resistance", False)
+            absolute = spec.extra_args.get("absolute", False)
+
+            with suppress_output() if quiet else null_context():
+                # 1. Overlay plot
+                plot_vt_overlay(
+                    df_vt,
+                    base_dir,
+                    tag,
+                    baseline_t=baseline_t,
+                    baseline_mode=baseline_mode,
+                    baseline_auto_divisor=baseline_auto_divisor,
+                    plot_start_time=plot_start_time,
+                    legend_by=spec.legend_by,
+                    padding=padding,
+                    resistance=resistance,
+                    absolute=absolute,
+                    config=config,
+                )
+                plots_generated += 1
+
+                # 2. Sequential plot
+                plot_vt_sequential(
+                    df_vt,
+                    base_dir,
+                    f"{tag}_seq",
+                    plot_start_time=plot_start_time,
+                    legend_by=spec.legend_by,
+                    padding=padding,
+                    resistance=resistance,
+                    absolute=absolute,
+                    config=config,
+                )
+                plots_generated += 1
+
+                # 3. Photoresponse vs x (delta voltage)
+                x_axis = spec.extra_args.get("photoresponse_x", "power")
+                filter_wavelength = spec.extra_args.get("filter_wavelength", None)
+                filter_vg = spec.extra_args.get("filter_vg", None)
+                filter_power_range = spec.extra_args.get("filter_power_range", None)
+
+                try:
+                    plot_photoresponse(
+                        df_vt,
+                        chip_name,
+                        x_variable=x_axis,
+                        y_metric="delta_voltage",
+                        procedures=["Vt"],
+                        filter_wavelength=filter_wavelength,
+                        filter_vg=filter_vg,
+                        filter_power_range=filter_power_range,
+                        plot_tag=f"{tag}_photoresponse",
+                        output_procedure="Vt",
+                        output_metadata={"has_light": True},
+                        filename_prefix=f"{chip_name.lower()}_Vt_photoresponse",
+                        config=config,
+                    )
+                    plots_generated += 1
+                except Exception as e:
+                    warnings.append(f"Photoresponse plot skipped for {tag}: {str(e)}")
 
         else:
             return PlotResult(

@@ -21,6 +21,17 @@ from src.plotting.plot_utils import (
 )
 
 
+def _sort_vt_for_datetime(df: pl.DataFrame) -> pl.DataFrame:
+    """Sort Vt metadata by datetime columns when available."""
+    for col in ("datetime_local", "start_time_utc", "start_dt", "start_time"):
+        if col in df.columns:
+            return df.sort(col)
+    for col in ("seq", "file_idx"):
+        if col in df.columns:
+            return df.sort(col)
+    return df
+
+
 def _calculate_auto_baseline(df: pl.DataFrame, divisor: float = 2.0) -> float:
     """
     Calculate automatic baseline from LED ON+OFF period metadata.
@@ -449,6 +460,218 @@ def plot_vt_overlay(
     # Add _R suffix for resistance plots
     resistance_suffix = "_R" if resistance else ""
     filename = f"{prefix}_Vt_{tag}{raw_suffix}{resistance_suffix}"
+    out = config.get_output_path(
+        filename,
+        chip_number=chipnum,
+        procedure="Vt",
+        metadata=illumination_metadata,
+        create_dirs=True
+    )
+    plt.savefig(out, dpi=config.dpi)
+    print(f"saved {out}")
+
+
+def plot_vt_sequential(
+    df: pl.DataFrame,
+    base_dir: Path,
+    tag: str,
+    *,
+    plot_start_time: float | None = None,
+    show_boundaries: bool = True,
+    legend_by: str = "datetime",
+    padding: float | None = None,
+    resistance: bool = False,
+    absolute: bool = False,
+    config: Optional[PlotConfig] = None,
+):
+    """
+    Plot Vt experiments sequentially on a continuous time axis (concatenated, not overlaid).
+
+    Parameters
+    ----------
+    df : pl.DataFrame
+        Metadata DataFrame with Vt experiments
+    base_dir : Path
+        Base directory containing measurement files
+    tag : str
+        Tag for output filename
+    plot_start_time : float, optional
+        Start time to trim from each experiment. Default: config.plot_start_time
+    show_boundaries : bool
+        If True, show vertical dashed lines marking experiment boundaries. Default: True
+    legend_by : {"datetime","wavelength","vg","led_voltage","power"}
+        Legend grouping. Aliases accepted like in plot_vt_overlay.
+    padding : float, optional
+        Fraction of data range to add as padding on y-axis (default: config.padding_fraction)
+    resistance : bool, optional
+        If True, plot resistance R=V/I instead of voltage. Default: False
+    absolute : bool, optional
+        If True, plot |R| (absolute resistance). Only valid with resistance=True.
+    config : PlotConfig, optional
+        Plot configuration (theme, DPI, output paths, etc.)
+    """
+    config = config or PlotConfig()
+
+    if plot_start_time is None:
+        plot_start_time = config.plot_start_time
+    if padding is None:
+        padding = config.padding_fraction
+
+    from src.plotting.styles import set_plot_style, PRISM_RAIN_PALETTE
+    from src.plotting.transforms import calculate_resistance
+    set_plot_style(config.theme)
+
+    lb = normalize_legend_by(legend_by)
+    legend_formatter = get_legend_formatter(lb)
+
+    vt = df.filter(pl.col("proc") == "Vt")
+    if vt.height == 0:
+        print("[warn] no Vt rows in metadata")
+        return
+
+    if lb == "datetime":
+        vt = _sort_vt_for_datetime(vt)
+    else:
+        vt = vt.sort("file_idx")
+
+    colors = PRISM_RAIN_PALETTE
+    num_colors = len(colors)
+
+    experiment_segments = []
+    experiment_boundaries = []
+    all_y_values = []
+    time_offset = 0.0
+    legend_title = "Experiment"
+    units = None
+
+    print(f"[info] Plotting {len(vt)} Vt experiments sequentially (raw data, no baseline)")
+
+    for i, row in enumerate(vt.iter_rows(named=True)):
+        source_file = row.get("source_file")
+        if not source_file:
+            print(f"[warn] Skipping row {i}: no source_file")
+            continue
+
+        fp = Path(source_file)
+        if not fp.is_absolute():
+            fp = base_dir / fp
+
+        if not fp.exists():
+            print(f"[warn] File not found: {fp}")
+            continue
+
+        try:
+            d = read_measurement_parquet(fp)
+        except Exception as e:
+            print(f"[warn] Could not read {fp}: {e}")
+            continue
+
+        d = ensure_standard_columns(d)
+
+        if not {"t", "VDS"} <= set(d.columns):
+            print(f"[warn] {fp} lacks t/VDS; got {d.columns}")
+            continue
+
+        tt = np.asarray(d["t"])
+        yy = np.asarray(d["VDS"])
+
+        mask = tt >= plot_start_time
+        tt_trimmed = tt[mask]
+        yy_trimmed = yy[mask]
+
+        if len(tt_trimmed) == 0:
+            print(f"[warn] No data after trimming to t>={plot_start_time}s for experiment {i}")
+            continue
+
+        tt_trimmed = tt_trimmed - tt_trimmed[0]
+        experiment_boundaries.append(time_offset)
+
+        lbl, legend_title = legend_formatter(row, config)
+
+        if resistance:
+            ids = row.get("ids_a") or row.get("Drain-Source current")
+            if ids is None or ids == 0 or not np.isfinite(ids):
+                print(f"[warn] Skipping seq #{int(row.get('file_idx', 0))}: IDS={ids}A (cannot calculate resistance)")
+                continue
+
+            R, _ylabel_text, units_temp = calculate_resistance(yy_trimmed, ids, absolute=absolute)
+            if R is None:
+                continue
+
+            if units is None:
+                units = units_temp
+
+            yy_plot = R
+        else:
+            yy_plot = yy_trimmed * 1e3  # V -> mV
+
+        tt_offset = tt_trimmed + time_offset
+        color = colors[i % num_colors]
+
+        experiment_segments.append((tt_offset, yy_plot, lbl, color))
+        all_y_values.extend(yy_plot)
+
+        time_offset += tt_trimmed[-1]
+
+    if not experiment_segments:
+        print("[error] No data to plot")
+        return
+
+    plt.figure(figsize=config.figsize_timeseries)
+
+    for tt_seg, yy_seg, label, color in experiment_segments:
+        plt.plot(tt_seg, yy_seg, linewidth=4, color=color, label=label)
+
+    if show_boundaries and len(experiment_boundaries) > 1:
+        for boundary in experiment_boundaries[1:]:
+            plt.axvline(boundary, color="gray", linestyle="--", linewidth=1.5, alpha=0.4)
+
+    plt.xlabel("Time (s)")
+    if resistance:
+        if units is not None:
+            ylabel_latex = f"R\\ ({units})" if not absolute else f"|R|\\ ({units})"
+        else:
+            ylabel_latex = "R\\ (\\Omega)" if not absolute else "|R|\\ (\\Omega)"
+        plt.ylabel(f"$\\mathrm{{{ylabel_latex}}}$")
+    else:
+        plt.ylabel(r"$V_{ds}\ (\mathrm{mV})$")
+
+    chipnum = int(df["chip_number"][0])
+    chip_group = None
+    if "chip_group" in df.columns:
+        chip_group = df["chip_group"][0]
+    prefix = f"{chip_group}{chipnum}" if chip_group else f"encap{chipnum}"
+
+    plt.legend(title=legend_title, loc="best")
+
+    if padding >= 0 and all_y_values:
+        y_vals = np.array(all_y_values)
+        y_vals = y_vals[np.isfinite(y_vals)]
+        if y_vals.size > 0:
+            y_min = float(np.min(y_vals))
+            y_max = float(np.max(y_vals))
+            if y_max > y_min:
+                y_range = y_max - y_min
+                y_pad = padding * y_range
+                plt.ylim(y_min - y_pad, y_max + y_pad)
+
+    plt.tight_layout()
+
+    illumination_metadata = None
+    if "has_light" in df.columns:
+        has_light_values = df["has_light"].unique().to_list()
+        has_light_values = [v for v in has_light_values if v is not None]
+
+        if len(has_light_values) == 1:
+            illumination_metadata = {"has_light": has_light_values[0]}
+        elif len(has_light_values) > 1:
+            print_warning(
+                "Mixed illumination experiments in sequential plot. "
+                "Saving to Vt root folder without subcategory."
+            )
+
+    resistance_suffix = "_R" if resistance else ""
+    filename = f"{prefix}_Vt_sequential_{tag}{resistance_suffix}"
     out = config.get_output_path(
         filename,
         chip_number=chipnum,

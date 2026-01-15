@@ -21,6 +21,10 @@ def plot_photoresponse(
     filter_wavelength: float = None,
     filter_vg: float = None,
     filter_power_range: tuple[float, float] = None,
+    plot_tag: str | None = None,
+    output_procedure: str | None = None,
+    output_metadata: dict | None = None,
+    filename_prefix: str | None = None,
     config: Optional[PlotConfig] = None,
 ) -> Path:
     """
@@ -45,6 +49,15 @@ def plot_photoresponse(
         Filter to specific gate voltage (V)
     filter_power_range : tuple[float, float], optional
         Filter to power range (min, max) in watts
+    plot_tag : str, optional
+        Tag to append to the output filename for uniqueness
+    output_procedure : str, optional
+        Procedure name to use for output path grouping (default: "Photoresponse")
+    output_metadata : dict, optional
+        Metadata for subcategory selection (e.g., {"has_light": True})
+    filename_prefix : str, optional
+        Custom filename prefix (e.g., "encap67_Vt_photoresponse"). When set,
+        the default chip_name/y_metric prefix is replaced.
     config : PlotConfig, optional
         Plot configuration (theme, DPI, output paths, etc.)
 
@@ -261,18 +274,24 @@ def plot_photoresponse(
     chip_number = int(match.group(1)) if match else None
 
     # Build output filename
-    filename_parts = [chip_name.lower(), "photoresponse", y_metric, "vs", x_variable]
+    if filename_prefix:
+        filename_parts = [filename_prefix, "vs", x_variable]
+    else:
+        filename_parts = [chip_name.lower(), "photoresponse", y_metric, "vs", x_variable]
     if filter_wavelength is not None:
         filename_parts.append(f"wl{filter_wavelength:.0f}nm")
     if filter_vg is not None:
         filename_parts.append(f"vg{filter_vg:.2f}V".replace(".", "p"))
+    if plot_tag:
+        filename_parts.append(plot_tag)
 
     filename = "_".join(filename_parts)
+    output_procedure = output_procedure or "Photoresponse"
     output_file = config.get_output_path(
         filename,
         chip_number=chip_number,
-        procedure="Photoresponse",
-        # No metadata - Photoresponse is a derived metric
+        procedure=output_procedure,
+        metadata=output_metadata,
         create_dirs=True
     )
     plt.savefig(output_file, dpi=config.dpi, bbox_inches='tight')

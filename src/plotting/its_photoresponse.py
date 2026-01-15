@@ -431,13 +431,13 @@ def plot_its_photoresponse(
     plt.tight_layout()
 
     # Build output filename following ITS naming convention
-    # Pattern: encap{chip_number}_ITS_photoresponse_vs_{x_variable}[_filters]_{plot_tag}.png
+    # Pattern: {chip_name}_ITS_photoresponse_vs_{x_variable}[_filters]_{plot_tag}.png
     # Extract chip number from chip_name (e.g., "Alisson67" -> "67")
     import re
     chip_match = re.search(r'(\d+)$', chip_name)
     chip_number = chip_match.group(1) if chip_match else chip_name
 
-    filename_parts = [f"encap{chip_number}", "ITS_photoresponse", "vs", x_variable]
+    filename_parts = [chip_name.lower(), "ITS_photoresponse", "vs", x_variable]
 
     # Add filter suffixes
     if filter_wavelength is not None:

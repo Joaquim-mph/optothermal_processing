@@ -513,11 +513,10 @@ def _enrich_metrics(
         metric_cols = {}
         for metric_name in chip_metrics["metric_name"].unique().to_list():
             metric_data = chip_metrics.filter(pl.col("metric_name") == metric_name)
-            # Assuming metric_value is the column with actual values
-            if "metric_value" in metric_data.columns:
-                metric_cols[metric_name] = metric_data.select(["run_id", "metric_value"]).rename({
-                    "metric_value": metric_name
-                })
+            metric_cols[metric_name] = metric_data.select([
+                "run_id",
+                pl.coalesce(["value_float", "value_str", "value_json"]).alias(metric_name)
+            ])
 
         # Join metrics to history
         for metric_name, metric_df in metric_cols.items():

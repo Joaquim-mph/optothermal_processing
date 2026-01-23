@@ -12,7 +12,7 @@ from typing import Optional, Dict, Any
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 
-from src.tui.screens import MainMenuScreen
+from src.tui.screens.navigation.main_menu_v4 import MainMenuScreen  # Phase 1: Use v4 menu
 from src.tui.config_manager import ConfigManager
 from src.tui.session import PlotSession
 from src.tui.router import Router

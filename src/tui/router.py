@@ -57,8 +57,328 @@ class Router:
 
         Usually called after app initialization or when returning from wizard.
         """
-        from src.tui.screens.navigation import MainMenuScreen
+        from src.tui.screens.navigation.main_menu_v4 import MainMenuScreen
         self.app.push_screen(MainMenuScreen())
+
+    def return_to_main_menu(self) -> None:
+        """
+        Return to main menu (pop all screens and show main menu).
+
+        Used by hub screens when user clicks 'Home' button.
+        """
+        # Pop all screens until we're back at main menu
+        while len(self.app.screen_stack) > 1:
+            self.app.pop_screen()
+
+    # ═══════════════════════════════════════════════════════════════════
+    # Hub Navigation (v4.0 TUI Reorganization)
+    # ═══════════════════════════════════════════════════════════════════
+
+    def go_to_plots_hub(self) -> None:
+        """Navigate to Plots hub (Phase 2)."""
+        from src.tui.screens.navigation.plots_hub import PlotsHubScreen
+        self.app.push_screen(PlotsHubScreen())
+
+    def go_to_histories_hub(self) -> None:
+        """Navigate to Chip Histories hub (Phase 3)."""
+        from src.tui.screens.navigation.histories_hub import HistoriesHubScreen
+        self.app.push_screen(HistoriesHubScreen())
+
+    def go_to_process_hub(self) -> None:
+        """Navigate to Process New Data hub (Phase 4)."""
+        from src.tui.screens.navigation.process_hub import ProcessHubScreen
+        self.app.push_screen(ProcessHubScreen())
+
+    def go_to_settings_hub(self) -> None:
+        """Navigate to Settings hub (Phase 5)."""
+        from src.tui.screens.navigation.settings_hub import SettingsHubScreen
+        self.app.push_screen(SettingsHubScreen())
+
+    def go_to_help_hub(self) -> None:
+        """Navigate to Help hub (Phase 5)."""
+        from src.tui.screens.navigation.help_hub import HelpHubScreen
+        self.app.push_screen(HelpHubScreen())
+
+    # ═══════════════════════════════════════════════════════════════════
+    # Plots Hub Sub-screens (Phase 2)
+    # ═══════════════════════════════════════════════════════════════════
+
+    def go_to_batch_mode_hub(self) -> None:
+        """Navigate to Batch Mode hub (select/create batch configs)."""
+        from src.tui.screens.plots import BatchModeHubScreen
+        self.app.push_screen(BatchModeHubScreen())
+
+    def go_to_batch_config_review(self, config_path) -> None:
+        """
+        Navigate to Batch Config Review screen.
+
+        Parameters
+        ----------
+        config_path : Path
+            Path to batch configuration YAML file
+        """
+        from src.tui.screens.plots import BatchConfigReviewScreen
+        self.app.push_screen(BatchConfigReviewScreen(config_path=config_path))
+
+    def go_to_batch_progress(self, config_path, workers: int = 4, dry_run: bool = False) -> None:
+        """
+        Navigate to Batch Progress screen (execute batch plots).
+
+        Parameters
+        ----------
+        config_path : Path
+            Path to batch configuration YAML file
+        workers : int
+            Number of parallel workers (default: 4)
+        dry_run : bool
+            If True, simulate execution without generating plots
+        """
+        from src.tui.screens.plots import BatchProgressScreen
+        self.app.push_screen(BatchProgressScreen(
+            config_path=config_path,
+            workers=workers,
+            dry_run=dry_run
+        ))
+
+    def go_to_batch_complete(self, total: int, success: int, failed: int) -> None:
+        """
+        Navigate to Batch Complete screen (results summary).
+
+        Parameters
+        ----------
+        total : int
+            Total number of plots in batch
+        success : int
+            Number of successful plots
+        failed : int
+            Number of failed plots
+        """
+        from src.tui.screens.plots import BatchCompleteScreen
+        self.app.push_screen(BatchCompleteScreen(
+            total=total,
+            success=success,
+            failed=failed
+        ))
+
+    def go_to_recent_configs_list(self) -> None:
+        """Navigate to Recent Configurations list (browse/run/edit saved configs)."""
+        from src.tui.screens.plots import RecentConfigsListScreen
+        self.app.push_screen(RecentConfigsListScreen())
+
+    def go_to_preset_selector(self) -> None:
+        """Navigate to Plot Presets selector (ITS, VVg, Vt, IVg presets)."""
+        from src.tui.screens.plots import PresetSelectorScreen
+        self.app.push_screen(PresetSelectorScreen())
+
+    def go_to_preset_details(self, preset_id: str) -> None:
+        """
+        Navigate to Preset Details screen.
+
+        Parameters
+        ----------
+        preset_id : str
+            Preset identifier (e.g., "its-photoresponse_365nm")
+        """
+        from src.tui.screens.plots import PresetDetailsScreen
+        self.app.push_screen(PresetDetailsScreen(preset_id=preset_id))
+
+
+    def go_to_plot_details(self, plot_path) -> None:
+        """
+        Navigate to Plot Details screen.
+
+        Parameters
+        ----------
+        plot_path : Path
+            Path to plot image file
+        """
+        from src.tui.screens.plots import PlotDetailsScreen
+        self.app.push_screen(PlotDetailsScreen(plot_path=plot_path))
+
+    # ═══════════════════════════════════════════════════════════════════
+    # Histories Hub Sub-screens (Phase 3)
+    # ═══════════════════════════════════════════════════════════════════
+
+    def go_to_standard_history_browser(self) -> None:
+        """Navigate to Standard History Browser."""
+        from src.tui.screens.histories import StandardHistoryBrowserScreen
+        self.app.push_screen(StandardHistoryBrowserScreen())
+
+    def go_to_enriched_history_browser(self) -> None:
+        """Navigate to Enriched History Browser (with derived metrics)."""
+        from src.tui.screens.histories import EnrichedHistoryBrowserScreen
+        self.app.push_screen(EnrichedHistoryBrowserScreen())
+
+    def go_to_metrics_explorer_hub(self) -> None:
+        """Navigate to Metrics Explorer Hub."""
+        from src.tui.screens.histories import MetricsExplorerHubScreen
+        self.app.push_screen(MetricsExplorerHubScreen())
+
+    def go_to_cnp_evolution(self) -> None:
+        """Navigate to CNP Evolution visualization screen."""
+        from src.tui.screens.histories import CNPEvolutionScreen
+        self.app.push_screen(CNPEvolutionScreen())
+
+    def go_to_photoresponse_analysis(self) -> None:
+        """Navigate to Photoresponse Analysis screen."""
+        from src.tui.screens.histories import PhotoresponseAnalysisScreen
+        self.app.push_screen(PhotoresponseAnalysisScreen())
+
+    def go_to_relaxation_times(self) -> None:
+        """Navigate to Relaxation Times analysis screen."""
+        from src.tui.screens.histories import RelaxationTimesScreen
+        self.app.push_screen(RelaxationTimesScreen())
+
+    def go_to_experiment_browser(self) -> None:
+        """Navigate to Experiment Browser (advanced search/filter)."""
+        from src.tui.screens.histories import ExperimentBrowserScreen
+        self.app.push_screen(ExperimentBrowserScreen())
+
+    def go_to_search_results(self, filters: dict = None) -> None:
+        """
+        Navigate to Search Results screen.
+
+        Parameters
+        ----------
+        filters : dict, optional
+            Applied search filters
+        """
+        from src.tui.screens.histories import SearchResultsScreen
+        self.app.push_screen(SearchResultsScreen())
+
+    def go_to_export_history(self) -> None:
+        """Navigate to Export History screen."""
+        from src.tui.screens.histories import ExportHistoryScreen
+        self.app.push_screen(ExportHistoryScreen())
+
+    def go_to_data_preview(self, chip_number: int = None) -> None:
+        """
+        Navigate to Data Preview selector screen.
+
+        Shows a selector screen where users choose chip and experiments to preview
+        using plotext terminal visualization.
+
+        Parameters
+        ----------
+        chip_number : int, optional
+            Chip number to preview data for (currently unused, for future direct navigation)
+        """
+        from src.tui.screens.histories import DataPreviewSelectorScreen
+        self.app.push_screen(DataPreviewSelectorScreen())
+
+    # ═══════════════════════════════════════════════════════════════════
+    # Process New Data Hub Sub-screens (Phase 4)
+    # ═══════════════════════════════════════════════════════════════════
+
+    def go_to_stage_raw_data(self) -> None:
+        """Navigate to Stage Raw Data configuration screen."""
+        from src.tui.screens.processing import StageRawDataScreen
+        self.app.push_screen(StageRawDataScreen())
+
+    def go_to_staging_progress(self, raw_path: str, force_overwrite: bool, strict_mode: bool, workers: int) -> None:
+        """
+        Navigate to Staging Progress screen.
+
+        Parameters
+        ----------
+        raw_path : str
+            Path to raw CSV files
+        force_overwrite : bool
+            Force re-staging of existing files
+        strict_mode : bool
+            Fail on validation errors
+        workers : int
+            Number of parallel workers
+        """
+        from src.tui.screens.processing import StagingProgressScreen
+        self.app.push_screen(StagingProgressScreen(
+            raw_path=raw_path,
+            force_overwrite=force_overwrite,
+            strict_mode=strict_mode,
+            workers=workers
+        ))
+
+    def go_to_staging_summary(self) -> None:
+        """Navigate to Staging Summary screen."""
+        from src.tui.screens.processing import StagingSummaryScreen
+        self.app.push_screen(StagingSummaryScreen())
+
+    def go_to_build_histories(self) -> None:
+        """Navigate to Build Chip Histories screen."""
+        from src.tui.screens.processing import BuildHistoriesScreen
+        self.app.push_screen(BuildHistoriesScreen())
+
+    def go_to_extract_metrics(self) -> None:
+        """Navigate to Extract Derived Metrics screen."""
+        from src.tui.screens.processing import ExtractMetricsScreen
+        self.app.push_screen(ExtractMetricsScreen())
+
+    def go_to_full_pipeline(self) -> None:
+        """Navigate to Full Pipeline orchestration screen."""
+        from src.tui.screens.processing import FullPipelineScreen
+        self.app.push_screen(FullPipelineScreen())
+
+    def go_to_validate_manifest(self) -> None:
+        """Navigate to Validate Manifest screen."""
+        from src.tui.screens.processing import ValidateManifestScreen
+        self.app.push_screen(ValidateManifestScreen())
+
+    def go_to_pipeline_status(self) -> None:
+        """Navigate to Pipeline Status dashboard screen."""
+        from src.tui.screens.processing import PipelineStatusScreen
+        self.app.push_screen(PipelineStatusScreen())
+
+    # ═══════════════════════════════════════════════════════════════════
+    # Settings Hub Sub-screens (Phase 5)
+    # ═══════════════════════════════════════════════════════════════════
+
+    def go_to_tui_preferences(self) -> None:
+        """Navigate to TUI Preferences screen."""
+        from src.tui.screens.settings import TUIPreferencesScreen
+        self.app.push_screen(TUIPreferencesScreen())
+
+    def go_to_data_paths(self) -> None:
+        """Navigate to Data Paths configuration screen."""
+        from src.tui.screens.settings import DataPathsScreen
+        self.app.push_screen(DataPathsScreen())
+
+    def go_to_pipeline_defaults(self) -> None:
+        """Navigate to Pipeline Defaults configuration screen."""
+        from src.tui.screens.settings import PipelineDefaultsScreen
+        self.app.push_screen(PipelineDefaultsScreen())
+
+    def go_to_display_settings(self) -> None:
+        """Navigate to Display Settings screen."""
+        from src.tui.screens.settings import DisplaySettingsScreen
+        self.app.push_screen(DisplaySettingsScreen())
+
+    # ═══════════════════════════════════════════════════════════════════
+    # Help Hub Sub-screens (Phase 5)
+    # ═══════════════════════════════════════════════════════════════════
+
+    def go_to_quick_start(self) -> None:
+        """Navigate to Quick Start Guide screen."""
+        from src.tui.screens.help import QuickStartScreen
+        self.app.push_screen(QuickStartScreen())
+
+    def go_to_command_reference(self) -> None:
+        """Navigate to Command Reference screen."""
+        from src.tui.screens.help import CommandReferenceScreen
+        self.app.push_screen(CommandReferenceScreen())
+
+    def go_to_troubleshooting(self) -> None:
+        """Navigate to Troubleshooting guide screen."""
+        from src.tui.screens.help import TroubleshootingScreen
+        self.app.push_screen(TroubleshootingScreen())
+
+    def go_to_about(self) -> None:
+        """Navigate to About / Version Info screen."""
+        from src.tui.screens.help import AboutScreen
+        self.app.push_screen(AboutScreen())
+
+    # ═══════════════════════════════════════════════════════════════════
+    # Navigation Flow (Step-by-step wizard)
+    # ═══════════════════════════════════════════════════════════════════
 
     def go_to_chip_selector(self, mode: str = "plot") -> None:
         """

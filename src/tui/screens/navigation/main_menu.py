@@ -51,11 +51,13 @@ class MainMenuScreen(WizardScreen):
         width: 100%;
         content-align: center middle;
         color: $text-muted;
-        margin-bottom: 2;
+        margin-bottom: 1;
     }
 
     .menu-button {
         width: 100%;
+        height: 3;
+        min-height: 3;
         margin: 1 0;
     }
 
@@ -94,7 +96,6 @@ class MainMenuScreen(WizardScreen):
             yield Button("Process New Data", id="process-data", variant="default", classes="menu-button")
             yield Button("Recent Configurations (0)", id="recent", variant="default", classes="menu-button")
             yield Button("Batch Mode", id="batch", variant="default", classes="menu-button")
-            yield Button("View Logs", id="logs", variant="default", classes="menu-button")
             yield Button("Settings", id="settings", variant="default", classes="menu-button")
             yield Button("Help", id="help-button", variant="default", classes="menu-button")
             yield Button("Quit", id="quit", variant="error", classes="menu-button")

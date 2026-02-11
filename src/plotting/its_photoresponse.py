@@ -58,8 +58,14 @@ def _extract_delta_current_from_its(measurement: pl.DataFrame, metadata: dict) -
         # Baseline: mean current when light is off
         baseline_current = np.mean(i[~light_on]) if np.any(~light_on) else i[0]
 
-        # Peak: maximum current when light is on
-        peak_current = np.max(i[light_on])
+        # Pick whichever extreme deviates most from baseline (handles negative photoresponse)
+        i_light = i[light_on]
+        max_current = np.max(i_light)
+        min_current = np.min(i_light)
+        if abs(max_current - baseline_current) >= abs(min_current - baseline_current):
+            peak_current = max_current
+        else:
+            peak_current = min_current
 
     else:
         # Fallback: assume first 20% is baseline, middle section is light-on
@@ -69,7 +75,13 @@ def _extract_delta_current_from_its(measurement: pl.DataFrame, metadata: dict) -
         light_end = int(0.7 * n_points)
 
         baseline_current = np.mean(i[:baseline_end])
-        peak_current = np.max(i[light_start:light_end])
+        i_light = i[light_start:light_end]
+        max_current = np.max(i_light)
+        min_current = np.min(i_light)
+        if abs(max_current - baseline_current) >= abs(min_current - baseline_current):
+            peak_current = max_current
+        else:
+            peak_current = min_current
 
     delta_current = peak_current - baseline_current
 
@@ -373,27 +385,29 @@ def plot_its_photoresponse(
         plt.setp(ax.xaxis.get_majorticklabels(), rotation=30, ha='right')
 
     # Labels and title
-    ax.set_xlabel(x_label, fontweight='bold')
-    ax.set_ylabel("Δ Current (µA)", fontweight='bold')
+    ax.set_xlabel(x_label)
+    ax.set_ylabel("Δ Current (µA)")
 
-    # Configure scientific notation formatting (like plot_its does)
+    # Configure tick formatting
     # Note: ticklabel_format only works with linear scales, not log scales
-    if x_variable != "time":
-        # Only apply for linear X-axis (not log)
+    if x_variable == "power":
+        # Power is already converted to µW - use plain numbers, no scientific notation
         if axtype in ["linear", "semilogy", None]:
-            ax.ticklabel_format(style='scientific', axis='x', scilimits=(0, 0), useMathText=True)
+            ax.ticklabel_format(style='plain', axis='x', useOffset=False)
+    elif x_variable == "wavelength":
+        # Wavelength in nm - use plain numbers, no scientific notation
+        if axtype in ["linear", "semilogy", None]:
+            ax.ticklabel_format(style='plain', axis='x', useOffset=False)
+    elif x_variable != "time":
+        # Other numeric axes: use plain numbers
+        if axtype in ["linear", "semilogy", None]:
+            ax.ticklabel_format(style='plain', axis='x', useOffset=False)
 
     # Only apply for linear Y-axis (not log)
     if axtype in ["linear", "semilogx", None]:
-        ax.ticklabel_format(style='scientific', axis='y', scilimits=(0, 0), useMathText=True)
+        ax.ticklabel_format(style='plain', axis='y', useOffset=False)
 
-    # Build title with filter information
-    title_parts = [f'{chip_name} - ITS Photoresponse vs {x_variable.replace("_", " ").title()}']
-    if filter_wavelength is not None:
-        title_parts.append(f'λ={filter_wavelength:.0f}nm')
-    if filter_vg is not None:
-        title_parts.append(f'Vg={filter_vg:.2f}V')
-    ax.set_title(' | '.join(title_parts), fontweight='bold')
+    # No title for clean publication-quality figures
 
     # Add legend if multiple wavelengths
     if x_variable in ["power", "gate_voltage"] and "wavelength_nm" in its_data.columns:

@@ -110,7 +110,7 @@ plots:
 
   - type: plot-its-sequential
     seq: [73, 74]
-    tag: "its_seq_38_41"
+    tag: "its_seq_73_74"
 
   - type: plot-its-sequential
     seq: [82, 83, 84]
@@ -119,10 +119,6 @@ plots:
   - type: plot-its-sequential
     seq: [85, 86, 87]
     tag: "its_seq_85_86_87"
-
-  - type: plot-its-sequential
-    seq: [65, 66]
-    tag: "its_seq_38_41"
 
   - type: plot-its-suite
     seq: [80, 82, 85, 87]

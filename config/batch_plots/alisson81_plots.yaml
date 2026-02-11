@@ -60,3 +60,10 @@ plots:
     seq: "263-267"
     tag: "sweep3"
     legend_by: vg
+
+  # wl sweep
+  - type: plot-its-suite
+    seq: [4, 6, 8, 10, 12, 14, 16, 18, 33, 35]
+    tag: "alisson81_same_pwr_wl_sweep"
+    legend_by: wavelength
+    photoresponse_x: wavelength

@@ -14,6 +14,7 @@ Performance:
 
 from __future__ import annotations
 
+import os
 import time
 import sys
 import io
@@ -22,6 +23,9 @@ from typing import Any
 from dataclasses import dataclass, field
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from contextlib import contextmanager
+
+import matplotlib
+matplotlib.use('Agg')  # Non-interactive backend (batch plotting saves to files, never displays)
 
 import yaml
 import polars as pl
@@ -69,7 +73,11 @@ _cached_histories: dict[int, pl.DataFrame] = {}
 _plot_config: PlotConfig | None = None
 _chip_group: str | None = None  # Track chip group for folder prefix
 
+# Two consoles with different purposes:
+# - console: general messages, affected by suppress_output() (uses lazy sys.stdout)
+# - _progress_console: progress bars only, immune to suppress_output() (pinned to real stdout)
 console = Console()
+_progress_console = Console(file=sys.__stdout__)
 
 
 # ============================================================================
@@ -647,7 +655,7 @@ def execute_sequential(plot_specs: list[PlotSpec], chip_group: str) -> list[Plot
         BarColumn(),
         TaskProgressColumn(),
         TimeElapsedColumn(),
-        console=console,
+        console=_progress_console,
     ) as progress:
         task = progress.add_task("[cyan]Generating plots...", total=len(plot_specs))
 
@@ -671,9 +679,18 @@ def execute_sequential(plot_specs: list[PlotSpec], chip_group: str) -> list[Plot
             # Show warnings immediately if any
             if result.warnings:
                 for warning in result.warnings:
-                    console.print(f"  [yellow]⚠[/yellow] {warning}")
+                    _progress_console.print(f"  [yellow]⚠[/yellow] {warning}")
 
     return results
+
+
+def _worker_init():
+    """Silence all output in worker processes to prevent terminal corruption."""
+    devnull = open(os.devnull, "w")
+    sys.stdout = devnull
+    sys.stderr = devnull
+    sys.__stdout__ = devnull
+    sys.__stderr__ = devnull
 
 
 def execute_parallel(plot_specs: list[PlotSpec], chip_group: str, workers: int) -> list[PlotResult]:
@@ -702,11 +719,11 @@ def execute_parallel(plot_specs: list[PlotSpec], chip_group: str, workers: int) 
         BarColumn(),
         TaskProgressColumn(),
         TimeElapsedColumn(),
-        console=console,
+        console=_progress_console,
     ) as progress:
         task = progress.add_task("[cyan]Generating plots...", total=len(plot_specs))
 
-        with ProcessPoolExecutor(max_workers=workers) as executor:
+        with ProcessPoolExecutor(max_workers=workers, initializer=_worker_init) as executor:
             # Submit all tasks (quiet mode enabled for parallel execution)
             futures = {executor.submit(execute_plot, spec, chip_group, True): spec for spec in plot_specs}
 
@@ -728,7 +745,7 @@ def execute_parallel(plot_specs: list[PlotSpec], chip_group: str, workers: int) 
                 # Show warnings if any
                 if result.warnings:
                     for warning in result.warnings:
-                        console.print(f"  [yellow]⚠[/yellow] {warning}")
+                        _progress_console.print(f"  [yellow]⚠[/yellow] {warning}")
 
     return results
 

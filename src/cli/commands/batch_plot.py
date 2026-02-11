@@ -26,8 +26,6 @@ from src.plotting.batch import (
     execute_sequential,
     execute_parallel,
     display_summary,
-    print_cache_stats,
-    CACHE_AVAILABLE,
 )
 
 
@@ -133,8 +131,6 @@ def batch_plot_command(
     console.print(f"[cyan]Execution mode:[/cyan] {'Parallel' if parallel else 'Sequential'}")
     if parallel:
         console.print(f"[cyan]Workers:[/cyan] {parallel}")
-    if CACHE_AVAILABLE:
-        console.print(f"[cyan]Caching:[/cyan] Enabled (automatic)")
     console.print()
 
     # Execute plots
@@ -153,16 +149,6 @@ def batch_plot_command(
 
     # Display summary
     display_summary(results, total_time, parallel)
-
-    # Display cache statistics if caching is available
-    # Note: Stats only meaningful in sequential mode (parallel workers have separate caches)
-    if CACHE_AVAILABLE and (not parallel or parallel <= 1):
-        print_cache_stats()
-    elif CACHE_AVAILABLE and parallel and parallel > 1:
-        console.print(
-            "\n[dim]Note: Cache statistics not available in parallel mode "
-            "(each worker has separate cache)[/dim]"
-        )
 
     # Exit with error code if any plots failed
     failed_count = sum(1 for r in results if not r.success)

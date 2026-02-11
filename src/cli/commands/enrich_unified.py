@@ -510,12 +510,13 @@ def _enrich_metrics(
 
         # Pivot metrics to columns
         # Group by run_id and create columns for each metric
+        # Use value_float directly to preserve numeric dtype (coalesce with string cols casts to String)
         metric_cols = {}
         for metric_name in chip_metrics["metric_name"].unique().to_list():
             metric_data = chip_metrics.filter(pl.col("metric_name") == metric_name)
             metric_cols[metric_name] = metric_data.select([
                 "run_id",
-                pl.coalesce(["value_float", "value_str", "value_json"]).alias(metric_name)
+                pl.col("value_float").alias(metric_name)
             ])
 
         # Join metrics to history

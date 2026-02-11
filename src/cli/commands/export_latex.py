@@ -118,20 +118,28 @@ def format_value(value, column_name: str) -> str:
             else:
                 return f"{value_mv:.3f}"
 
-    # CNP voltage and power in original units
-    if column_name in ["cnp_voltage", "irradiated_power_w"]:
+    # CNP voltage in original units
+    if column_name == "cnp_voltage":
         if isinstance(value, (int, float)):
-            # Scientific notation for very small values
             if abs(value) < 0.001 and value != 0:
                 return f"{value:.2e}"
             else:
                 return f"{value:.3f}"
 
+    # Irradiated power: convert W to µW
+    if column_name == "irradiated_power_w":
+        if isinstance(value, (int, float)):
+            value_uw = value * 1e6  # W to µW
+            if abs(value_uw) >= 1000 or (abs(value_uw) < 0.01 and value_uw != 0):
+                return f"{value_uw:.2e}"
+            else:
+                return f"{value_uw:.2f}"
+
     if column_name in ["wavelength_nm"]:
         if isinstance(value, (int, float)):
             return f"{int(value)}"
 
-    if column_name in ["vg_fixed_v", "vds_v", "laser_voltage_v"]:
+    if column_name in ["vg_fixed_v", "vds_v"]:
         if isinstance(value, (int, float)):
             return f"{value:.2f}"
 
@@ -186,7 +194,7 @@ def generate_latex_table(history: pl.DataFrame, chip_name: str) -> str:
 \textcolor{white}{\textbf{Light}} &
 \textcolor{white}{\textbf{$\lambda$ [nm]}} &
 \textcolor{white}{\textbf{$V_g$ [V]}} &
-\textcolor{white}{\textbf{$V_{laser}$ [V]}} &
+\textcolor{white}{\textbf{$P_{irr}$ [$\mu$W]}} &
 \textcolor{white}{\textbf{CNP [V]}} &
 \textcolor{white}{\textbf{$\Delta I$ [$\mu$A]}} &
 \textcolor{white}{\textbf{$\Delta V$ [mV]}} \\
@@ -206,7 +214,7 @@ def generate_latex_table(history: pl.DataFrame, chip_name: str) -> str:
 \textcolor{white}{\textbf{Light}} &
 \textcolor{white}{\textbf{$\lambda$ [nm]}} &
 \textcolor{white}{\textbf{$V_g$ [V]}} &
-\textcolor{white}{\textbf{$V_{laser}$ [V]}} &
+\textcolor{white}{\textbf{$P_{irr}$ [$\mu$W]}} &
 \textcolor{white}{\textbf{CNP [V]}} &
 \textcolor{white}{\textbf{$\Delta I$ [$\mu$A]}} &
 \textcolor{white}{\textbf{$\Delta V$ [mV]}} \\
@@ -242,7 +250,7 @@ def generate_latex_table(history: pl.DataFrame, chip_name: str) -> str:
         light = row.get("has_light", None)
         wavelength = row.get("wavelength_nm", None)
         vg = row.get("vg_fixed_v", None)
-        laser_v = row.get("laser_voltage_v", None)
+        irr_power = row.get("irradiated_power_w", None)
         cnp = row.get("cnp_voltage", None)
         delta_i = row.get("delta_current", None)
         delta_v = row.get("delta_voltage", None)
@@ -256,7 +264,7 @@ def generate_latex_table(history: pl.DataFrame, chip_name: str) -> str:
         latex += f"{format_value(light, 'has_light')} & "
         latex += f"{format_value(wavelength, 'wavelength_nm')} & "
         latex += f"{format_value(vg, 'vg_fixed_v')} & "
-        latex += f"{format_value(laser_v, 'laser_voltage_v')} & "
+        latex += f"{format_value(irr_power, 'irradiated_power_w')} & "
         latex += f"{format_value(cnp, 'cnp_voltage')} & "
         latex += f"{format_value(delta_i, 'delta_current')} & "
         latex += f"{format_value(delta_v, 'delta_voltage')} \\\\\n"
@@ -411,7 +419,16 @@ def export_latex_command(
                 ])
                 history = history.join(delta_v_df, on="run_id", how="left")
 
-            console.print(f"[dim]   → Joined derived metrics (CNP, ΔI, ΔV)[/dim]")
+            # Join irradiated power (from calibration matcher)
+            power_metrics = chip_metrics.filter(pl.col("metric_name") == "irradiated_power_w")
+            if power_metrics.height > 0:
+                power_df = power_metrics.select([
+                    "run_id",
+                    pl.col("value_float").alias("irradiated_power_w")
+                ])
+                history = history.join(power_df, on="run_id", how="left")
+
+            console.print(f"[dim]   → Joined derived metrics (CNP, ΔI, ΔV, P_irr)[/dim]")
         else:
             console.print(f"[yellow]⚠[/yellow]  Metrics file not found, skipping derived metrics")
     else:

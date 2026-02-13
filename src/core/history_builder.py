@@ -347,7 +347,7 @@ def build_chip_history_from_manifest(
         "day_folder",
         "start_time",
         "start_time_utc",
-        "ts",
+        "ingested_at_utc",
         "date_origin",
     ]
 

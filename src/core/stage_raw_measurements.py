@@ -54,94 +54,86 @@ class ProcSpec:
         params: Type mappings for parameter fields (e.g., {"Laser wavelength": "float"})
         meta: Type mappings for metadata fields (e.g., {"Start time": "datetime"})
         data: Type mappings for data columns (e.g., {"I (A)": "float", "Vsd (V)": "float"})
-        manifest_columns: Mappings for manifest extraction (e.g., {"vds_v": ["VDS", "Vds"]})
         config: Procedure-specific configuration (e.g., {"light_detection": "standard"})
     """
     params: Dict[str, str]
     meta: Dict[str, str]
     data: Dict[str, str]
-    manifest_columns: Dict[str, List[str]] = None  # NEW: Manifest column extraction config
-    config: Dict[str, Any] = None  # NEW: Procedure-specific config
+    config: Dict[str, Any] = None
 
-_PROC_CACHE: Dict[str, ProcSpec] | None = None
+
+@dataclass
+class ProceduresConfig:
+    """
+    Complete procedures configuration loaded from YAML.
+
+    Attributes:
+        specs: Per-procedure schema specifications
+        manifest_column_map: Global mapping from manifest field names to CSV parameter aliases
+    """
+    specs: Dict[str, ProcSpec]
+    manifest_column_map: Dict[str, List[str]]
+
+_PROC_CACHE: ProceduresConfig | None = None
 _PROC_YAML_PATH: Path | None = None
 
 
-def load_procedures_yaml(path: Path) -> Dict[str, ProcSpec]:
+def load_procedures_yaml(path: Path) -> ProceduresConfig:
     """
-    Load procedure specifications from YAML schema file.
+    Load procedure specifications and global manifest column map from YAML.
 
-    Parses a YAML file containing procedure definitions with their expected
-    Parameters, Metadata, Data column types, and optional ManifestColumns
-    and Config sections.
+    Parses a YAML file containing a top-level ManifestColumnMap (global mapping
+    from manifest field names to CSV parameter aliases) and per-procedure
+    definitions with Parameters, Metadata, Data, and Config sections.
 
     Args:
         path: Path to procedures YAML file
 
     Returns:
-        Dictionary mapping procedure names to their ProcSpec specifications
-
-    Example YAML structure:
-        procedures:
-          IVg:
-            Parameters:
-              Laser wavelength: float
-              Chip number: int
-            Metadata:
-              Start time: datetime
-            Data:
-              I (A): float
-              Vsd (V): float
-            ManifestColumns:  # Optional
-              vds_v: [VDS, Vds, VSD]
-              wavelength_nm: [Laser wavelength]
-            Config:  # Optional
-              light_detection: standard
+        ProceduresConfig with specs dict and global manifest_column_map
 
     Example:
-        >>> specs = load_procedures_yaml(Path("procedures.yaml"))
-        >>> specs["IVg"].data
+        >>> config = load_procedures_yaml(Path("procedures.yaml"))
+        >>> config.specs["IVg"].data
         {"I (A)": "float", "Vsd (V)": "float"}
-        >>> specs["IVg"].manifest_columns
-        {"vds_v": ["VDS", "Vds", "VSD"], "wavelength_nm": ["Laser wavelength"]}
+        >>> config.manifest_column_map["vds_v"]
+        ["VDS", "Vds", "VSD", "Drain voltage"]
     """
     with path.open("r", encoding="utf-8") as f:
         y = yaml.safe_load(f) or {}
+
+    # Parse global ManifestColumnMap
+    raw_map = y.get("ManifestColumnMap", {}) or {}
+    manifest_column_map = {
+        k: v if isinstance(v, list) else [v]
+        for k, v in raw_map.items()
+    }
+
     procs = {}
     root = y.get("procedures", {}) or {}
     for name, blocks in root.items():
-        # Parse ManifestColumns (optional)
-        manifest_cols = blocks.get("ManifestColumns")
-        if manifest_cols:
-            # Ensure all values are lists
-            manifest_cols = {
-                k: v if isinstance(v, list) else [v]
-                for k, v in manifest_cols.items()
-            }
-
         procs[name] = ProcSpec(
             params=(blocks.get("Parameters") or {}),
             meta=(blocks.get("Metadata") or {}),
             data=(blocks.get("Data") or {}),
-            manifest_columns=manifest_cols,
             config=(blocks.get("Config") or {}),
         )
-    return procs
+    return ProceduresConfig(specs=procs, manifest_column_map=manifest_column_map)
 
 
-def get_procs_cached(path: Path) -> Dict[str, ProcSpec]:
+def get_procs_cached(path: Path) -> ProceduresConfig:
     """
-    Get procedure specifications with caching.
-    
+    Get procedures configuration with caching.
+
     Loads procedures YAML file and caches the result. Subsequent calls
     with the same path return cached data. Cache is invalidated if path changes.
-    
+
     Args:
         path: Path to procedures YAML file
-        
+
     Returns:
-        Dictionary mapping procedure names to their ProcSpec specifications
-        
+        ProceduresConfig with specs and global manifest_column_map
+
     Note:
         Cache is global and persists across function calls within the same process.
         Each worker process in parallel execution maintains its own cache.
@@ -667,38 +659,33 @@ def extract_value_from_sources(
 
 
 def extract_manifest_columns_dynamic(
-    spec: ProcSpec,
-    params: Dict[str, Any],
-    meta: Dict[str, Any]
+    manifest_column_map: Dict[str, List[str]],
+    sources: Dict[str, Any],
 ) -> Dict[str, Any]:
     """
-    Dynamically extract manifest columns based on YAML ManifestColumns configuration.
+    Extract manifest columns using the global ManifestColumnMap.
 
-    Uses the ManifestColumns section from procedures.yml to determine which
-    parameters/metadata to extract and what names to use in the manifest.
+    For each manifest field in the global map, tries each alias against the
+    combined params+meta sources dict. Only includes fields where a match is
+    found — this naturally filters per-procedure since irrelevant params
+    won't exist in the sources.
 
     Args:
-        spec: ProcSpec containing manifest_columns configuration
-        params: Parsed parameters dict
-        meta: Parsed metadata dict
+        manifest_column_map: Global mapping {manifest_field: [csv_aliases]}
+        sources: Combined {**params, **meta} dictionary
 
     Returns:
-        Dictionary of manifest columns with standardized names
+        Dictionary of manifest columns with standardized names.
+        Only contains entries where a matching alias was found in sources.
 
     Example:
-        >>> spec.manifest_columns = {"vds_v": ["VDS", "Vds"], "wavelength_nm": ["Laser wavelength"]}
-        >>> params = {"VDS": 0.5, "Laser wavelength": 450}
-        >>> extract_manifest_columns_dynamic(spec, params, {})
+        >>> manifest_column_map = {"vds_v": ["VDS", "Vds"], "wavelength_nm": ["Laser wavelength"]}
+        >>> sources = {"VDS": 0.5, "Laser wavelength": 450}
+        >>> extract_manifest_columns_dynamic(manifest_column_map, sources)
         {"vds_v": 0.5, "wavelength_nm": 450.0}
     """
-    if not spec.manifest_columns:
-        return {}
-
-    # Combined source dict (params + metadata)
-    sources = {**params, **meta}
-
     extracted = {}
-    for manifest_col, aliases in spec.manifest_columns.items():
+    for manifest_col, aliases in manifest_column_map.items():
         # Determine type based on column name suffix conventions
         # _v suffix = float (voltage), _nm suffix = float (wavelength), etc.
         if manifest_col.endswith(("_v", "_V", "_nm", "_s", "_a", "_A")):
@@ -709,7 +696,8 @@ def extract_manifest_columns_dynamic(
             extractor = None  # Keep as-is (str, int, etc.)
 
         value = extract_value_from_sources(sources, aliases, extractor)
-        extracted[manifest_col] = value
+        if value is not None:
+            extracted[manifest_col] = value
 
     return extracted
 
@@ -837,7 +825,7 @@ def ingest_file_task(
         
     Example output (success):
         {
-            "ts": datetime(2025, 1, 15, 10, 35, 22),
+            "ingested_at_utc": datetime(2025, 1, 15, 10, 35, 22),
             "status": "ok",
             "run_id": "a1b2c3d4e5f6g7h8",
             "proc": "iv_sweep",
@@ -872,14 +860,14 @@ def ingest_file_task(
     events_dir = Path(events_dir_str)
     rejects_dir = Path(rejects_dir_str)
 
-    procs = get_procs_cached(procedures_yaml)
+    procs_config = get_procs_cached(procedures_yaml)
 
     try:
         hb = parse_header(src)
         if not hb.proc:
             raise RuntimeError("missing '# Procedure:'")
         proc = hb.proc
-        spec = procs.get(proc, ProcSpec({}, {}, {}))
+        spec = procs_config.specs.get(proc, ProcSpec({}, {}, {}))
 
         params = cast_block(hb.parameters, spec.params)
         meta = cast_block(hb.metadata, spec.meta)
@@ -950,37 +938,10 @@ def ingest_file_task(
                     df = df.with_columns(pl.lit(None, dtype=pl.Utf8).alias(col_name))
 
         # --- DYNAMIC MANIFEST COLUMN EXTRACTION ---
-        # Use YAML-configured extraction if available, otherwise fall back to hardcoded
-        manifest_cols = extract_manifest_columns_dynamic(spec, params, meta)
-
-        # Backward compatibility: If YAML doesn't define ManifestColumns, use legacy hardcoded extraction
-        if not manifest_cols:
-            # Legacy hardcoded extraction (for procedures without ManifestColumns in YAML)
-            def _get_float(keys):
-                for key in keys:
-                    if key in params and params[key] is not None:
-                        try:
-                            return float(params[key])
-                        except (TypeError, ValueError):
-                            continue
-                return None
-
-            manifest_cols = {
-                "wavelength_nm": _get_float(["Laser wavelength"]),
-                "laser_voltage_V": _get_float(["Laser voltage"]),
-                "laser_period_s": _get_float(["Laser ON+OFF period", "Laser ON+OFF period (s)", "ON+OFF period"]),
-                "vds_v": _get_float(["VDS", "Vds", "VSD", "Drain voltage"]),
-                "vg_fixed_v": _get_float(["VG", "Vg", "Gate voltage", "Fixed gate voltage"]),
-                "vg_start_v": _get_float(["VG start", "Vg start"]),
-                "vg_end_v": _get_float(["VG end", "Vg end"]),
-                "vg_step_v": _get_float(["VG step", "Vg step"]),
-                # LaserCalibration-specific
-                "optical_fiber": params.get("Optical fiber"),
-                "laser_voltage_start_v": _get_float(["Laser voltage start"]),
-                "laser_voltage_end_v": _get_float(["Laser voltage end"]),
-                "laser_voltage_step_v": _get_float(["Laser voltage step"]),
-                "sensor_model": meta.get("Sensor model"),
-            }
+        sources = {**params, **meta}
+        manifest_cols = extract_manifest_columns_dynamic(
+            procs_config.manifest_column_map, sources
+        )
 
         # Extract commonly used values for convenience
         wl_f = manifest_cols.get("wavelength_nm")
@@ -990,11 +951,21 @@ def ingest_file_task(
         light_method = get_light_detection_config(spec, proc)
         with_light = compute_light_detection(light_method, params, manifest_cols)
 
+        # Compute duration_s from data (max time column)
+        duration_s = None
+        for time_col in ("t (s)", "Time (s)"):
+            if time_col in df.columns:
+                try:
+                    duration_s = df[time_col].cast(pl.Float64, strict=False).max()
+                except Exception:
+                    pass
+                break
+
         out_dir = stage_root / f"proc={proc}" / f"date={date_part}" / f"run_id={rid}"
         out_file = out_dir / "part-000.parquet"
 
         event_common = {
-            "ts": dt.datetime.now(tz=dt.timezone.utc),
+            "ingested_at_utc": dt.datetime.now(tz=dt.timezone.utc),
             "run_id": rid,
             "proc": proc,
             "rows": df.height,
@@ -1006,6 +977,7 @@ def ingest_file_task(
             "start_time_utc": start_dt,
             "has_light": with_light,
             "date_local": date_part,
+            "duration_s": duration_s,
             # Schema validation results
             "validation_errors": len(validation_result.errors),
             "validation_warnings": len(validation_result.warnings),
@@ -1044,7 +1016,7 @@ def ingest_file_task(
         phash = sha1_short(src.as_posix(), 12)
         rej_path = Path(rejects_dir) / f"{src.stem}-{phash}.reject.json"
         ensure_dir(rej_path.parent)
-        rec = {"source_file": str(src), "error": str(e), "ts": dt.datetime.now(tz=dt.timezone.utc).isoformat()}
+        rec = {"source_file": str(src), "error": str(e), "ingested_at_utc": dt.datetime.now(tz=dt.timezone.utc).isoformat()}
         with rej_path.open("w", encoding="utf-8") as f:
             json.dump(rec, f, ensure_ascii=False, indent=2)
         return {"status": "reject", "source_file": str(src), "error": str(e)}
@@ -1097,7 +1069,7 @@ def merge_events_to_manifest(events_dir: Path, manifest_path: Path) -> None:
     
     Reads all event-*.json files from the events directory, combines them
     into a DataFrame, and merges with any existing manifest. Deduplicates
-    by (run_id, ts, status, path), keeping the latest occurrence.
+    by (run_id, ingested_at_utc, status, path), keeping the latest occurrence.
     
     Args:
         events_dir: Directory containing event-*.json files
@@ -1111,7 +1083,7 @@ def merge_events_to_manifest(events_dir: Path, manifest_path: Path) -> None:
         # Creates/updates manifest.parquet with all processing events
         
     Manifest schema:
-        - ts: Timestamp when event occurred
+        - ingested_at_utc: Timestamp when event occurred
         - status: "ok", "skipped", or "reject"
         - run_id: Unique measurement run identifier
         - proc: Procedure name
@@ -1226,7 +1198,7 @@ def run_staging_pipeline(params: StagingParameters, progress_callback=None) -> N
     os.environ["POLARS_MAX_THREADS"] = str(polars_threads)
 
     # Validate YAML schema (fail fast)
-    _ = get_procs_cached(params.procedures_yaml)
+    get_procs_cached(params.procedures_yaml)
 
     # Discover CSV files
     csvs = discover_csvs(raw_root)
@@ -1369,7 +1341,7 @@ def run_staging_pipeline_tui(params: StagingParameters, progress_callback=None) 
     os.environ["POLARS_MAX_THREADS"] = str(polars_threads)
 
     # Validate YAML schema (fail fast)
-    _ = get_procs_cached(params.procedures_yaml)
+    get_procs_cached(params.procedures_yaml)
 
     # Discover CSV files
     csvs = discover_csvs(raw_root)

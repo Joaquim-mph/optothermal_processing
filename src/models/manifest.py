@@ -19,7 +19,10 @@ from pydantic import BaseModel, Field, field_validator, ConfigDict
 # Procedure Type Enum
 # ══════════════════════════════════════════════════════════════════════
 
-Proc = Literal["IVg", "IV", "IVgT", "It", "ITt", "LaserCalibration", "Tt"]
+Proc = Literal[
+    "IVg", "IV", "IVgT", "It", "It2", "ITt", "ItVg", "ItWl",
+    "LaserCalibration", "Pt", "Pwl", "Tt", "Vt", "VVg",
+]
 """
 Procedure types from procedures.yml.
 
@@ -27,9 +30,16 @@ Procedure types from procedures.yml.
 - IV: Drain voltage sweep (Vsd vs I)
 - IVgT: Gate voltage sweep with temperature
 - It: Current vs time (photoresponse, time series)
+- It2: Current vs time, 3-phase (OFF/ON/OFF)
 - ITt: Current vs time with temperature
+- ItVg: Current vs time with gate sweep
+- ItWl: Current vs time with wavelength sweep
 - LaserCalibration: Laser power calibration
+- Pt: Power vs time
+- Pwl: Power vs wavelength
 - Tt: Temperature vs time
+- Vt: Voltage vs time
+- VVg: Voltage vs gate voltage sweep
 """
 
 
@@ -63,8 +73,9 @@ class ManifestRow(BaseModel):
     ----------------------
     Light status:
     - has_light: True (light), False (dark), None (unknown)
-    - laser_voltage_v: Laser/LED voltage (V < 0.1 = dark, V >= 0.1 = light)
-    - laser_wavelength_nm: Laser wavelength (nm)
+    - laser_voltage_V: Laser/LED voltage (V < 0.1 = dark, V >= 0.1 = light)
+    - wavelength_nm: Laser wavelength (nm)
+    - ids_a: Drain-source current (A) from metadata
     - laser_period_s: Laser ON+OFF period (s) for It/ITt procedures
 
     Voltage parameters (procedure-specific):
@@ -111,8 +122,8 @@ class ManifestRow(BaseModel):
     ...     chip_name="Alisson67",
     ...     file_idx=15,
     ...     has_light=True,
-    ...     laser_voltage_v=3.5,
-    ...     laser_wavelength_nm=455.0,
+    ...     laser_voltage_V=3.5,
+    ...     wavelength_nm=455.0,
     ...     laser_period_s=120.0,
     ...     vg_fixed_v=-3.0,
     ...     vds_v=0.1,
@@ -148,7 +159,7 @@ class ManifestRow(BaseModel):
 
     proc: Proc = Field(
         ...,
-        description="Procedure type: IVg, IV, IVgT, It, ITt, LaserCalibration, Tt"
+        description="Procedure type: IVg, IV, IVgT, It, It2, ITt, ItVg, ItWl, LaserCalibration, Pt, Pwl, Tt, Vt, VVg"
     )
 
     date_local: date = Field(
@@ -196,16 +207,21 @@ class ManifestRow(BaseModel):
         description="Light illumination status: True (light), False (dark), None (unknown)"
     )
 
-    laser_voltage_v: Optional[float] = Field(
+    laser_voltage_V: Optional[float] = Field(
         default=None,
         ge=0.0,
         description="Laser/LED voltage (V) - V < 0.1 = dark, V >= 0.1 = light"
     )
 
-    laser_wavelength_nm: Optional[float] = Field(
+    wavelength_nm: Optional[float] = Field(
         default=None,
-        gt=0.0,
-        description="Laser wavelength (nm) - typical: 455, 530, 625, etc."
+        ge=0.0,
+        description="Laser wavelength (nm) - typical: 455, 530, 625, etc. 0 = dark/no laser"
+    )
+
+    ids_a: Optional[float] = Field(
+        default=None,
+        description="Drain-source current (A) from metadata"
     )
 
     laser_period_s: Optional[float] = Field(
@@ -262,6 +278,32 @@ class ManifestRow(BaseModel):
         description="Source-drain voltage step size (V) - IV procedure"
     )
 
+    # VVg/Vt instrument setting
+    vrange: Optional[float] = Field(
+        default=None,
+        gt=0.0,
+        description="Voltage measurement range (V) - VVg, Vt procedures"
+    )
+
+    # It2 3-phase durations
+    phase1_duration_s: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description="Phase 1 duration, laser OFF (s) - It2 procedure"
+    )
+
+    phase2_duration_s: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description="Phase 2 duration, laser ON (s) - It2 procedure"
+    )
+
+    phase3_duration_s: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description="Phase 3 duration, laser OFF (s) - It2 procedure"
+    )
+
     # ═══════════════════════════════════════════════════════════════════
     # Measurement Parameters
     # ═══════════════════════════════════════════════════════════════════
@@ -274,7 +316,7 @@ class ManifestRow(BaseModel):
 
     sampling_time_s: Optional[float] = Field(
         default=None,
-        gt=0.0,
+        ge=0.0,
         description="Sampling time excluding Keithley settling (s) - It, ITt procedures"
     )
 
@@ -309,7 +351,7 @@ class ManifestRow(BaseModel):
 
     step_time_s: Optional[float] = Field(
         default=None,
-        gt=0.0,
+        ge=0.0,
         description="Time per voltage step (s) - IVg, IV, IVgT procedures"
     )
 
@@ -420,6 +462,48 @@ class ManifestRow(BaseModel):
     )
 
     # ═══════════════════════════════════════════════════════════════════
+    # Staging Internals
+    # ═══════════════════════════════════════════════════════════════════
+
+    status: Optional[str] = Field(
+        default=None,
+        description="Staging result status: 'ok', 'skipped', or 'reject'"
+    )
+
+    path: Optional[str] = Field(
+        default=None,
+        description="Output Parquet file path (relative to stage root)"
+    )
+
+    rows: Optional[int] = Field(
+        default=None,
+        ge=0,
+        description="Number of data rows in the staged measurement"
+    )
+
+    date_origin: Optional[str] = Field(
+        default=None,
+        description="Source of partition date: 'meta', 'path', or 'mtime'"
+    )
+
+    validation_errors: Optional[int] = Field(
+        default=None,
+        ge=0,
+        description="Count of validation errors from staging"
+    )
+
+    validation_warnings: Optional[int] = Field(
+        default=None,
+        ge=0,
+        description="Count of validation warnings from staging"
+    )
+
+    validation_messages: Optional[list[str]] = Field(
+        default=None,
+        description="Validation messages from staging (warnings, errors, info)"
+    )
+
+    # ═══════════════════════════════════════════════════════════════════
     # Validators
     # ═══════════════════════════════════════════════════════════════════
 
@@ -484,9 +568,16 @@ def proc_display_name(proc: Proc) -> str:
         "IV": "Drain Voltage Sweep",
         "IVgT": "Gate Voltage Sweep (Temperature)",
         "It": "Current vs Time",
+        "It2": "Current vs Time (3-Phase)",
         "ITt": "Current vs Time (Temperature)",
+        "ItVg": "Current vs Time (Gate Sweep)",
+        "ItWl": "Current vs Time (Wavelength Sweep)",
         "LaserCalibration": "Laser Power Calibration",
+        "Pt": "Power vs Time",
+        "Pwl": "Power vs Wavelength",
         "Tt": "Temperature vs Time",
+        "Vt": "Voltage vs Time",
+        "VVg": "Voltage vs Gate Voltage",
     }
     return names.get(proc, proc)
 
@@ -518,8 +609,15 @@ def proc_short_name(proc: Proc) -> str:
         "IV": "IV",
         "IVgT": "IVgT",
         "It": "ITS",      # Current vs Time → ITS (I-T Series)
+        "It2": "ITS2",    # Current vs Time 3-Phase
         "ITt": "ITS",     # Temperature variant also ITS
+        "ItVg": "ItVg",
+        "ItWl": "ItWl",
         "LaserCalibration": "Cal",
+        "Pt": "Pt",
+        "Pwl": "Pwl",
         "Tt": "Tt",
+        "Vt": "Vt",
+        "VVg": "VVg",
     }
     return names.get(proc, proc)

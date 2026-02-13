@@ -203,7 +203,7 @@ def read_measurement_parquet(path: Path) -> pl.DataFrame:
                         meta_row = manifest_df.row(0, named=True)
                         
                         # Columns to exclude from join (already in data or not needed)
-                        exclude = {"run_id", "proc", "path", "source_file", "rows", "status", "ts", "validation_errors", "validation_warnings", "validation_messages"}
+                        exclude = {"run_id", "proc", "path", "source_file", "rows", "status", "ingested_at_utc", "validation_errors", "validation_warnings", "validation_messages"}
                         
                         # Add metadata columns to df
                         new_cols = []

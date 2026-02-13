@@ -25,44 +25,45 @@ This pipeline processes raw measurement CSV files from lab equipment (Keithley s
 uv venv
 source .venv/bin/activate
 
-# Install dependencies
-uv install -r requirements.txt
+# Install as editable package (recommended)
+pip install -e .
+
+# Optional extras
+pip install -e ".[dev]"       # Testing (pytest)
+pip install -e ".[jupyter]"   # Jupyter/IPython support
 ```
 
 ### Basic Usage
 
+After installation, two commands are available system-wide:
+
 ```bash
-# Drop lab data in data/01_raw/
-# Run the complete pipeline (staging + history generation)
-python process_and_analyze.py full-pipeline
+# CLI: data processing and plotting
+biotite full-pipeline
+biotite derive-all-metrics
+biotite show-history 67
+biotite plot-its 67 --seq 52,57,58
+biotite plot-ivg 67 --auto
+biotite plot-cnp-time 81
+biotite plot-photoresponse 81 power
 
-# Extract derived metrics (CNP, photoresponse, laser power)
-python process_and_analyze.py derive-all-metrics
-
-# View experiment history for a chip
-python process_and_analyze.py show-history 67
-
-# Generate plots
-python process_and_analyze.py plot-its 67 --seq 52,57,58
-python process_and_analyze.py plot-ivg 67 --auto
-python process_and_analyze.py plot-cnp-time 81
-python process_and_analyze.py plot-photoresponse 81 power
-
-# Launch terminal UI for lab users
-python tui_app.py
+# TUI: interactive terminal UI for lab users
+biotite-tui
 ```
+
+Legacy script entry points (`python process_and_analyze.py`, `python tui_app.py`) still work for backward compatibility.
 
 ### List Available Commands
 
 ```bash
 # See all available commands
-python process_and_analyze.py --help
+biotite --help
 
 # List plugins with metadata
-python process_and_analyze.py list-plugins
+biotite list-plugins
 
 # List commands by group
-python process_and_analyze.py list-plugins --group plotting
+biotite list-plugins --group plotting
 ```
 
 ### Configuration Management
@@ -71,15 +72,15 @@ The CLI supports persistent configuration via JSON config files, eliminating the
 
 ```bash
 # Create a new configuration file
-python process_and_analyze.py config-init
+biotite config-init
 
 # View current configuration
-python process_and_analyze.py config-show
+biotite config-show
 
 # Use global options across all commands
-python process_and_analyze.py --verbose full-pipeline
-python process_and_analyze.py --output-dir /custom/path plot-its 67 --auto
-python process_and_analyze.py --config my-config.json stage-all
+biotite --verbose full-pipeline
+biotite --output-dir /custom/path plot-its 67 --auto
+biotite --config my-config.json stage-all
 ```
 
 **Configuration Sources (priority order):**
@@ -94,7 +95,7 @@ python process_and_analyze.py --config my-config.json stage-all
 
 ```bash
 # Initialize with preset configuration
-python process_and_analyze.py config-init --profile production
+biotite config-init --profile production
 
 # Available profiles:
 #   - development: Fast iteration with low quality plots
@@ -328,66 +329,66 @@ disabled_commands: []
 
 ```bash
 # Stage raw CSVs to Parquet
-python process_and_analyze.py stage-all
+biotite stage-all
 
 # Generate chip histories
-python process_and_analyze.py build-all-histories
+biotite build-all-histories
 
 # Or do both in one step
-python process_and_analyze.py full-pipeline
+biotite full-pipeline
 
 # Extract derived metrics (CNP, photoresponse, laser power)
-python process_and_analyze.py derive-all-metrics
+biotite derive-all-metrics
 ```
 
 ### Generate Plots
 
 ```bash
 # ITS overlay with specific experiments
-python process_and_analyze.py plot-its 67 --seq 52,57,58
+biotite plot-its 67 --seq 52,57,58
 
 # ITS with range notation
-python process_and_analyze.py plot-its 81 --seq 89-117
+biotite plot-its 81 --seq 89-117
 
 # Auto-select all ITS experiments
-python process_and_analyze.py plot-its 67 --auto
+biotite plot-its 67 --auto
 
 # ITS with filters
-python process_and_analyze.py plot-its 67 --auto --vg -0.4
+biotite plot-its 67 --auto --vg -0.4
 
 # IVg sequence plots
-python process_and_analyze.py plot-ivg 67 --seq 2,8,14
+biotite plot-ivg 67 --seq 2,8,14
 
 # VVg (drain-source voltage vs gate voltage)
-python process_and_analyze.py plot-vvg 67 --seq 2,8,14
+biotite plot-vvg 67 --seq 2,8,14
 
 # Transconductance
-python process_and_analyze.py plot-transconductance 67 --seq 2,8,14
+biotite plot-transconductance 67 --seq 2,8,14
 
 # CNP evolution over time
-python process_and_analyze.py plot-cnp-time 81
+biotite plot-cnp-time 81
 
 # Photoresponse analysis
-python process_and_analyze.py plot-photoresponse 81 power
-python process_and_analyze.py plot-photoresponse 81 wavelength --vg -0.4
-python process_and_analyze.py plot-photoresponse 81 gate_voltage --wl 660
-python process_and_analyze.py plot-photoresponse 81 time
+biotite plot-photoresponse 81 power
+biotite plot-photoresponse 81 wavelength --vg -0.4
+biotite plot-photoresponse 81 gate_voltage --wl 660
+biotite plot-photoresponse 81 time
 ```
 
 ### View History
 
 ```bash
 # Show complete history
-python process_and_analyze.py show-history 67
+biotite show-history 67
 
 # Filter by procedure
-python process_and_analyze.py show-history 67 --proc IVg
+biotite show-history 67 --proc IVg
 
 # Filter by light status
-python process_and_analyze.py show-history 67 --light dark
+biotite show-history 67 --light dark
 
 # Show last 20 experiments
-python process_and_analyze.py show-history 67 --limit 20
+biotite show-history 67 --limit 20
 ```
 
 ## Development
@@ -431,20 +432,23 @@ class MyMetricExtractor:
 ### Running Tests
 
 ```bash
-# Activate virtual environment
-source .venv/bin/activate
+# Install dev dependencies
+pip install -e ".[dev]"
+
+# Run tests
+python -m pytest tests/ -v
 
 # Test CLI imports
 python -c "from src.cli.main import app; print('OK')"
 
 # Test command discovery
-python process_and_analyze.py --help
+biotite --help
 
 # Validate manifest
-python process_and_analyze.py validate-manifest
+biotite validate-manifest
 
 # Test metric extraction (dry run)
-python process_and_analyze.py derive-all-metrics --dry-run
+biotite derive-all-metrics --dry-run
 ```
 
 ## Contributing
@@ -454,7 +458,7 @@ Contributions welcome! The plugin system makes it easy to add new commands witho
 1. Fork the repository
 2. Create your feature branch
 3. Add your command using `@cli_command()` decorator
-4. Test with `python process_and_analyze.py --help`
+4. Test with `biotite --help`
 5. Submit a pull request
 
 See [CLI_PLUGIN_SYSTEM.md](docs/CLI_PLUGIN_SYSTEM.md) for plugin development guide.

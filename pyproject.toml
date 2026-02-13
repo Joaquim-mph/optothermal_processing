@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "biotite"
+version = "0.1.0"
+description = "Data processing and visualization pipeline for optothermal semiconductor device characterization"
+requires-python = ">=3.11"
+dependencies = [
+    # Core data processing
+    "polars>=0.19.0",
+    "numpy>=1.24.0",
+    "scipy>=1.11.0",
+    "numba>=0.58.0",
+    # Staging layer
+    "pydantic>=2.0.0",
+    "pyarrow>=14.0.0",
+    "PyYAML>=6.0.0",
+    # Plotting
+    "matplotlib>=3.7.0",
+    "scienceplots>=2.0.0",
+    # Image/GIF generation
+    "imageio>=2.28.0",
+    "Pillow>=10.0.0",
+    # CLI
+    "typer>=0.9.0",
+    "rich>=13.0.0",
+    # TUI
+    "textual==6.3.0",
+]
+
+[project.optional-dependencies]
+jupyter = ["ipython>=8.0.0", "jupyter>=1.0.0"]
+dev = ["pytest>=9.0.0"]
+
+[project.scripts]
+biotite = "src.cli.main:main"
+biotite-tui = "src.tui.app:main"
+
+[tool.setuptools.packages.find]
+include = ["src*"]

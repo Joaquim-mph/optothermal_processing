@@ -12,36 +12,52 @@ Python data processing and visualization pipeline for optothermal semiconductor 
 
 ```bash
 source .venv/bin/activate
-python3 process_and_analyze.py --help
+pip install -e .              # Editable install, registers `biotite` and `biotite-tui` commands
+pip install -e ".[dev]"       # Include pytest
+pip install -e ".[jupyter]"   # Include Jupyter/IPython
 ```
+
+## Entry Points
+
+The package provides two console entry points via `pyproject.toml`:
+
+| Command | Entry point | Description |
+|---|---|---|
+| `biotite` | `src.cli.main:main` | Typer CLI (data processing, plotting, validation) |
+| `biotite-tui` | `src.tui.app:main` | Textual TUI (interactive wizard for lab users) |
+
+Legacy scripts (`python3 process_and_analyze.py`, `python3 tui_app.py`) still work.
 
 ## Essential Commands
 
 ```bash
 # Full pipeline: staging + history generation
-python3 process_and_analyze.py full-pipeline
+biotite full-pipeline
 
 # Staging and history
-python3 process_and_analyze.py stage-all              # CSV -> Parquet
-python3 process_and_analyze.py build-all-histories     # Manifest -> chip histories
-python3 process_and_analyze.py derive-all-metrics      # Extract CNP, photoresponse, etc.
-python3 process_and_analyze.py enrich-history 75       # Join derived metrics into history
+biotite stage-all              # CSV -> Parquet
+biotite build-all-histories     # Manifest -> chip histories
+biotite derive-all-metrics      # Extract CNP, photoresponse, etc.
+biotite enrich-history 75       # Join derived metrics into history
 
 # Viewing data
-python3 process_and_analyze.py show-history 67 --proc IVg --light dark
-python3 process_and_analyze.py show-history 67 --format json  # Also: csv, table
+biotite show-history 67 --proc IVg --light dark
+biotite show-history 67 --format json  # Also: csv, table
 
 # Plotting (all follow: plot-{type} CHIP --seq N,N,N or --auto)
-python3 process_and_analyze.py plot-its 67 --seq 52,57,58
-python3 process_and_analyze.py plot-ivg 67 --auto
-python3 process_and_analyze.py plot-its 67 --seq 52,57 --conductance --absolute
+biotite plot-its 67 --seq 52,57,58
+biotite plot-ivg 67 --auto
+biotite plot-its 67 --seq 52,57 --conductance --absolute
 
 # Batch plotting from YAML config
-python3 process_and_analyze.py batch-plot config/batch_plots/alisson67_plots.yaml
+biotite batch-plot config/batch_plots/alisson67_plots.yaml
 
 # Validation
-python3 process_and_analyze.py validate-manifest
-python3 process_and_analyze.py list-plugins
+biotite validate-manifest
+biotite list-plugins
+
+# TUI
+biotite-tui
 ```
 
 ### Testing
@@ -81,7 +97,8 @@ data/03_derived/
 - **`src/derived/`** - Metric extraction pipeline. Extractors in `extractors/` are auto-discovered via `registry.py`. Numba-accelerated algorithms in `algorithms/`
 - **`src/cli/`** - Typer CLI with plugin auto-discovery (`@cli_command` decorator). Commands in `commands/` are auto-registered
 - **`src/tui/`** - Textual terminal UI for lab users
-- **`process_and_analyze.py`** - Thin wrapper entry point
+- **`pyproject.toml`** - Package config with `biotite` and `biotite-tui` entry points
+- **`process_and_analyze.py`** - Legacy CLI entry point (use `biotite` command instead)
 
 ### Configuration Files
 
@@ -151,7 +168,7 @@ def my_command(chip_number: int = typer.Argument(..., help="Chip number")):
 1. Update `src/models/manifest.py` (Pydantic model)
 2. Bump `schema_version`
 3. Handle migrations for existing fields
-4. Validate: `python3 process_and_analyze.py validate-manifest`
+4. Validate: `biotite validate-manifest`
 
 ## Key Concepts
 

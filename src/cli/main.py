@@ -99,7 +99,8 @@ def set_plot_config(config: PlotConfig) -> None:
 app = typer.Typer(
     name="process_and_analyze",
     help="Complete data processing and analysis pipeline for semiconductor device characterization",
-    add_completion=False
+    add_completion=False,
+    context_settings={"help_option_names": ["-h", "--help"]},
 )
 
 

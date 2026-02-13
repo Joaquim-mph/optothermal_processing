@@ -201,3 +201,23 @@ class PlotterApp(App):
             Configuration value
         """
         return getattr(self.session, key, default)
+
+
+def main():
+    """Launch the TUI application."""
+    stage_dir = Path("data/02_stage/raw_measurements")
+    history_dir = Path("data/02_stage/chip_histories")
+    output_dir = Path("figs")
+    chip_group = "Alisson"
+
+    app = PlotterApp(
+        stage_dir=stage_dir,
+        history_dir=history_dir,
+        output_dir=output_dir,
+        chip_group=chip_group,
+    )
+    app.run()
+
+
+if __name__ == "__main__":
+    main()

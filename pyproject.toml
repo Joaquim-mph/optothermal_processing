@@ -33,10 +33,12 @@ dependencies = [
 [project.optional-dependencies]
 jupyter = ["ipython>=8.0.0", "jupyter>=1.0.0"]
 dev = ["pytest>=9.0.0"]
+gui = ["PyQt6>=6.5.0", "pyqtgraph>=0.13.0"]
 
 [project.scripts]
 biotite = "src.cli.main:main"
 biotite-tui = "src.tui.app:main"
+biotite-gui = "src.gui.app:main"
 
 [tool.setuptools.packages.find]
 include = ["src*"]

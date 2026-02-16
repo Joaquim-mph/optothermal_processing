@@ -645,6 +645,130 @@ QLineEdit:focus {{
     border-color: {colors['blue']};
     border-width: 2px;
 }}
+
+/* ═══════════════════════════════════════════
+   Pipeline Cards
+   ═══════════════════════════════════════════ */
+
+QFrame#pipeline-card {{
+    background-color: {colors['bg_highlight']};
+    border: 1px solid {colors['border']};
+    border-radius: 8px;
+    padding: 0;
+}}
+
+QFrame#pipeline-card:hover {{
+    border-color: {colors['blue']};
+}}
+
+QFrame#pipeline-card-hero {{
+    background-color: {colors['bg_highlight']};
+    border: 1px solid {colors['border']};
+    border-radius: 10px;
+    padding: 0;
+}}
+
+QFrame#pipeline-card-hero:hover {{
+    border-color: {colors['blue']};
+}}
+
+QLabel#card-title {{
+    font-size: 14px;
+    font-weight: bold;
+    color: {colors['fg']};
+}}
+
+QLabel#card-title-hero {{
+    font-size: 17px;
+    font-weight: bold;
+    color: {colors['fg']};
+}}
+
+QLabel#card-desc {{
+    font-size: 12px;
+    color: {colors['comment']};
+}}
+
+QLabel#card-accent {{
+    border-radius: 4px;
+    min-width: 4px;
+    max-width: 4px;
+}}
+
+QPushButton#card-run-btn {{
+    background-color: {colors['blue']};
+    color: {colors['bg']};
+    border: none;
+    border-radius: 6px;
+    font-weight: bold;
+    font-size: 12px;
+    padding: 7px 18px;
+    min-height: 18px;
+}}
+
+QPushButton#card-run-btn:hover {{
+    background-color: {colors['cyan']};
+}}
+
+QPushButton#card-run-btn:pressed {{
+    background-color: {colors['fg_dark']};
+}}
+
+QPushButton#card-secondary-btn {{
+    background-color: transparent;
+    color: {colors['fg_dark']};
+    border: 1px solid {colors['border']};
+    border-radius: 6px;
+    font-size: 12px;
+    padding: 7px 14px;
+    min-height: 18px;
+}}
+
+QPushButton#card-secondary-btn:hover {{
+    border-color: {colors['blue']};
+    color: {colors['blue']};
+}}
+
+QWidget#card-options {{
+    background-color: {colors['bg_dark']};
+    border-radius: 4px;
+}}
+
+QLabel#settings-bar-label {{
+    font-size: 12px;
+    color: {colors['comment']};
+}}
+
+/* Card inline progress */
+QProgressBar#card-progress {{
+    background-color: {colors['bg_dark']};
+    border: none;
+    border-radius: 3px;
+    max-height: 6px;
+    min-height: 6px;
+}}
+
+QProgressBar#card-progress::chunk {{
+    background-color: {colors['blue']};
+    border-radius: 3px;
+}}
+
+QLabel#card-status {{
+    font-size: 11px;
+    color: {colors['comment']};
+}}
+
+QLabel#card-status-success {{
+    font-size: 11px;
+    color: {colors['green']};
+    font-weight: bold;
+}}
+
+QLabel#card-status-error {{
+    font-size: 11px;
+    color: {colors['red']};
+    font-weight: bold;
+}}
 """
 
 

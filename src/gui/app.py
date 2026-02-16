@@ -275,7 +275,7 @@ class MainWindow(QMainWindow):
             "plot_error": "Error",
             "history_browser": "History Browser",
             "plot_browser": "Plot Browser",
-            "data_pipeline_menu": "Pipeline Control Center",
+            "data_pipeline_menu": "Process Data",
             "process_confirmation": "Confirm Processing",
             "pipeline_loading": "Processing...",
             "process_success": "Processing Complete",

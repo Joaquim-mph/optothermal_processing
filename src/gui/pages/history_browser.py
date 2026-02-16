@@ -9,20 +9,30 @@ Includes a live pyqtgraph plot panel for interactive experiment exploration.
 """
 
 from __future__ import annotations
+
 from collections import OrderedDict
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import polars as pl
-from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
-    QComboBox, QFrame, QSplitter, QCheckBox,
-)
+import pyqtgraph as pg
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor
-
-import pyqtgraph as pg
+from PyQt6.QtWidgets import (
+    QAbstractItemView,
+    QCheckBox,
+    QComboBox,
+    QFrame,
+    QHBoxLayout,
+    QHeaderView,
+    QLabel,
+    QPushButton,
+    QSplitter,
+    QTableWidget,
+    QTableWidgetItem,
+    QVBoxLayout,
+    QWidget,
+)
 
 if TYPE_CHECKING:
     from src.gui.app import MainWindow
@@ -30,16 +40,26 @@ if TYPE_CHECKING:
 from src.gui.theme import COLORS
 
 # Fixed columns matching the TUI history browser (same order)
-TABLE_COLUMNS = ["Light", "Seq", "Date", "Time", "Proc", "VG", "LED V", "\u03bb (nm)", "VDS (V)"]
+TABLE_COLUMNS = [
+    "Light",
+    "Seq",
+    "Date",
+    "Time",
+    "Proc",
+    "VG",
+    "LED V",
+    "\u03bb (nm)",
+    "VDS (V)",
+]
 
-# Procedure → (x_column, y_column, x_label, y_label)
+# Procedure → (x_column, y_column, x_name, x_unit, y_name, y_unit)
 PROC_AXES = {
-    "It":  ("t (s)", "I (A)", "Time (s)", "Current (A)"),
-    "IVg": ("Vg (V)", "I (A)", "Gate Voltage (V)", "Current (A)"),
-    "VVg": ("Vg (V)", "VDS (V)", "Gate Voltage (V)", "Drain-Source Voltage (V)"),
-    "Vt":  ("t (s)", "VDS (V)", "Time (s)", "Drain-Source Voltage (V)"),
-    "IV":  ("Vsd (V)", "I (A)", "Source-Drain Voltage (V)", "Current (A)"),
-    "LaserCalibration": ("VL (V)", "Power (W)", "Laser Voltage (V)", "Power (W)"),
+    "It": ("t (s)", "I (A)", "Time", "s", "Current", "A"),
+    "IVg": ("Vg (V)", "I (A)", "Gate Voltage", "V", "Current", "A"),
+    "VVg": ("Vg (V)", "VDS (V)", "Gate Voltage", "V", "Drain-Source Voltage", "V"),
+    "Vt": ("t (s)", "VDS (V)", "Time", "s", "Drain-Source Voltage", "V"),
+    "IV": ("Vsd (V)", "I (A)", "Source-Drain Voltage", "V", "Current", "A"),
+    "LaserCalibration": ("VL (V)", "Power (W)", "Laser Voltage", "V", "Power", "W"),
 }
 
 # Tokyo Night plot line color cycle
@@ -153,7 +173,7 @@ class HistoryBrowserPage(QWidget):
         self._plot_toggle_btn = QPushButton("Show Plot")
         self._plot_toggle_btn.setCheckable(True)
         self._plot_toggle_btn.setChecked(False)
-        self._plot_toggle_btn.setFixedWidth(90)
+        self._plot_toggle_btn.setFixedWidth(101)
         self._plot_toggle_btn.clicked.connect(self._toggle_plot_panel)
         filter_row.addWidget(self._plot_toggle_btn)
 
@@ -191,18 +211,18 @@ class HistoryBrowserPage(QWidget):
         toolbar.setSpacing(8)
 
         clear_btn = QPushButton("Clear")
-        clear_btn.setFixedWidth(70)
+        clear_btn.setFixedWidth(71)
         clear_btn.clicked.connect(self._clear_plot)
         toolbar.addWidget(clear_btn)
 
-        self._conductance_cb = QCheckBox("Conductance (G=I/V)")
+        self._conductance_cb = QCheckBox("Conductance")
         self._conductance_cb.setVisible(False)
-        self._conductance_cb.toggled.connect(self._on_transform_toggled)
+        self._conductance_cb.toggled.connect(self._on_conductance_toggled)
         toolbar.addWidget(self._conductance_cb)
 
-        self._resistance_cb = QCheckBox("Resistance (R=V/I)")
+        self._resistance_cb = QCheckBox("Resistance")
         self._resistance_cb.setVisible(False)
-        self._resistance_cb.toggled.connect(self._on_transform_toggled)
+        self._resistance_cb.toggled.connect(self._on_resistance_toggled)
         toolbar.addWidget(self._resistance_cb)
 
         self._plot_info = QLabel("")
@@ -218,11 +238,12 @@ class HistoryBrowserPage(QWidget):
         self._plot_widget.setBackground(COLORS["bg"])
         self._plot_widget.showGrid(x=False, y=False)
 
-        # Style axes to match Tokyo Night
+        # Style axes to match Tokyo Night + enable SI prefix auto-scaling
         for axis_name in ("bottom", "left"):
             axis = self._plot_widget.getAxis(axis_name)
             axis.setPen(pg.mkPen(COLORS["fg"], width=1))
             axis.setTextPen(pg.mkPen(COLORS["fg"]))
+            axis.enableAutoSIPrefix(True)
 
         # Add legend
         self._legend = self._plot_widget.addLegend(
@@ -240,15 +261,6 @@ class HistoryBrowserPage(QWidget):
         self._plot_container.setVisible(False)
 
         layout.addWidget(self._splitter, stretch=1)
-
-        # ── Status bar (matches TUI: "Showing 51 of 90 experiments — Filters: proc=It") ──
-        self._status_bar = QLabel("")
-        self._status_bar.setObjectName("page-subtitle")
-        self._status_bar.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._status_bar.setStyleSheet(
-            f"background-color: #1f2335; padding: 6px; border-top: 1px solid #3b4261;"
-        )
-        layout.addWidget(self._status_bar)
 
         # ── Navigation ──
         nav_row = QHBoxLayout()
@@ -275,6 +287,7 @@ class HistoryBrowserPage(QWidget):
 
         try:
             from src.tui.utils import discover_chips
+
             chips = discover_chips(
                 self._window.session.history_dir,
                 self._window.session.chip_group,
@@ -285,7 +298,9 @@ class HistoryBrowserPage(QWidget):
         if not chips:
             self._chip_combo.addItem("No chips found")
             self._chip_combo.blockSignals(False)
-            self._stats_header.setText("No chip data available — run 'biotite full-pipeline' first")
+            self._stats_header.setText(
+                "No chip data available — run 'biotite full-pipeline' first"
+            )
             self._table.setRowCount(0)
             return
 
@@ -310,7 +325,6 @@ class HistoryBrowserPage(QWidget):
             self._history_df = None
             self._table.setRowCount(0)
             self._stats_header.setText("")
-            self._status_bar.setText("")
             self._clear_plot()
             return
         self._load_history(chip_number)
@@ -326,7 +340,6 @@ class HistoryBrowserPage(QWidget):
             self._stats_header.setText(f"History file not found for {chip_name}")
             self._history_df = None
             self._table.setRowCount(0)
-            self._status_bar.setText("")
             return
 
         try:
@@ -420,18 +433,6 @@ class HistoryBrowserPage(QWidget):
                 applied.append("light=off")
 
         self._filtered_df = df
-
-        # Update status bar (matching TUI style)
-        total = self._history_df.height
-        filtered = df.height
-        if applied:
-            filter_text = ", ".join(applied)
-            self._status_bar.setText(
-                f"Showing {filtered} of {total} experiments \u2014 Filters: {filter_text}"
-            )
-        else:
-            self._status_bar.setText(f"Showing all {total} experiments")
-
         self._populate_table(df)
 
         # Clear plot on filter change (selected rows no longer match)
@@ -478,8 +479,12 @@ class HistoryBrowserPage(QWidget):
         # Resize columns to fit content, but keep stretch on last
         header = self._table.horizontalHeader()
         for col_idx in range(len(TABLE_COLUMNS) - 1):
-            header.setSectionResizeMode(col_idx, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(len(TABLE_COLUMNS) - 1, QHeaderView.ResizeMode.Stretch)
+            header.setSectionResizeMode(
+                col_idx, QHeaderView.ResizeMode.ResizeToContents
+            )
+        header.setSectionResizeMode(
+            len(TABLE_COLUMNS) - 1, QHeaderView.ResizeMode.Stretch
+        )
 
     # ── Live plot ──
 
@@ -508,12 +513,20 @@ class HistoryBrowserPage(QWidget):
 
         # Build path from components
         session = self._window.session
-        stage_dir = Path(session.config.get("stage_dir", "data/02_stage/raw_measurements"))
+        stage_dir = Path(
+            session.config.get("stage_dir", "data/02_stage/raw_measurements")
+        )
         proc = row.get("proc", "")
         date = row.get("date", "")
         run_id = row.get("run_id", "")
         if proc and date and run_id:
-            p = stage_dir / f"proc={proc}" / f"date={date}" / f"run_id={run_id}" / "part-000.parquet"
+            p = (
+                stage_dir
+                / f"proc={proc}"
+                / f"date={date}"
+                / f"run_id={run_id}"
+                / "part-000.parquet"
+            )
             if p.exists():
                 return p
 
@@ -570,23 +583,27 @@ class HistoryBrowserPage(QWidget):
         self._update_transform_controls(proc)
 
         # Determine if transform is active
-        use_conductance = self._conductance_cb.isVisible() and self._conductance_cb.isChecked()
-        use_resistance = self._resistance_cb.isVisible() and self._resistance_cb.isChecked()
+        use_conductance = (
+            self._conductance_cb.isVisible() and self._conductance_cb.isChecked()
+        )
+        use_resistance = (
+            self._resistance_cb.isVisible() and self._resistance_cb.isChecked()
+        )
 
         if axes_cfg is None:
             self._plot_info.setText(f"Unknown procedure: {proc}")
             return
 
-        x_col, y_col, x_label, y_label = axes_cfg
+        x_col, y_col, x_name, x_unit, y_name, y_unit = axes_cfg
 
         # Apply transform labels
         if use_conductance:
-            y_label = "Conductance (S)"
+            y_name, y_unit = "Conductance", "S"
         elif use_resistance:
-            y_label = "Resistance (\u03a9)"
+            y_name, y_unit = "Resistance", "\u03a9"
 
-        self._plot_widget.setLabel("bottom", x_label)
-        self._plot_widget.setLabel("left", y_label)
+        self._plot_widget.setLabel("bottom", x_name, units=x_unit)
+        self._plot_widget.setLabel("left", y_name, units=y_unit)
 
         for i, (row, data) in enumerate(items_to_plot):
             color = PLOT_COLORS[i % len(PLOT_COLORS)]
@@ -607,19 +624,14 @@ class HistoryBrowserPage(QWidget):
                 vds = row.get("vds_v")
                 if vds is not None:
                     import numpy as np
+
                     with np.errstate(divide="ignore", invalid="ignore"):
                         y = float(vds) / ids
                         y = np.where(np.isfinite(y), y, 0.0)
 
             # Build legend label
             seq = row.get("seq", "?")
-            wl = row.get("wavelength_nm")
-            label = f"Seq {seq}"
-            if wl is not None:
-                try:
-                    label += f" - {float(wl):.0f}nm"
-                except (TypeError, ValueError):
-                    pass
+            label = f"Seq. {seq}"
 
             pen = pg.mkPen(color=color, width=2)
             self._plot_widget.plot(x, y, pen=pen, name=label)
@@ -629,16 +641,29 @@ class HistoryBrowserPage(QWidget):
         self._plot_info.setText(f"{n} experiment{'s' if n != 1 else ''} ({proc_text})")
 
     def _update_transform_controls(self, proc: str) -> None:
-        """Show/hide conductance or resistance checkbox based on procedure."""
-        # Conductance: applicable to It, IVg (current-based)
-        # Resistance: applicable to VVg, Vt (voltage-based)
-        show_conductance = proc in ("It", "IVg")
-        show_resistance = proc in ("VVg", "Vt")
-        self._conductance_cb.setVisible(show_conductance)
-        self._resistance_cb.setVisible(show_resistance)
+        """Show/hide conductance and resistance checkboxes based on procedure."""
+        has_transforms = proc in ("It", "IVg", "VVg", "Vt")
+        self._conductance_cb.setVisible(has_transforms)
+        self._resistance_cb.setVisible(has_transforms)
 
-    def _on_transform_toggled(self) -> None:
-        """Re-plot when conductance/resistance checkbox is toggled."""
+    def _on_conductance_toggled(self, checked: bool) -> None:
+        """Uncheck resistance when conductance is checked, then re-plot."""
+        if checked:
+            self._resistance_cb.blockSignals(True)
+            self._resistance_cb.setChecked(False)
+            self._resistance_cb.blockSignals(False)
+        self._replot_current_selection()
+
+    def _on_resistance_toggled(self, checked: bool) -> None:
+        """Uncheck conductance when resistance is checked, then re-plot."""
+        if checked:
+            self._conductance_cb.blockSignals(True)
+            self._conductance_cb.setChecked(False)
+            self._conductance_cb.blockSignals(False)
+        self._replot_current_selection()
+
+    def _replot_current_selection(self) -> None:
+        """Re-plot currently selected rows."""
         selected_rows = sorted({idx.row() for idx in self._table.selectedIndexes()})
         if selected_rows:
             self._plot_selected(selected_rows)
@@ -677,10 +702,10 @@ class HistoryBrowserPage(QWidget):
             return ("", None)
         value = row.get("has_light")
         if value is True:
-            return ("\u2600", QColor("#e0af68"))   # ☀  yellow/amber
+            return ("\u2600", QColor("#e0af68"))  # ☀  yellow/amber
         if value is False:
-            return ("\u263e", QColor("#7aa2f7"))    # ☾  blue
-        return ("?", QColor("#565f89"))             # muted grey
+            return ("\u263e", QColor("#7aa2f7"))  # ☾  blue
+        return ("?", QColor("#565f89"))  # muted grey
 
     @staticmethod
     def _fmt_vg(row: dict) -> str:

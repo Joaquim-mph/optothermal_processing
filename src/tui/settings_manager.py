@@ -12,17 +12,14 @@ from pathlib import Path
 from typing import Dict, Any, Optional, Literal
 
 
-# Available Textual themes (Textual 6.3.0)
+# Available themes (shared between TUI and GUI)
 Theme = Literal[
-    "textual-dark",
-    "textual-light",
+    "tokyo-night",
     "nord",
-    "gruvbox",
-    "catppuccin-latte",
-    "catppuccin-mocha",
     "dracula",
-    "monokai",
-    "tokyo-night"
+    "gruvbox",
+    "catppuccin-mocha",
+    "catppuccin-latte",
 ]
 
 DEFAULT_THEME: Theme = "tokyo-night"
@@ -206,9 +203,6 @@ class SettingsManager:
             "gruvbox",
             "catppuccin-mocha",
             "catppuccin-latte",
-            "monokai",
-            "textual-dark",
-            "textual-light",
         ]
 
     def get_theme_display_name(self, theme: str) -> str:
@@ -232,8 +226,5 @@ class SettingsManager:
             "gruvbox": "Gruvbox",
             "catppuccin-mocha": "Catppuccin Mocha (Dark)",
             "catppuccin-latte": "Catppuccin Latte (Light)",
-            "monokai": "Monokai",
-            "textual-dark": "Textual Dark (Default)",
-            "textual-light": "Textual Light",
         }
         return display_names.get(theme, theme.title())

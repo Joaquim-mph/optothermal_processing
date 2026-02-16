@@ -113,10 +113,12 @@ class SettingsPage(QWidget):
         theme_id = self._theme_combo.currentData()
         if theme_id:
             self._window.settings_manager.theme = theme_id
+            self._window.apply_theme(theme_id)
             display = self._theme_combo.currentText()
-            self._status_label.setText(f"Theme saved: {display}")
+            self._status_label.setText(f"Theme applied: {display}")
 
     def _reset_defaults(self) -> None:
         self._window.settings_manager.reset_to_defaults()
+        self._window.apply_theme(self._window.settings_manager.theme)
         self._populate_themes()
         self._status_label.setText("Reset to defaults")

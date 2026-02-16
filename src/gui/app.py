@@ -16,7 +16,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QShortcut, QKeySequence
 
-from src.gui.theme import STYLESHEET
+from src.gui.theme import STYLESHEET, get_stylesheet
 from src.gui.router import Router
 from src.tui.session import PlotSession
 from src.tui.config_manager import ConfigManager
@@ -275,7 +275,7 @@ class MainWindow(QMainWindow):
             "plot_error": "Error",
             "history_browser": "History Browser",
             "plot_browser": "Plot Browser",
-            "data_pipeline_menu": "Process Data",
+            "data_pipeline_menu": "Pipeline Control Center",
             "process_confirmation": "Confirm Processing",
             "pipeline_loading": "Processing...",
             "process_success": "Processing Complete",
@@ -338,11 +338,23 @@ class MainWindow(QMainWindow):
         for name, btn in self._sidebar_buttons.items():
             btn.setChecked(name == active)
 
+    def apply_theme(self, theme_id: str) -> None:
+        """Apply a theme stylesheet to the entire application."""
+        qss = get_stylesheet(theme_id)
+        app = QApplication.instance()
+        if app is not None:
+            app.setStyleSheet(qss)
+        self.logger.info("Applied theme: %s", theme_id)
+
 
 def main():
     """Launch the GUI application."""
     app = QApplication(sys.argv)
-    app.setStyleSheet(STYLESHEET)
+
+    # Load saved theme (falls back to Tokyo Night if not set)
+    from src.tui.settings_manager import SettingsManager
+    saved_theme = SettingsManager().theme
+    app.setStyleSheet(get_stylesheet(saved_theme))
 
     stage_dir = Path("data/02_stage/raw_measurements")
     history_dir = Path("data/02_stage/chip_histories")

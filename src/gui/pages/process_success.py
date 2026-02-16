@@ -1,7 +1,7 @@
 """
 Pipeline Success Page.
 
-Displays results after successful data processing.
+Displays step-specific results after successful data processing.
 """
 
 from __future__ import annotations
@@ -10,6 +10,8 @@ from typing import TYPE_CHECKING
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame,
 )
+
+from src.gui.workers import PipelineStepWorker
 
 if TYPE_CHECKING:
     from src.gui.app import MainWindow
@@ -37,9 +39,9 @@ class ProcessSuccessPage(QWidget):
         sep.setFrameShape(QFrame.Shape.HLine)
         layout.addWidget(sep)
 
-        results_header = QLabel("Pipeline Results")
-        results_header.setObjectName("section-header")
-        layout.addWidget(results_header)
+        self._results_header = QLabel("Results")
+        self._results_header.setObjectName("section-header")
+        layout.addWidget(self._results_header)
 
         self._results_label = QLabel("")
         self._results_label.setWordWrap(True)
@@ -50,13 +52,13 @@ class ProcessSuccessPage(QWidget):
         sep2.setFrameShape(QFrame.Shape.HLine)
         layout.addWidget(sep2)
 
-        output_header = QLabel("Output Locations")
-        output_header.setObjectName("section-header")
-        layout.addWidget(output_header)
+        self._output_header = QLabel("Output Locations")
+        self._output_header.setObjectName("section-header")
+        layout.addWidget(self._output_header)
 
-        layout.addWidget(QLabel("  data/02_stage/raw_measurements/ - Staged Parquet files"))
-        layout.addWidget(QLabel("  data/02_stage/raw_measurements/_manifest/ - Manifest"))
-        layout.addWidget(QLabel("  data/02_stage/chip_histories/ - Chip history Parquet"))
+        self._output_label = QLabel("")
+        self._output_label.setWordWrap(True)
+        layout.addWidget(self._output_label)
 
         layout.addStretch()
 
@@ -68,6 +70,10 @@ class ProcessSuccessPage(QWidget):
         plot_btn.clicked.connect(lambda: self._window.router.navigate_to("chip_selector"))
         btn_row.addWidget(plot_btn)
 
+        pipeline_btn = QPushButton("Pipeline Menu")
+        pipeline_btn.clicked.connect(lambda: self._window.router.navigate_to("data_pipeline_menu"))
+        btn_row.addWidget(pipeline_btn)
+
         home_btn = QPushButton("Main Menu")
         home_btn.clicked.connect(self._window.router.return_to_main_menu)
         btn_row.addWidget(home_btn)
@@ -75,19 +81,69 @@ class ProcessSuccessPage(QWidget):
         btn_row.addStretch()
         layout.addLayout(btn_row)
 
-    def on_enter(self, result: dict | None = None, **kwargs) -> None:
+    def on_enter(self, result: dict | None = None, step_name: str = "full_pipeline", **kwargs) -> None:
         if result is None:
             result = {}
 
-        elapsed = result.get("elapsed", 0)
-        files = result.get("files_processed", 0)
-        experiments = result.get("experiments", 0)
-        histories = result.get("histories", 0)
-        chips = result.get("total_chips", 0)
+        label = PipelineStepWorker.STEP_LABELS.get(step_name, "Processing")
+        self._title.setText(f"{label} Complete")
 
-        self._results_label.setText(
-            f"CSV files staged: {files}\n"
-            f"Experiments in manifest: {experiments}\n"
-            f"Chip histories generated: {histories} / {chips} chips\n"
-            f"Total processing time: {elapsed:.1f}s"
-        )
+        elapsed = result.get("elapsed", 0)
+
+        if step_name == "full_pipeline":
+            self._results_header.setText("Pipeline Results")
+            self._results_label.setText(
+                f"CSV files staged: {result.get('files_processed', 0)}\n"
+                f"Experiments in manifest: {result.get('experiments', 0)}\n"
+                f"Chip histories generated: {result.get('histories', 0)} / {result.get('total_chips', 0)} chips\n"
+                f"Total processing time: {elapsed:.1f}s"
+            )
+            self._output_header.setVisible(True)
+            self._output_label.setVisible(True)
+            self._output_label.setText(
+                "  data/02_stage/raw_measurements/ - Staged Parquet files\n"
+                "  data/02_stage/raw_measurements/_manifest/ - Manifest\n"
+                "  data/02_stage/chip_histories/ - Chip history Parquet\n"
+                "  data/03_derived/_metrics/ - Derived metrics\n"
+                "  data/03_derived/chip_histories_enriched/ - Enriched histories"
+            )
+        else:
+            self._results_header.setText("Results")
+            summary = result.get("summary", "Operation completed successfully.")
+            self._results_label.setText(f"{summary}\nTime: {elapsed:.1f}s")
+
+            # Show step-specific output paths
+            output_paths = _get_output_paths(step_name)
+            if output_paths:
+                self._output_header.setVisible(True)
+                self._output_label.setVisible(True)
+                self._output_label.setText(output_paths)
+            else:
+                self._output_header.setVisible(False)
+                self._output_label.setVisible(False)
+
+
+def _get_output_paths(step_name: str) -> str:
+    """Return output path descriptions for a given step."""
+    paths = {
+        "stage_all": (
+            "  data/02_stage/raw_measurements/ - Staged Parquet files\n"
+            "  data/02_stage/raw_measurements/_manifest/ - Manifest"
+        ),
+        "build_histories": (
+            "  data/02_stage/chip_histories/ - Chip history Parquet files"
+        ),
+        "derive_all_metrics": (
+            "  data/03_derived/_metrics/metrics.parquet - All derived metrics"
+        ),
+        "derive_fitting_metrics": (
+            "  data/03_derived/_metrics/metrics.parquet - Fitting metrics"
+        ),
+        "derive_consecutive_sweeps": (
+            "  data/03_derived/_metrics/metrics.parquet - Sweep difference metrics"
+        ),
+        "enrich_history": (
+            "  data/03_derived/chip_histories_enriched/ - Enriched histories"
+        ),
+    }
+    return paths.get(step_name, "")

@@ -37,7 +37,7 @@ from PyQt6.QtWidgets import (
 if TYPE_CHECKING:
     from src.gui.app import MainWindow
 
-from src.gui.theme import COLORS
+from src.gui.theme import get_palette, get_plot_colors
 
 # Fixed columns matching the TUI history browser (same order)
 TABLE_COLUMNS = [
@@ -61,17 +61,6 @@ PROC_AXES = {
     "IV": ("Vsd (V)", "I (A)", "Source-Drain Voltage", "V", "Current", "A"),
     "LaserCalibration": ("VL (V)", "Power (W)", "Laser Voltage", "V", "Power", "W"),
 }
-
-# Tokyo Night plot line color cycle
-PLOT_COLORS = [
-    "#7aa2f7",  # blue
-    "#9ece6a",  # green
-    "#bb9af7",  # magenta
-    "#7dcfff",  # cyan
-    "#ff9e64",  # orange
-    "#e0af68",  # yellow
-    "#f7768e",  # red
-]
 
 # Max cached dataframes
 _CACHE_MAX = 20
@@ -105,7 +94,14 @@ class HistoryBrowserPage(QWidget):
         self._filtered_df: pl.DataFrame | None = None
         self._has_light: bool = False
         self._data_cache = _LRUCache(_CACHE_MAX)
+        self._load_theme_colors()
         self._init_ui()
+
+    def _load_theme_colors(self) -> None:
+        """Load palette and plot colors from the current theme."""
+        theme_id = self._window.settings_manager.theme
+        self._palette = get_palette(theme_id)
+        self._plot_colors = get_plot_colors(theme_id)
 
     def _init_ui(self) -> None:
         layout = QVBoxLayout(self)
@@ -235,21 +231,13 @@ class HistoryBrowserPage(QWidget):
         # pyqtgraph PlotWidget
         pg.setConfigOptions(antialias=True)
         self._plot_widget = pg.PlotWidget()
-        self._plot_widget.setBackground(COLORS["bg"])
         self._plot_widget.showGrid(x=False, y=False)
 
-        # Style axes to match Tokyo Night + enable SI prefix auto-scaling
-        for axis_name in ("bottom", "left"):
-            axis = self._plot_widget.getAxis(axis_name)
-            axis.setPen(pg.mkPen(COLORS["fg"], width=1))
-            axis.setTextPen(pg.mkPen(COLORS["fg"]))
-            axis.enableAutoSIPrefix(True)
+        # Add legend (colors applied via _apply_plot_theme)
+        self._legend = self._plot_widget.addLegend(offset=(10, 10))
 
-        # Add legend
-        self._legend = self._plot_widget.addLegend(
-            offset=(10, 10),
-            labelTextColor=COLORS["fg"],
-        )
+        # Apply current theme colors to the plot widget
+        self._apply_plot_theme()
 
         plot_layout.addWidget(self._plot_widget, stretch=1)
         self._splitter.addWidget(plot_container)
@@ -606,7 +594,7 @@ class HistoryBrowserPage(QWidget):
         self._plot_widget.setLabel("left", y_name, units=y_unit)
 
         for i, (row, data) in enumerate(items_to_plot):
-            color = PLOT_COLORS[i % len(PLOT_COLORS)]
+            color = self._plot_colors[i % len(self._plot_colors)]
             if x_col not in data.columns or y_col not in data.columns:
                 continue
 
@@ -694,6 +682,24 @@ class HistoryBrowserPage(QWidget):
         self._conductance_cb.setVisible(False)
         self._resistance_cb.setVisible(False)
 
+    def _apply_plot_theme(self) -> None:
+        """Apply current palette colors to the pyqtgraph plot widget."""
+        p = self._palette
+        self._plot_widget.setBackground(p["bg"])
+        for axis_name in ("bottom", "left"):
+            axis = self._plot_widget.getAxis(axis_name)
+            axis.setPen(pg.mkPen(p["fg"], width=1))
+            axis.setTextPen(pg.mkPen(p["fg"]))
+            axis.enableAutoSIPrefix(True)
+        self._legend.setLabelTextColor(p["fg"])
+
+    def apply_theme(self) -> None:
+        """Refresh plot colors when the application theme changes."""
+        self._load_theme_colors()
+        self._apply_plot_theme()
+        # Re-plot with new colors if anything is selected
+        self._replot_current_selection()
+
     # ── Cell formatters (matching TUI exactly) ──
 
     def _fmt_light(self, row: dict) -> tuple[str, QColor | None]:
@@ -702,10 +708,10 @@ class HistoryBrowserPage(QWidget):
             return ("", None)
         value = row.get("has_light")
         if value is True:
-            return ("\u2600", QColor("#e0af68"))  # ☀  yellow/amber
+            return ("\u2600", QColor(self._palette["yellow"]))  # ☀
         if value is False:
-            return ("\u263e", QColor("#7aa2f7"))  # ☾  blue
-        return ("?", QColor("#565f89"))  # muted grey
+            return ("\u263e", QColor(self._palette["blue"]))  # ☾
+        return ("?", QColor(self._palette["comment"]))  # muted
 
     @staticmethod
     def _fmt_vg(row: dict) -> str:

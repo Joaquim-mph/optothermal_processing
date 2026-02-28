@@ -131,6 +131,17 @@ THEME_PALETTES: dict[str, dict[str, str]] = {
 COLORS = THEME_PALETTES["tokyo-night"]
 
 
+def get_plot_colors(theme_id: str) -> list[str]:
+    """Return a 7-color line cycle for pyqtgraph plots matching the given theme."""
+    p = THEME_PALETTES.get(theme_id, THEME_PALETTES["tokyo-night"])
+    return [p["blue"], p["green"], p["magenta"], p["cyan"], p["orange"], p["yellow"], p["red"]]
+
+
+def get_palette(theme_id: str) -> dict[str, str]:
+    """Return the color palette dict for a theme (falls back to Tokyo Night)."""
+    return THEME_PALETTES.get(theme_id, THEME_PALETTES["tokyo-night"])
+
+
 def build_stylesheet(colors: dict[str, str]) -> str:
     """
     Build a complete QSS stylesheet from a color palette dict.

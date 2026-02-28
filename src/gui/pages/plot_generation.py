@@ -58,7 +58,7 @@ class PlotGenerationPage(QWidget):
 
         self._worker = PlotWorker(request)
         self._worker.progress.connect(self._on_progress)
-        self._worker.finished.connect(self._on_finished)
+        self._worker.completed.connect(self._on_finished)
         self._worker.error.connect(self._on_error)
         self._worker.start()
 

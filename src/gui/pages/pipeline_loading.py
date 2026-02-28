@@ -63,7 +63,7 @@ class PipelineLoadingPage(QWidget):
             self._worker = PipelineStepWorker(step_name, self._options)
 
         self._worker.progress.connect(self._on_progress)
-        self._worker.finished.connect(self._on_finished)
+        self._worker.completed.connect(self._on_finished)
         self._worker.error.connect(self._on_error)
         self._worker.start()
 

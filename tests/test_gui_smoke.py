@@ -50,6 +50,7 @@ EXPECTED_PAGES = [
     "data_pipeline_menu", "process_confirmation", "pipeline_loading",
     "process_success", "process_error",
     "log_viewer", "settings",
+    "batch_plot", "batch_progress", "batch_results",
 ]
 
 
@@ -98,7 +99,7 @@ def test_sidebar_buttons(main_window):
     """Sidebar has expected buttons."""
     expected_sidebar = [
         "chip_selector", "history_browser", "plot_browser",
-        "data_pipeline_menu", "recent_configs", "log_viewer", "settings",
+        "data_pipeline_menu", "batch_plot", "recent_configs", "log_viewer", "settings",
     ]
     assert list(main_window._sidebar_buttons.keys()) == expected_sidebar
 

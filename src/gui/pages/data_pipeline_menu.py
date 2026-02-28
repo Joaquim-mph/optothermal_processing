@@ -465,7 +465,7 @@ class DataPipelineMenuPage(QWidget):
         self._active_workers[card] = worker
 
         worker.progress.connect(lambda pct, msg, c=card: c.set_progress(pct, msg))
-        worker.finished.connect(lambda result, c=card: self._on_step_done(c, result))
+        worker.completed.connect(lambda result, c=card: self._on_step_done(c, result))
         worker.error.connect(lambda msg, tp, tb, c=card: self._on_step_error(c, msg, tp, tb))
 
         # For info steps, also wire log_output
@@ -475,7 +475,9 @@ class DataPipelineMenuPage(QWidget):
         worker.start()
 
     def _on_step_done(self, card: _PipelineCard, result: dict) -> None:
-        self._active_workers.pop(card, None)
+        worker = self._active_workers.pop(card, None)
+        if worker is not None:
+            worker.deleteLater()
         elapsed = result.get("elapsed", 0)
         summary = result.get("summary", "Done")
         card.set_success(f"{summary}  ({elapsed:.1f}s)")
@@ -494,7 +496,9 @@ class DataPipelineMenuPage(QWidget):
             card.show_results(result["output"])
 
     def _on_step_error(self, card: _PipelineCard, msg: str, tp: str, tb: str) -> None:
-        self._active_workers.pop(card, None)
+        worker = self._active_workers.pop(card, None)
+        if worker is not None:
+            worker.deleteLater()
         card.set_error(f"{tp}: {msg}", tb)
 
     # ── Button handlers ───────────────────────────────────────────

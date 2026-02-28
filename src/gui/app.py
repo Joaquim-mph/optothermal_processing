@@ -37,6 +37,7 @@ class MainWindow(QMainWindow):
         ("History", "history_browser"),
         ("Plots", "plot_browser"),
         ("Process Data", "data_pipeline_menu"),
+        ("Batch Plot", "batch_plot"),
         ("Recent", "recent_configs"),
         ("Logs", "log_viewer"),
         ("Settings", "settings"),
@@ -179,6 +180,9 @@ class MainWindow(QMainWindow):
         from src.gui.config_pages.photoresponse_config import PhotoresponseConfigPage
         from src.gui.config_pages.laser_calibration_config import LaserCalibrationConfigPage
         from src.gui.config_pages.its_relaxation_config import ITSRelaxationConfigPage
+        from src.gui.pages.batch_plot import BatchPlotPage
+        from src.gui.pages.batch_progress import BatchProgressPage
+        from src.gui.pages.batch_results import BatchResultsPage
 
         pages = [
             ("main_menu", MainMenuPage(self)),
@@ -211,6 +215,9 @@ class MainWindow(QMainWindow):
             ("process_error", ProcessErrorPage(self)),
             ("log_viewer", LogViewerPage(self)),
             ("settings", SettingsPage(self)),
+            ("batch_plot", BatchPlotPage(self)),
+            ("batch_progress", BatchProgressPage(self)),
+            ("batch_results", BatchResultsPage(self)),
         ]
 
         for name, widget in pages:
@@ -283,6 +290,9 @@ class MainWindow(QMainWindow):
             "recent_configs": "Recent Configs",
             "log_viewer": "Logs",
             "settings": "Settings",
+            "batch_plot": "Batch Plot",
+            "batch_progress": "Running Batch...",
+            "batch_results": "Batch Results",
         }
 
         # Add chip info if selected
@@ -330,6 +340,9 @@ class MainWindow(QMainWindow):
             "process_success": "data_pipeline_menu",
             "process_error": "data_pipeline_menu",
             "recent_configs": "recent_configs",
+            "batch_plot": "batch_plot",
+            "batch_progress": "batch_plot",
+            "batch_results": "batch_plot",
             "log_viewer": "log_viewer",
             "settings": "settings",
         }
@@ -344,6 +357,11 @@ class MainWindow(QMainWindow):
         app = QApplication.instance()
         if app is not None:
             app.setStyleSheet(qss)
+        # Notify pages that use non-QSS styling (e.g. pyqtgraph plots)
+        for i in range(self.stack.count()):
+            page = self.stack.widget(i)
+            if hasattr(page, "apply_theme"):
+                page.apply_theme()
         self.logger.info("Applied theme: %s", theme_id)
 
 

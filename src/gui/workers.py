@@ -17,7 +17,7 @@ class PlotWorker(QThread):
     """Background thread for plot generation."""
 
     progress = pyqtSignal(float, str)  # percent, status_msg
-    finished = pyqtSignal(object)      # PlotResult
+    completed = pyqtSignal(object)     # PlotResult
     error = pyqtSignal(str, str, str)  # error_msg, error_type, traceback
 
     def __init__(self, request: PlotRequest, parent=None):
@@ -30,7 +30,7 @@ class PlotWorker(QThread):
                 self._request,
                 progress=self._on_progress,
             )
-            self.finished.emit(result)
+            self.completed.emit(result)
         except Exception as e:
             tb = traceback.format_exc()
             self.error.emit(str(e), type(e).__name__, tb)
@@ -39,11 +39,99 @@ class PlotWorker(QThread):
         self.progress.emit(percent, status)
 
 
+class BatchPlotWorker(QThread):
+    """Background thread for batch plot generation from YAML config."""
+
+    plot_started = pyqtSignal(int, int, str)   # current_index, total, description
+    plot_finished = pyqtSignal(int, object)     # current_index, PlotResult
+    all_finished = pyqtSignal(list)             # list[PlotResult]
+    error = pyqtSignal(str, str, str)           # error_msg, error_type, traceback
+
+    def __init__(self, config_path: str, parallel: bool = False, workers: int = 4, parent=None):
+        super().__init__(parent)
+        self._config_path = config_path
+        self._parallel = parallel
+        self._workers = workers
+        self._cancelled = False
+
+    def cancel(self) -> None:
+        """Request cancellation (checked between plots / shuts down executor)."""
+        self._cancelled = True
+
+    def run(self) -> None:
+        try:
+            import matplotlib
+            matplotlib.use("Agg")
+
+            from pathlib import Path
+            from src.plotting.batch import load_batch_config, execute_plot as batch_execute_plot
+
+            chip, chip_group, plot_specs = load_batch_config(Path(self._config_path))
+            total = len(plot_specs)
+
+            if self._parallel and total > 1:
+                results = self._run_parallel(plot_specs, chip_group, total)
+            else:
+                results = self._run_sequential(plot_specs, chip_group, total)
+
+            self.all_finished.emit(results)
+
+        except Exception as e:
+            tb = traceback.format_exc()
+            self.error.emit(str(e), type(e).__name__, tb)
+
+    def _run_sequential(self, plot_specs, chip_group: str, total: int) -> list:
+        from src.plotting.batch import execute_plot as batch_execute_plot
+
+        results = []
+        for i, spec in enumerate(plot_specs):
+            if self._cancelled:
+                break
+
+            tag_str = f" ({spec.tag})" if spec.tag else ""
+            desc = f"{spec.type}{tag_str}"
+            self.plot_started.emit(i, total, desc)
+
+            result = batch_execute_plot(spec, chip_group, quiet=True)
+            results.append(result)
+            self.plot_finished.emit(i, result)
+
+        return results
+
+    def _run_parallel(self, plot_specs, chip_group: str, total: int) -> list:
+        from concurrent.futures import ProcessPoolExecutor, as_completed
+        from src.plotting.batch import execute_plot as batch_execute_plot, _worker_init
+
+        results = []
+        completed = 0
+
+        self.plot_started.emit(0, total, f"Parallel ({self._workers} workers)")
+
+        with ProcessPoolExecutor(max_workers=self._workers, initializer=_worker_init) as executor:
+            futures = {
+                executor.submit(batch_execute_plot, spec, chip_group, True): spec
+                for spec in plot_specs
+            }
+
+            for future in as_completed(futures):
+                if self._cancelled:
+                    executor.shutdown(wait=False, cancel_futures=True)
+                    break
+
+                result = future.result()
+                results.append(result)
+                completed += 1
+                self.plot_finished.emit(completed - 1, result)
+                self.plot_started.emit(completed, total, f"Parallel ({self._workers} workers)")
+
+        return results
+
+
 class PipelineWorker(QThread):
     """Background thread for the full data processing pipeline."""
 
-    progress = pyqtSignal(float, str)   # percent, status_msg
-    finished = pyqtSignal(dict)          # result stats dict
+    progress = pyqtSignal(float, str)    # percent, status_msg
+    completed = pyqtSignal(dict)         # result stats dict
     error = pyqtSignal(str, str, str)    # error_msg, error_type, traceback
 
     def run(self) -> None:
@@ -95,10 +183,7 @@ class PipelineWorker(QThread):
             if not manifest_path.exists():
                 raise FileNotFoundError(f"Manifest not found: {manifest_path}")
 
-            manifest = pl.read_parquet(manifest_path).filter(pl.col("status") == "ok")
-            chip_numbers = manifest.select("chip_number").unique().filter(
-                pl.col("chip_number").is_not_null()
-            ).height
+            manifest = pl.read_parquet(manifest_path)
 
             history_dir.mkdir(parents=True, exist_ok=True)
             histories = generate_all_chip_histories(
@@ -143,12 +228,12 @@ class PipelineWorker(QThread):
             self.progress.emit(100, "Complete!")
             elapsed = time.time() - start
 
-            self.finished.emit({
+            self.completed.emit({
                 "elapsed": elapsed,
                 "files_processed": total_csvs,
                 "experiments": manifest.height,
                 "histories": histories_created,
-                "total_chips": chip_numbers,
+                "total_chips": histories_created,
             })
 
         except Exception as e:
@@ -159,8 +244,8 @@ class PipelineWorker(QThread):
 class PipelineStepWorker(QThread):
     """Background thread for individual pipeline steps."""
 
-    progress = pyqtSignal(float, str)   # percent, status_msg
-    finished = pyqtSignal(dict)          # result dict
+    progress = pyqtSignal(float, str)    # percent, status_msg
+    completed = pyqtSignal(dict)         # result dict
     error = pyqtSignal(str, str, str)    # error_msg, error_type, traceback
     log_output = pyqtSignal(str)         # text output for info-only commands
 
@@ -198,7 +283,7 @@ class PipelineStepWorker(QThread):
             result["elapsed"] = time.time() - start
             result["step_name"] = self._step_name
             self.progress.emit(100, "Complete!")
-            self.finished.emit(result)
+            self.completed.emit(result)
 
         except Exception as e:
             tb = traceback.format_exc()
@@ -288,15 +373,13 @@ class PipelineStepWorker(QThread):
 
         self.progress.emit(90, f"Created {histories_created} histories")
 
-        manifest = pl.read_parquet(manifest_path).filter(pl.col("status") == "ok")
-        total_chips = manifest.select("chip_number").unique().filter(
-            pl.col("chip_number").is_not_null()
-        ).height
+        # Count unique chips from the histories actually generated
+        total_chips = len(histories)
 
         return {
             "histories": histories_created,
             "total_chips": total_chips,
-            "summary": f"Generated {histories_created} chip histories from {total_chips} chips",
+            "summary": f"Generated {histories_created} chip histories",
         }
 
     def _run_derive_all_metrics(self) -> dict:
@@ -510,20 +593,24 @@ class PipelineStepWorker(QThread):
         lines.append(f"Total rows: {total_rows}")
 
         # Status counts
-        ok_count = df.filter(pl.col("status") == "ok").height
-        error_count = total_rows - ok_count
-        lines.append(f"OK: {ok_count}  Errors: {error_count}")
+        status_counts = df.group_by("status").len().sort("len", descending=True)
+        status_parts = []
+        for row in status_counts.iter_rows(named=True):
+            status_parts.append(f"{row['status']}: {row['len']}")
+        lines.append("Status: " + ", ".join(status_parts))
 
-        # Procedure counts
+        ok_count = df.filter(pl.col("status") == "ok").height
+
+        # Procedure counts (use full manifest, not just "ok" rows)
         lines.append("")
         lines.append("Procedures:")
-        proc_counts = df.filter(pl.col("status") == "ok").group_by("proc").len().sort("len", descending=True)
+        proc_counts = df.group_by("proc").len().sort("len", descending=True)
         for row in proc_counts.iter_rows(named=True):
             lines.append(f"  {row['proc']}: {row['len']}")
 
-        # Unique chips
+        # Unique chips (use full manifest)
         lines.append("")
-        unique_chips = df.filter(pl.col("status") == "ok").select("chip_number").unique().filter(
+        unique_chips = df.select("chip_number").unique().filter(
             pl.col("chip_number").is_not_null()
         ).height
         lines.append(f"Unique chips: {unique_chips}")
@@ -538,10 +625,10 @@ class PipelineStepWorker(QThread):
 
         # Date range
         if "start_time_utc" in df.columns:
-            ok_df = df.filter(pl.col("status") == "ok")
-            if ok_df.height > 0:
-                min_dt = ok_df.select(pl.col("start_time_utc").min()).item()
-                max_dt = ok_df.select(pl.col("start_time_utc").max()).item()
+            dated_df = df.filter(pl.col("start_time_utc").is_not_null())
+            if dated_df.height > 0:
+                min_dt = dated_df.select(pl.col("start_time_utc").min()).item()
+                max_dt = dated_df.select(pl.col("start_time_utc").max()).item()
                 lines.append(f"Date range: {min_dt} to {max_dt}")
 
         # Schema validation via Pydantic
@@ -563,10 +650,9 @@ class PipelineStepWorker(QThread):
         return {
             "total_rows": total_rows,
             "ok_count": ok_count,
-            "error_count": error_count,
             "unique_chips": unique_chips,
             "output": output,
-            "summary": f"Manifest validated: {ok_count} OK, {error_count} errors, {unique_chips} chips",
+            "summary": f"Manifest validated: {total_rows} rows, {unique_chips} chips",
         }
 
     def _run_staging_stats(self) -> dict:
@@ -602,8 +688,11 @@ class PipelineStepWorker(QThread):
         # Manifest info
         if manifest_path.exists():
             df = pl.read_parquet(manifest_path)
-            ok_count = df.filter(pl.col("status") == "ok").height
-            lines.append(f"Manifest:    {df.height} rows ({ok_count} OK)")
+            status_counts = df.group_by("status").len().sort("len", descending=True)
+            status_str = ", ".join(
+                f"{r['status']}: {r['len']}" for r in status_counts.iter_rows(named=True)
+            )
+            lines.append(f"Manifest:    {df.height} rows ({status_str})")
         else:
             lines.append(f"Manifest:    not found ({manifest_path})")
 

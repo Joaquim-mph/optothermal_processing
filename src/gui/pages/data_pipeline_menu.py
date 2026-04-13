@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame,
-    QScrollArea, QCheckBox, QSpinBox, QPlainTextEdit,
+    QScrollArea, QCheckBox, QSpinBox, QPlainTextEdit, QLineEdit,
     QGridLayout, QSizePolicy, QGraphicsDropShadowEffect,
     QProgressBar, QMessageBox,
 )
@@ -423,6 +423,36 @@ class DataPipelineMenuPage(QWidget):
         self._stats_card.run_button.clicked.connect(self._on_staging_stats)
         info_grid.addWidget(self._stats_card, 0, 1)
 
+        self._inspect_card = self._make_card(
+            "Inspect Manifest",
+            "Browse manifest rows with optional procedure and chip filters",
+            _ACCENTS["info"], "Inspect",
+        )
+        self._inspect_proc = QLineEdit()
+        self._inspect_proc.setPlaceholderText("Proc (e.g. IVg)")
+        self._inspect_proc.setFixedWidth(110)
+        self._inspect_card.options_layout.addWidget(QLabel("Proc:"))
+        self._inspect_card.options_layout.addWidget(self._inspect_proc)
+
+        self._inspect_chip = QSpinBox()
+        self._inspect_chip.setRange(0, 9999)
+        self._inspect_chip.setSpecialValueText("Any")
+        self._inspect_chip.setFixedWidth(70)
+        self._inspect_card.options_layout.addWidget(QLabel("Chip:"))
+        self._inspect_card.options_layout.addWidget(self._inspect_chip)
+
+        self._inspect_limit = QSpinBox()
+        self._inspect_limit.setRange(10, 500)
+        self._inspect_limit.setValue(50)
+        self._inspect_limit.setFixedWidth(60)
+        self._inspect_card.options_layout.addWidget(QLabel("Limit:"))
+        self._inspect_card.options_layout.addWidget(self._inspect_limit)
+
+        self._inspect_card.options_layout.addStretch()
+        self._inspect_card.show_options()
+        self._inspect_card.run_button.clicked.connect(self._on_inspect_manifest)
+        info_grid.addWidget(self._inspect_card, 1, 0, 1, 2)
+
         self._content.addLayout(info_grid)
 
     def _make_card(self, title: str, desc: str, accent: str, label: str) -> _PipelineCard:
@@ -547,3 +577,13 @@ class DataPipelineMenuPage(QWidget):
 
     def _on_staging_stats(self) -> None:
         self._run_step(self._stats_card, "staging_stats", {})
+
+    def _on_inspect_manifest(self) -> None:
+        options: dict = {"limit": self._inspect_limit.value()}
+        proc = self._inspect_proc.text().strip()
+        if proc:
+            options["proc_filter"] = proc
+        chip = self._inspect_chip.value()
+        if chip > 0:
+            options["chip_filter"] = chip
+        self._run_step(self._inspect_card, "inspect_manifest", options)

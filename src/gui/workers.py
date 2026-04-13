@@ -260,6 +260,7 @@ class PipelineStepWorker(QThread):
         "enrich_history": "Enriching chip histories",
         "validate_manifest": "Validating manifest",
         "staging_stats": "Gathering staging statistics",
+        "inspect_manifest": "Inspecting manifest",
     }
 
     def __init__(self, step_name: str, options: dict | None = None, parent=None):
@@ -726,4 +727,75 @@ class PipelineStepWorker(QThread):
         return {
             "output": output,
             "summary": f"Staging stats: {csv_count} raw CSVs",
+        }
+
+    def _run_inspect_manifest(self) -> dict:
+        """Info command - browse manifest rows with optional filters."""
+        from pathlib import Path
+        import polars as pl
+
+        stage_root = Path("data/02_stage/raw_measurements")
+        manifest_path = stage_root / "_manifest" / "manifest.parquet"
+
+        if not manifest_path.exists():
+            raise FileNotFoundError(f"Manifest not found: {manifest_path}")
+
+        self.progress.emit(20, "Loading manifest...")
+        df = pl.read_parquet(manifest_path)
+        total_rows = df.height
+
+        # Apply optional filters
+        proc_filter = self._options.get("proc_filter")
+        chip_filter = self._options.get("chip_filter")
+        limit = self._options.get("limit", 50)
+
+        if proc_filter:
+            df = df.filter(pl.col("proc") == proc_filter)
+        if chip_filter:
+            df = df.filter(pl.col("chip_number") == chip_filter)
+
+        self.progress.emit(50, "Formatting results...")
+
+        shown = df.tail(limit)
+        shown_count = shown.height
+
+        # Build header line
+        filter_parts = []
+        if proc_filter:
+            filter_parts.append(f"proc={proc_filter}")
+        if chip_filter:
+            filter_parts.append(f"chip={chip_filter}")
+        filter_desc = f" [{', '.join(filter_parts)}]" if filter_parts else ""
+        lines = [
+            f"Manifest: {manifest_path}",
+            f"Total rows: {total_rows}{filter_desc}  →  showing last {shown_count}",
+            "",
+        ]
+
+        # Column widths for fixed-width text table
+        header = f"{'run_id':<10}  {'proc':<20}  {'chip':>5}  {'date':<12}  {'status':<8}  source_file"
+        sep = "-" * len(header)
+        lines.append(header)
+        lines.append(sep)
+
+        display_cols = ["run_id", "proc", "chip_number", "date_local", "status", "source_file"]
+        available = [c for c in display_cols if c in shown.columns]
+
+        for row in shown.select(available).iter_rows(named=True):
+            run_id = str(row.get("run_id", ""))[:10]
+            proc = str(row.get("proc", ""))[:20]
+            chip = str(row.get("chip_number", ""))[:5]
+            date = str(row.get("date_local", ""))[:12]
+            status = str(row.get("status", ""))[:8]
+            src = row.get("source_file", "")
+            src_base = Path(src).name if src else ""
+            lines.append(f"{run_id:<10}  {proc:<20}  {chip:>5}  {date:<12}  {status:<8}  {src_base}")
+
+        output = "\n".join(lines)
+        self.log_output.emit(output)
+        self.progress.emit(90, f"Showing {shown_count} of {total_rows} rows")
+
+        return {
+            "output": output,
+            "summary": f"Manifest: {shown_count} of {total_rows} rows shown",
         }

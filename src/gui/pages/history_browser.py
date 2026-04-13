@@ -11,6 +11,7 @@ Includes a live pyqtgraph plot panel for interactive experiment exploration.
 from __future__ import annotations
 
 from collections import OrderedDict
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -22,10 +23,16 @@ from PyQt6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
     QComboBox,
+    QDialog,
+    QDialogButtonBox,
+    QFileDialog,
+    QFormLayout,
     QFrame,
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QLineEdit,
+    QMessageBox,
     QPushButton,
     QSplitter,
     QTableWidget,
@@ -82,6 +89,99 @@ class _LRUCache(OrderedDict):
         if len(self) > self._maxsize:
             self.popitem(last=False)
         return value
+
+
+class _ExportDialog(QDialog):
+    """Compact export dialog: choose format and output path, then write with Polars."""
+
+    def __init__(self, df: "pl.DataFrame", chip_name: str, parent=None):
+        super().__init__(parent)
+        self._df = df
+        self._chip_name = chip_name
+        self.setWindowTitle("Export History")
+        self.setMinimumWidth(440)
+        self._init_ui()
+
+    def _init_ui(self) -> None:
+        layout = QVBoxLayout(self)
+        layout.setSpacing(12)
+
+        form = QFormLayout()
+        form.setSpacing(8)
+
+        self._fmt_combo = QComboBox()
+        self._fmt_combo.addItems(["CSV", "JSON", "Parquet", "XLSX"])
+        form.addRow("Format:", self._fmt_combo)
+
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        default_name = f"{self._chip_name}_history_{ts}.csv"
+        default_path = str(
+            Path("data/04_exports/histories") / self._chip_name / default_name
+        )
+        self._path_edit = QLineEdit(default_path)
+        browse_btn = QPushButton("Browse…")
+        browse_btn.setFixedWidth(80)
+        browse_btn.clicked.connect(self._browse)
+        path_row = QHBoxLayout()
+        path_row.setSpacing(6)
+        path_row.addWidget(self._path_edit)
+        path_row.addWidget(browse_btn)
+        form.addRow("Save to:", path_row)
+
+        layout.addLayout(form)
+
+        count_label = QLabel(f"{len(self._df)} experiments will be exported")
+        count_label.setObjectName("info-label")
+        layout.addWidget(count_label)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.button(QDialogButtonBox.StandardButton.Ok).setText("Export")
+        buttons.accepted.connect(self._do_export)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+        self._fmt_combo.currentTextChanged.connect(self._update_path_ext)
+
+    def _update_path_ext(self, fmt_text: str) -> None:
+        ext = fmt_text.lower()
+        path = Path(self._path_edit.text())
+        self._path_edit.setText(str(path.with_suffix(f".{ext}")))
+
+    def _browse(self) -> None:
+        fmt = self._fmt_combo.currentText().lower()
+        filters = {
+            "csv": "CSV Files (*.csv)",
+            "json": "JSON Files (*.json)",
+            "parquet": "Parquet Files (*.parquet)",
+            "xlsx": "Excel Files (*.xlsx)",
+        }
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export History", self._path_edit.text(), filters.get(fmt, "All Files (*)")
+        )
+        if path:
+            self._path_edit.setText(path)
+
+    def _do_export(self) -> None:
+        out = Path(self._path_edit.text())
+        out.parent.mkdir(parents=True, exist_ok=True)
+        fmt = self._fmt_combo.currentText().lower()
+        try:
+            if fmt == "csv":
+                self._df.write_csv(out)
+            elif fmt == "json":
+                self._df.write_json(out)
+            elif fmt == "parquet":
+                self._df.write_parquet(out)
+            elif fmt == "xlsx":
+                self._df.write_excel(out)
+            QMessageBox.information(
+                self, "Exported", f"Saved {len(self._df)} rows to:\n{out}"
+            )
+            self.accept()
+        except Exception as e:
+            QMessageBox.critical(self, "Export Failed", str(e))
 
 
 class HistoryBrowserPage(QWidget):
@@ -172,6 +272,12 @@ class HistoryBrowserPage(QWidget):
         self._plot_toggle_btn.setFixedWidth(101)
         self._plot_toggle_btn.clicked.connect(self._toggle_plot_panel)
         filter_row.addWidget(self._plot_toggle_btn)
+
+        # Export button
+        self._export_btn = QPushButton("Export")
+        self._export_btn.setFixedWidth(80)
+        self._export_btn.clicked.connect(self._on_export)
+        filter_row.addWidget(self._export_btn)
 
         layout.addLayout(filter_row)
 
@@ -655,6 +761,19 @@ class HistoryBrowserPage(QWidget):
         selected_rows = sorted({idx.row() for idx in self._table.selectedIndexes()})
         if selected_rows:
             self._plot_selected(selected_rows)
+
+    def _on_export(self) -> None:
+        """Open export dialog for the currently filtered history."""
+        if self._filtered_df is None or self._filtered_df.is_empty():
+            QMessageBox.warning(self, "No Data", "No experiments to export.")
+            return
+        chip_number = self._chip_combo.currentData()
+        if chip_number is None:
+            QMessageBox.warning(self, "No Chip", "Select a chip first.")
+            return
+        chip_name = f"{self._window.session.chip_group}{chip_number}"
+        dialog = _ExportDialog(df=self._filtered_df, chip_name=chip_name, parent=self)
+        dialog.exec()
 
     def _toggle_plot_panel(self) -> None:
         """Show or hide the plot panel."""

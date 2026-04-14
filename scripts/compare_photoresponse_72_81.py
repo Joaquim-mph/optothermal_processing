@@ -113,11 +113,53 @@ def load_chip_curve(
     return wavelengths_nm, delta_current_uA
 
 
+def make_figure(
+    curves: list[tuple[str, np.ndarray, np.ndarray]],
+    axtype: str,
+    output_path: Path,
+    config: PlotConfig,
+) -> Path:
+    """Draw one overlay figure and save it. axtype is 'linear' or 'semilogy'."""
+    fig, ax = plt.subplots(figsize=config.figsize_derived)
+
+    for label, wl, di_uA in curves:
+        ax.plot(wl, di_uA, "o-", label=label)
+
+    ax.set_xlabel("Wavelength (nm)")
+    ax.set_ylabel("Δ Current (µA)")
+
+    if axtype == "semilogy":
+        ax.set_yscale("log")
+    elif axtype != "linear":
+        raise ValueError(f"axtype must be 'linear' or 'semilogy', got {axtype!r}")
+
+    ax.legend(loc="best", framealpha=0.9)
+
+    plt.tight_layout()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    plt.savefig(output_path, dpi=config.dpi, bbox_inches="tight")
+    plt.close(fig)
+    print(f"saved {output_path}")
+    return output_path
+
+
 def main() -> None:
+    config = PlotConfig()
+    set_plot_style(config.theme)
+
     curves: list[tuple[str, np.ndarray, np.ndarray]] = []
     for chip in CHIPS:
         wl, di = load_chip_curve(chip["chip_number"], chip["seqs"], chip["label"])
         curves.append((chip["label"], wl, di))
+
+    base = OUTPUT_DIR / "alisson72_vs_81_ITS_photoresponse_vs_wavelength"
+    make_figure(curves, "linear", base.with_suffix(".png"), config)
+    make_figure(
+        curves,
+        "semilogy",
+        base.with_name(base.name + "_semilogy").with_suffix(".png"),
+        config,
+    )
 
 
 if __name__ == "__main__":

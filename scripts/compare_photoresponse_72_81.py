@@ -19,6 +19,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import polars as pl
 
+from src.core.utils import read_measurement_parquet
 from src.plotting.config import PlotConfig
 from src.plotting.styles import set_plot_style
 from src.plotting.its_photoresponse import _extract_delta_current_from_its
@@ -80,8 +81,6 @@ def load_chip_curve(
         delta_values: list[float | None] = []
         base_rows = after_light
         for row in base_rows.iter_rows(named=True):
-            from src.core.utils import read_measurement_parquet
-
             parquet_path = Path(row.get("parquet_path") or row.get("source_file") or "")
             if not parquet_path.exists():
                 delta_values.append(None)

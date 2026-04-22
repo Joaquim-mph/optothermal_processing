@@ -519,8 +519,16 @@ def _enrich_metrics(
                 pl.col("value_float").alias(metric_name)
             ])
 
-        # Join metrics to history
+        # Join metrics to history. Drop any pre-existing metric columns first so
+        # repeat runs overwrite cleanly instead of producing `<name>_right` suffix
+        # collisions (which accumulate and eventually error on subsequent runs).
         for metric_name, metric_df in metric_cols.items():
+            stale_cols = [
+                c for c in history.columns
+                if c == metric_name or c == f"{metric_name}_right"
+            ]
+            if stale_cols:
+                history = history.drop(stale_cols)
             history = history.join(metric_df, on="run_id", how="left")
 
         # Save enriched history

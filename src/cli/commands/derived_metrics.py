@@ -194,11 +194,11 @@ def derive_all_metrics_command(
         "-w",
         help="Number of parallel worker processes"
     ),
-    force: bool = typer.Option(
+    skip_existing: bool = typer.Option(
         False,
-        "--force",
-        "-f",
-        help="Force re-extraction (overwrite existing metrics)"
+        "--skip-existing",
+        help="Skip measurements whose run_id already has metrics (incremental). "
+             "Default: re-extract everything so adding/changing extractors updates all rows."
     ),
     include_calibrations: bool = typer.Option(
         True,
@@ -260,7 +260,7 @@ def derive_all_metrics_command(
             chip_group=chip_group,
             chip_number=chip_number,
             workers=workers,
-            force=force,
+            force=not skip_existing,
             dry_run=dry_run,
             pipeline=pipeline
         )

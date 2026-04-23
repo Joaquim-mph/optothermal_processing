@@ -409,18 +409,21 @@ class CalibrationMatcher:
         output_dir.mkdir(parents=True, exist_ok=True)
         enriched_path = output_dir / history_path.name
 
-        # Check if already enriched (unless force=True)
+        # Skip only if the existing enriched file is at least as new as the source
+        # history. If Stage 2 has been rebuilt since the last enrichment, fall
+        # through and re-enrich so new rows propagate to Stage 3.
         if enriched_path.exists() and not force:
-            return EnrichmentReport(
-                chip_name=chip_name,
-                total_light_exps=0,
-                matched_perfect=0,
-                matched_future=0,
-                matched_stale=0,
-                missing=0,
-                warnings=[f"Already enriched at {enriched_path} (use --force to overwrite)"],
-                errors=[]
-            )
+            if enriched_path.stat().st_mtime >= history_path.stat().st_mtime:
+                return EnrichmentReport(
+                    chip_name=chip_name,
+                    total_light_exps=0,
+                    matched_perfect=0,
+                    matched_future=0,
+                    matched_stale=0,
+                    missing=0,
+                    warnings=[f"Already enriched at {enriched_path} (use --force to overwrite)"],
+                    errors=[]
+                )
 
         # Load history from Stage 2
         history = pl.read_parquet(history_path)

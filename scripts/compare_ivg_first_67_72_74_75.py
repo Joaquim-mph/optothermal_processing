@@ -1,16 +1,15 @@
 """
-Overlay the first IVg sweep of five Alisson chips:
+Overlay the first IVg sweep of four Alisson chips:
   * 67 (hBN)
   * 72 (hBN)
   * 74 (Biotite)
   * 75 (Biotite)
-  * 81 (Biotite)
 
 Produces one PNG under figs/compare/:
-  * alisson67_72_74_75_81_IVg_first.png  (linear, I in µA vs Vg in V)
+  * alisson67_72_74_75_IVg_first.png  (linear, I in µA vs Vg in V)
 
 Run from the repo root:
-    python scripts/compare_ivg_first_67_72_74_75_81.py
+    python scripts/compare_ivg_first_67_72_74_75.py
 
 Prereq: enriched chip histories have been built
     (biotite build-all-histories && biotite enrich-history <N>).
@@ -30,14 +29,13 @@ from src.plotting.plot_utils import ensure_standard_columns
 from src.plotting.styles import set_plot_style
 
 HISTORY_DIR = Path("data/03_derived/chip_histories_enriched")
-OUTPUT_PATH = Path("figs/compare/alisson67_72_74_75_81_IVg_first.png")
+OUTPUT_PATH = Path("figs/compare/alisson67_72_74_75_IVg_first.png")
 
 CHIPS = [
     {"chip_number": 67, "label": "67 (hBN)", "color": "#8B0000"},
     {"chip_number": 72, "label": "72 (hBN)", "color": "#d62728"},
     {"chip_number": 74, "label": "74 (Biotite)", "color": "#2ca02c"},
     {"chip_number": 75, "label": "75 (Biotite)", "color": "#08306B"},
-    {"chip_number": 81, "label": "81 (Biotite)", "color": "#1f77b4"},
 ]
 
 
@@ -91,7 +89,7 @@ def main() -> None:
         vg, i_uA = load_first_ivg(chip["chip_number"], chip["label"])
         curves.append((chip["label"], chip["color"], vg, i_uA))
 
-    fig, ax = plt.subplots(figsize=(40, 20))
+    fig, ax = plt.subplots(figsize=(20, 20))
     for label, color, vg, i_uA in curves:
         ax.plot(vg, i_uA, label=label, color=color)
 

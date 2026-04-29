@@ -1,22 +1,19 @@
 """
-Drift-corrected photoresponse comparison for chips 67/72/74/75.
-
-For each chip:
+Comparison plots for encap chips 80 and 81:
+  * First IVg sweep overlay (one figure).
   * Drift-corrected It overlay (one figure per chip).
   * Corrected Δi vs wavelength (one figure per chip).
+  * Combined corrected Δi vs wavelength comparison (linear and semilogy).
 
-Then a single comparison figure overlaying all four chips' corrected Δi vs
-wavelength (linear and semilogy).
-
-Drift model: stretched exponential fit on t ∈ [20, 60] s, subtracted from the
-full trace. Δi_corrected = I_corr(120 s) − I_corr(60 s) — same definition as
-the `delta_i_corrected` derived metric.
+Drift model: stretched exponential fit on t ∈ [fit_t_start, 60] s, subtracted
+from the full trace. Δi_corrected = I_corr(120 s) − I_corr(60 s) — same
+definition as the `delta_i_corrected` derived metric.
 
 Run from repo root:
-    python scripts/compare_corrected_photoresponse_67_72_74_75.py
+    python scripts/compare_80_81_ivg_and_corrected_photoresponse.py
 
-Prereq: `biotite derive-all-metrics` then `biotite enrich-history <chip>` for
-each chip so `delta_i_corrected` is present in the enriched history.
+Prereq: `biotite full-pipeline && biotite derive-all-metrics &&
+biotite enrich-history 80 && biotite enrich-history 81`.
 """
 from __future__ import annotations
 
@@ -33,7 +30,23 @@ from src.derived.algorithms.stretched_exponential import (
 )
 from src.derived.extractors.corrected_delta_i_extractor import CorrectedDeltaIExtractor
 from src.plotting.config import PlotConfig
+from src.plotting.plot_utils import ensure_standard_columns
 from src.plotting.styles import set_plot_style
+
+ENRICHED_DIR = Path("data/03_derived/chip_histories_enriched")
+OUTPUT_DIR = Path("figs/compare")
+
+DEFAULT_FIT_T_START = 20.0
+FIT_T_END = 60.0
+EVAL_T_PRE = 60.0
+EVAL_T_POST = 120.0
+
+CHIPS = [
+    {"chip_number": 80, "label": "80 (biotite)", "color": "#2ca02c",
+     "seqs": [95, 97, 99, 101, 103, 105, 107, 109, 111, 113]},
+    {"chip_number": 81, "label": "81 (biotite)", "color": "#1f77b4",
+     "seqs": [4, 6, 8, 10, 12, 14, 16, 18, 33, 35]},
+]
 
 _FALLBACK_EXTRACTORS: dict[float, CorrectedDeltaIExtractor] = {}
 
@@ -46,33 +59,13 @@ def _get_extractor(fit_t_start: float) -> CorrectedDeltaIExtractor:
         )
     return _FALLBACK_EXTRACTORS[fit_t_start]
 
-ENRICHED_DIR = Path("data/03_derived/chip_histories_enriched")
-OUTPUT_DIR = Path("figs/compare")
-
-DEFAULT_FIT_T_START = 20.0
-FIT_T_END = 60.0
-EVAL_T_PRE = 60.0
-EVAL_T_POST = 120.0
-
-CHIPS = [
-    {"chip_number": 67, "label": "67 (hBN)",
-     "seqs": [4, 15, 27, 41, 103, 102, 100, 98, 96, 94]},
-    {"chip_number": 72, "label": "72 (hBN)",
-     "seqs": [11, 16, 20, 24, 26, 28, 30, 32, 34, 36]},
-    {"chip_number": 74, "label": "74 (biotite)",
-     "seqs": [5, 7, 9, 11, 13, 17, 20, 22, 24, 28]},
-    {"chip_number": 75, "label": "75 (biotite)",
-     "seqs": [62, 64, 69, 71, 73, 75, 77, 81, 83, 85],
-     "fit_t_start": 0.0},  # stretched-exp fit needs early-time data on this chip
-]
-
 
 def load_history(chip_number: int) -> pl.DataFrame:
     path = ENRICHED_DIR / f"Alisson{chip_number}_history.parquet"
     if not path.exists():
         raise FileNotFoundError(
             f"Enriched history missing for chip {chip_number}: {path}. "
-            f"Run: biotite derive-all-metrics && biotite enrich-history {chip_number}"
+            f"Run: biotite enrich-history {chip_number}"
         )
     return pl.read_parquet(path)
 
@@ -89,14 +82,39 @@ def select_its_rows(history: pl.DataFrame, seqs: list[int]) -> pl.DataFrame:
     return rows.sort("wavelength_nm")
 
 
+def load_first_ivg(chip_number: int, label: str) -> tuple[np.ndarray, np.ndarray]:
+    history = load_history(chip_number)
+    ivg = history.filter(pl.col("proc") == "IVg").sort("seq")
+    if ivg.height == 0:
+        raise ValueError(f"[{label}] no IVg measurements found in history.")
+    first = ivg.row(0, named=True)
+    parquet_path = Path(first.get("parquet_path") or first.get("source_file") or "")
+    if not parquet_path.exists():
+        raise FileNotFoundError(
+            f"[{label}] measurement file missing for seq={first['seq']}: {parquet_path}"
+        )
+    measurement = ensure_standard_columns(read_measurement_parquet(parquet_path))
+    if not {"VG", "I"} <= set(measurement.columns):
+        raise ValueError(
+            f"[{label}] seq={first['seq']} missing VG/I columns. Got: {measurement.columns}"
+        )
+    vg = measurement["VG"].to_numpy()
+    i_uA = measurement["I"].to_numpy() * 1e6
+    print(
+        f"[{label}] chip={chip_number} seq={first['seq']} n_points={len(vg)} "
+        f"Vg_range=[{vg.min():.2f}, {vg.max():.2f}] V "
+        f"I_range=[{i_uA.min():.3g}, {i_uA.max():.3g}] µA"
+    )
+    return vg, i_uA
+
+
 def corrected_trace(t: np.ndarray, i: np.ndarray, fit_t_start: float) -> np.ndarray:
-    """Return I − stretched-exp drift fit (fit on t ∈ [fit_t_start, FIT_T_END], excl. first sample)."""
     finite = np.isfinite(t) & np.isfinite(i)
     t = t[finite]
     i = i[finite]
     mask = (t >= fit_t_start) & (t <= FIT_T_END)
     if mask.size:
-        mask[0] = False  # always skip first sample
+        mask[0] = False
     if mask.sum() < 10:
         return np.full_like(i, np.nan)
     fit = fit_stretched_exponential(t[mask], i[mask])
@@ -114,7 +132,6 @@ def plot_it_overlay(
     fit_t_start: float,
     plot_start_time: float = 20.0,
 ) -> Path:
-    """Drift-corrected It overlay matching `biotite plot-its` style."""
     set_plot_style(config.theme)
     plt.figure(figsize=config.figsize_timeseries)
 
@@ -135,8 +152,6 @@ def plot_it_overlay(
         i = meas["I (A)"].to_numpy().astype(np.float64)
         i_corr = corrected_trace(t, i, fit_t_start)
 
-        # Anchor baseline to t = EVAL_T_PRE (computed AFTER the drift fit/subtraction)
-        # so the pre-illumination level visually sits at zero. Constant shift; Δi unchanged.
         if np.any(np.isfinite(i_corr)):
             idx_pre = int(np.argmin(np.abs(t - EVAL_T_PRE)))
             baseline = i_corr[idx_pre]
@@ -249,15 +264,15 @@ def plot_per_chip_wl(
     return output_path
 
 
-def plot_comparison(
-    curves: list[tuple[str, np.ndarray, np.ndarray]],
+def plot_wl_comparison(
+    curves: list[tuple[str, str, np.ndarray, np.ndarray]],
     axtype: str,
     output_path: Path,
     config: PlotConfig,
 ) -> Path:
     fig, ax = plt.subplots(figsize=config.figsize_derived)
-    for label, wl, di_uA in curves:
-        ax.plot(wl, di_uA, "o-", label=label)
+    for label, color, wl, di_uA in curves:
+        ax.plot(wl, di_uA, "o-", label=label, color=color)
     ax.set_xlabel("Wavelength (nm)")
     ax.set_ylabel("|Δi_corrected| (µA)")
     if axtype == "semilogy":
@@ -273,11 +288,31 @@ def plot_comparison(
     return output_path
 
 
+def plot_ivg_comparison(
+    curves: list[tuple[str, str, np.ndarray, np.ndarray]],
+    output_path: Path,
+    config: PlotConfig,
+) -> Path:
+    fig, ax = plt.subplots(figsize=(20, 20))
+    for label, color, vg, i_uA in curves:
+        ax.plot(vg, i_uA, label=label, color=color)
+    ax.set_xlabel("Gate Voltage $V_g$ (V)")
+    ax.set_ylabel("Drain Current $I_d$ (µA)")
+    ax.legend(loc="best", framealpha=0.9)
+    plt.tight_layout()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    plt.savefig(output_path, dpi=config.dpi, bbox_inches="tight")
+    plt.close(fig)
+    print(f"saved {output_path}")
+    return output_path
+
+
 def main() -> None:
     config = PlotConfig()
     set_plot_style(config.theme)
 
-    curves: list[tuple[str, np.ndarray, np.ndarray]] = []
+    ivg_curves: list[tuple[str, str, np.ndarray, np.ndarray]] = []
+    wl_curves: list[tuple[str, str, np.ndarray, np.ndarray]] = []
 
     for chip in CHIPS:
         history = load_history(chip["chip_number"])
@@ -300,17 +335,26 @@ def main() -> None:
             OUTPUT_DIR / f"alisson{chip['chip_number']}_corrected_photoresponse_vs_wavelength.png",
             config,
         )
-        curves.append((chip["label"], wl, di_uA))
+        wl_curves.append((chip["label"], chip["color"], wl, di_uA))
         print(
             f"[{chip['label']}] n={len(wl)} "
             f"wl=[{wl.min():.0f},{wl.max():.0f}] nm "
             f"|Δi_corr|=[{di_uA.min():.3g},{di_uA.max():.3g}] µA"
         )
 
-    base = OUTPUT_DIR / "alisson67_72_74_75_corrected_photoresponse_vs_wavelength"
-    plot_comparison(curves, "linear", base.with_suffix(".png"), config)
-    plot_comparison(
-        curves,
+        vg, i_uA = load_first_ivg(chip["chip_number"], chip["label"])
+        ivg_curves.append((chip["label"], chip["color"], vg, i_uA))
+
+    plot_ivg_comparison(
+        ivg_curves,
+        OUTPUT_DIR / "alisson80_81_IVg_first.png",
+        config,
+    )
+
+    base = OUTPUT_DIR / "alisson80_81_corrected_photoresponse_vs_wavelength"
+    plot_wl_comparison(wl_curves, "linear", base.with_suffix(".png"), config)
+    plot_wl_comparison(
+        wl_curves,
         "semilogy",
         base.with_name(base.name + "_semilogy").with_suffix(".png"),
         config,

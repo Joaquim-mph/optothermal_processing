@@ -20,6 +20,7 @@ dependencies = [
     # Plotting
     "matplotlib>=3.7.0",
     "scienceplots>=2.0.0",
+    "schemdraw>=0.19",
     # Image/GIF generation
     "imageio>=2.28.0",
     "Pillow>=10.0.0",

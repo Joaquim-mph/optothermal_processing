@@ -328,7 +328,7 @@ def derive_all_metrics_command(
                                 report = matcher.enrich_chip_history(
                                     history_path,
                                     output_dir=output_dir,
-                                    force=force,
+                                    force=not skip_existing,
                                     stale_threshold_hours=stale_threshold
                                 )
                                 all_reports.append(report)

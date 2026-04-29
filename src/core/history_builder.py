@@ -505,10 +505,14 @@ def generate_all_chip_histories(
                 "count": row["count"],
             })
 
-    # Also find chips identified by Information field
+    # Also find chips identified by Information field.
+    # Exclude LaserCalibration rows: they have null chip_number/chip_group by
+    # design (calibrations belong to an LED/wavelength, not a chip) and would
+    # otherwise produce bogus chip histories named after calibration tags.
     if "information" in df.columns:
+        info_df = df.filter(pl.col("proc") != "LaserCalibration") if "proc" in df.columns else df
         info_groups = (
-            df.filter(
+            info_df.filter(
                 (pl.col("chip_number").is_null()) | (pl.col("chip_group").is_null())
             )
             .filter(pl.col("information").is_not_null())

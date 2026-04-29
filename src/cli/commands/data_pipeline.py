@@ -217,7 +217,7 @@ def full_pipeline_command(
                 chip_group=chip_group,
                 chip_number=None,
                 workers=workers,
-                force=force,
+                skip_existing=not force,
                 include_calibrations=include_calibrations,
                 stale_threshold=24.0,
                 dry_run=False,

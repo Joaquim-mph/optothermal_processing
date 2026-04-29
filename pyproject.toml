@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "biotite"
-version = "0.1.0"
+version = "3.6.6"
 description = "Data processing and visualization pipeline for optothermal semiconductor device characterization"
 requires-python = ">=3.11"
 dependencies = [

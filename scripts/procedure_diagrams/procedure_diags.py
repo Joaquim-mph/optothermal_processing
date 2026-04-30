@@ -130,7 +130,9 @@ def draw_ivg_diagram(out_path: Path, show: bool) -> None:
     v_start = float(data["vg_start_v"][0])
     v_end = float(data["vg_end_v"][0])
 
-    fig, axes = plt.subplots(2, 1, figsize=(5.5, 6.0))
+    fig, axes = plt.subplots(
+        2, 1, figsize=(6.0, 6.0), gridspec_kw={"height_ratios": [1, 1.75]}
+    )
     ax_top, ax_bot = axes
 
     ax_top.plot(sample_idx, vg, color=CURVE_COLOR, lw=2.4)

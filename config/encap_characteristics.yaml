@@ -1,0 +1,67 @@
+# Encapsulated device characteristics
+# ====================================
+#
+# Per-chip physical characteristics, indexed by chip_number. Used by
+# analysis/plotting commands (e.g. `biotite compare-first-ivg`) to label
+# devices by their material stack and, eventually, by geometry.
+#
+# Required field:
+#   material  -- short tag, e.g. "biotite", "hBN", "MoS2"
+#
+# Planned/optional fields (populate as data becomes available):
+#   flake_size_um            -- characteristic flake lateral size (µm)
+#   bottom_dielectric_nm     -- bottom dielectric (encapsulant) thickness (nm)
+#   top_dielectric_nm        -- top dielectric (encapsulant) thickness (nm)
+#   substrate                -- e.g. "SiO2/Si"
+#   notes                    -- free-form
+#
+# Chips not listed here will be plotted with no material tag (just the chip
+# number) and a warning will be emitted.
+
+# ── Confirmed materials ────────────────────────────────────────────────
+67:
+  material: hBN
+
+72:
+  material: hBN
+
+74:
+  material: biotite
+
+75:
+  material: biotite
+
+80:
+  material: biotite
+
+81:
+  material: biotite
+
+68:
+  material: biotite
+  # flake_size_um:
+  # bottom_dielectric_nm:
+  # top_dielectric_nm:
+  # substrate:
+  # notes:
+
+69:
+  material: biotite
+
+71:
+  material: biotite
+
+73:
+  material: biotite
+
+76:
+  material: biotite
+
+79:
+  material: hBN
+
+100:
+  material: biotite
+
+101:
+  material: biotite

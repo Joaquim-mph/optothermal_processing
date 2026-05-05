@@ -189,6 +189,9 @@ def main() -> None:
     _plot_linear_with_inset(
         config, traces, base.with_name(base.name + "_with_inset").with_suffix(".png")
     )
+    _plot_shared_y(
+        config, traces, base.with_name(base.name + "_shared_y").with_suffix(".png")
+    )
 
     chip_colors_385 = {67: "C0", 74: "C3"}
     traces_385 = []
@@ -270,6 +273,66 @@ def _plot_linear_with_inset(
     axins.tick_params(axis="both", labelsize=27)
     axins.set_xlabel(r"$t\ (\mathrm{s})$", fontsize=32, labelpad=2)
     axins.set_ylabel(r"$|I_{\mathrm{corr}}|\ (\mu\mathrm{A})$", fontsize=32, labelpad=2)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    plt.savefig(output_path, dpi=config.dpi, bbox_inches="tight")
+    plt.close(fig)
+    print(f"saved {output_path}")
+
+
+def _plot_shared_y(
+    config: PlotConfig, traces: list[dict], output_path: Path
+) -> None:
+    w, h = config.figsize_timeseries
+    fig, axes = plt.subplots(1, 2, figsize=(w * 1.6, h), sharey=True)
+
+    groups = {67: [], 74: []}
+    for tr in traces:
+        chip_num = 67 if "67" in tr["label"] else 74
+        groups[chip_num].append(tr)
+
+    titles = {67: "67 (hBN)", 74: "74 (biotite)"}
+    all_y: list[float] = []
+    t_totals: list[float] = []
+
+    for ax, chip_num in zip(axes, [67, 74]):
+        for tr in groups[chip_num]:
+            ax.plot(
+                tr["t"],
+                tr["i_uA"],
+                color=tr["color"],
+                linestyle="-",
+                label=f"{tr['wl']} nm",
+            )
+            visible = tr["t"] >= PLOT_START_TIME
+            all_y.extend(tr["i_uA"][visible])
+            t_totals.append(float(tr["t"][-1]))
+
+        if traces and traces[0].get("light_span"):
+            s, e = traces[0]["light_span"]
+            ax.axvspan(s, e, alpha=config.light_window_alpha)
+
+        ax.set_xlabel(r"$t\ (\mathrm{s})$")
+        ax.set_title(titles[chip_num])
+        ax.legend(loc="best", framealpha=0.9)
+
+    axes[0].set_ylabel(r"$I_{\mathrm{corr}}\ (\mu\mathrm{A})$")
+
+    if t_totals:
+        T_total = float(np.median(t_totals))
+        if np.isfinite(T_total) and T_total > 0:
+            for ax in axes:
+                ax.set_xlim(PLOT_START_TIME, T_total)
+
+    if all_y:
+        y = np.array(all_y, dtype=float)
+        y = y[np.isfinite(y)]
+        if y.size:
+            y_min, y_max = float(y.min()), float(y.max())
+            if y_max > y_min:
+                pad = config.padding_fraction * (y_max - y_min)
+                axes[0].set_ylim(y_min - pad, y_max + pad)
+
+    plt.tight_layout()
     output_path.parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(output_path, dpi=config.dpi, bbox_inches="tight")
     plt.close(fig)

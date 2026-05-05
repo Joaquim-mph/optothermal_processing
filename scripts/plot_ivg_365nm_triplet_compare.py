@@ -44,7 +44,7 @@ class Triplet:
     off_after: int
     inset_vg: float = INSET_VG_CENTER
     # (x0, y0, w, h) in axes-fraction
-    inset_bbox: tuple[float, float, float, float] = (0.55, 0.08, 0.2, 0.2)
+    inset_bbox: tuple[float, float, float, float] = (0.55, 0.08, 0.2, 0.2)  # (x,y,w,h)
 
 
 # 365 nm triplets per chip (off_before, on, off_after)
@@ -56,6 +56,7 @@ TRIPLETS: list[Triplet] = [
         57,
         58,
         inset_vg=-3.6,
+        # (x0, y0, w, h) in axes-fraction
         inset_bbox=(0.45, 0.76, 0.2, 0.2),  # upper-middle
     ),
     Triplet(
@@ -65,6 +66,7 @@ TRIPLETS: list[Triplet] = [
         89,
         90,
         inset_vg=-1.5,
+        # (x0, y0, w, h) in axes-fraction
         inset_bbox=(0.12, 0.25, 0.2, 0.2),  # bottom-left
     ),
     Triplet(
@@ -73,6 +75,7 @@ TRIPLETS: list[Triplet] = [
         122,
         123,
         124,
+        # (x0, y0, w, h) in axes-fraction
         inset_bbox=(0.65, 0.76, 0.2, 0.2),  # upper-right
     ),
 ]

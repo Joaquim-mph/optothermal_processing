@@ -151,6 +151,35 @@ pipx install "dvc[ssh]"
 - DVC reads `.dvc/config` and `.dvc/config.local` from the repo, so the SSH remote config is the same regardless of which venv runs `dvc`.
 - The SSH key (`~/.ssh/id_ed25519`) is per-user, not per-venv — once authorized on the server, it works from any environment.
 
+## Pulling Only the Raw Data
+
+The whole `data/` directory is tracked as a single DVC output (see `data.dvc`), so `dvc pull` is all-or-nothing — there is no per-subdirectory `.dvc` file to target. If you have local processed files in `data/02_stage/` or `data/03_derived/` that aren't recorded in DVC, `dvc pull` will refuse with:
+
+```
+ERROR: failed to pull data from the cloud - Can't remove the following unsaved files without confirmation. Use `--force` to force.
+```
+
+`--force` would clobber your local processed work. To refresh **only** `data/01_raw` while leaving `02_stage` and `03_derived` untouched, use `dvc get` to fetch a single subpath into a scratch location and overlay it:
+
+```bash
+# 1. Fetch only data/01_raw from the remote into /tmp
+dvc get . data/01_raw -o /tmp/raw_from_dvc --force
+
+# 2. (Optional) Diff to see what would change
+diff <(cd /tmp/raw_from_dvc && find . -type f | sort) \
+     <(cd data/01_raw       && find . -type f | sort)
+
+# 3. Overlay into the project. cp -a preserves attributes and overwrites.
+cp -a /tmp/raw_from_dvc/. data/01_raw/
+
+# 4. Clean up the scratch copy
+rm -rf /tmp/raw_from_dvc
+```
+
+`cp -a /src/. /dst/` merges (existing files are overwritten, extras in `/dst/` are kept). If you instead want a strict mirror that also deletes local raw files missing from the remote, use `rsync -a --delete /tmp/raw_from_dvc/ data/01_raw/`.
+
+After this, `dvc status` will still report `data` as modified — that's expected and harmless. It just means your local `02_stage`/`03_derived` differ from the tracked snapshot. Run `dvc commit && dvc push` later when you want to publish processed results.
+
 ## Troubleshooting
 
 | Error | Cause | Fix |

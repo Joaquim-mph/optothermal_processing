@@ -50,7 +50,7 @@ CHIPS = {
     67: {"label": "67 (hBN)",
          "seqs": [4, 15, 27, 41, 103, 102, 100, 98, 96, 94]},
     72: {"label": "72 (hBN)",
-         "seqs": [11, 16, 20, 24, 26, 28, 30, 32, 34, 36]},
+         "seqs": [103, 105, 107, 112, 114, 116, 118, 120, 122, 124]},
     74: {"label": "74 (biotite)",
          "seqs": [5, 7, 9, 11, 13, 17, 20, 22, 24, 28],
          "fit_t_start": 30.0},
@@ -308,6 +308,139 @@ def plot_pair(
     print(f"saved {output_path}")
 
 
+def plot_single(
+    chip_num: int,
+    traces: list[dict],
+    config: PlotConfig,
+    output_path: Path,
+    *,
+    field: str = "i_corr_uA",
+    ylabel: str = r"$I_{\mathrm{corr}}\ (\mu\mathrm{A})$",
+    plot_start: float = PLOT_START_TIME,
+) -> None:
+    set_plot_style(config.theme)
+    side = float(config.figsize_timeseries[1])
+    fig, ax = plt.subplots(1, 1, figsize=(side, side))
+
+    color_for_wl = _wavelength_color_map(traces)
+
+    all_y: list[float] = []
+    t_totals: list[float] = []
+
+    for tr in traces:
+        color = color_for_wl.get(tr["wavelength_nm"], "k")
+        ax.plot(
+            tr["t"], tr[field],
+            color=color, linestyle="-",
+            label=f"{tr['wavelength_nm']:.0f} nm",
+        )
+        visible = tr["t"] >= plot_start
+        all_y.extend(tr[field][visible])
+        t_totals.append(float(tr["t"][-1]))
+
+    spans = [tr["light_span"] for tr in traces if tr.get("light_span")]
+    if spans:
+        s = float(np.median([sp[0] for sp in spans]))
+        e = float(np.median([sp[1] for sp in spans]))
+        ax.axvspan(s, e, alpha=config.light_window_alpha)
+
+    vgs = [tr["vg_v"] for tr in traces if tr.get("vg_v") is not None]
+    title = CHIPS[chip_num]["label"]
+    if vgs:
+        vg_repr = float(np.median(vgs))
+        title = f"{title}, $V_g = {vg_repr:g}$ V"
+
+    ax.set_xlabel(r"$t\ (\mathrm{s})$")
+    ax.set_ylabel(ylabel)
+    ax.set_title(title)
+    ax.set_box_aspect(1.0)
+
+    if t_totals:
+        T_total = float(np.median(t_totals))
+        if np.isfinite(T_total) and T_total > 0:
+            ax.set_xlim(plot_start, T_total)
+
+    from matplotlib.ticker import MultipleLocator
+    ax.xaxis.set_major_locator(MultipleLocator(TICK_STEP))
+
+    if all_y:
+        y = np.array(all_y, dtype=float)
+        y = y[np.isfinite(y)]
+        if y.size:
+            y_min, y_max = float(y.min()), float(y.max())
+            if y_max > y_min:
+                pad = config.padding_fraction * (y_max - y_min)
+                ax.set_ylim(y_min - pad, y_max + pad)
+
+    ax.legend(title="Wavelength", loc="best", framealpha=0.9, ncol=2,
+              fontsize="small", title_fontsize="small")
+
+    plt.tight_layout()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    plt.savefig(output_path, dpi=config.dpi, bbox_inches="tight")
+    plt.close(fig)
+    print(f"saved {output_path}")
+
+
+CHIP_COLORS = {67: "C0", 72: "C4", 74: "C3", 75: "C1", 80: "C2", 81: "C5"}
+CHIP_MARKERS = {67: "o", 72: "s", 74: "o", 75: "s", 80: "o", 81: "s"}
+EVAL_T_POST = 120.0
+
+
+def photoresponse_at_post(tr: dict) -> float:
+    """ΔI corrected = I_corr(EVAL_T_POST) − I_corr(EVAL_T_PRE).
+    Since i_corr is anchored at I_corr(EVAL_T_PRE)=0, this is i_corr at t=120 s."""
+    t = tr["t"]
+    y = tr["i_corr_uA"]
+    if t.size == 0 or not np.any(np.isfinite(y)):
+        return float("nan")
+    idx = int(np.argmin(np.abs(t - EVAL_T_POST)))
+    return float(y[idx])
+
+
+def plot_photoresponse_vs_wl(
+    traces_by_chip: dict[int, list[dict]],
+    config: PlotConfig,
+    output_path: Path,
+) -> None:
+    set_plot_style(config.theme)
+    side = float(config.figsize_timeseries[1])
+    fig, ax = plt.subplots(1, 1, figsize=(side, side))
+
+    for chip_num, traces in traces_by_chip.items():
+        pts = []
+        for tr in traces:
+            wl = tr["wavelength_nm"]
+            di = photoresponse_at_post(tr)
+            if np.isfinite(wl) and np.isfinite(di):
+                pts.append((wl, di))
+        if not pts:
+            continue
+        pts.sort()
+        wls = np.array([p[0] for p in pts])
+        dis = np.abs(np.array([p[1] for p in pts]))
+        ax.plot(
+            wls, dis,
+            color=CHIP_COLORS.get(chip_num, "k"),
+            marker=CHIP_MARKERS.get(chip_num, "o"),
+            linestyle="-",
+            label=CHIPS[chip_num]["label"],
+        )
+
+    ax.set_xlabel(r"Wavelength (nm)")
+    ax.set_ylabel(
+        r"$|\Delta I_{\mathrm{corr}}|\ (\mu\mathrm{A})$"
+    )
+    ax.set_box_aspect(1.0)
+    ax.legend(loc="best", framealpha=0.9, ncol=2, fontsize="small")
+
+    plt.tight_layout()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    plt.savefig(output_path, dpi=config.dpi, bbox_inches="tight")
+    plt.close(fig)
+    print(f"saved {output_path}")
+
+
 def build_comparison_table(
     traces_by_chip: dict[int, list[dict]],
 ) -> list[dict]:
@@ -425,6 +558,21 @@ def main() -> None:
             ylabel=r"$I\ (\mu\mathrm{A})$",
             plot_start=20.0,
         )
+
+    for chip_num, traces in traces_by_chip.items():
+        plot_single(
+            chip_num, traces, config,
+            OUTPUT_DIR / f"alisson{chip_num}_It_corrected_overlay.png",
+            field="i_corr_uA",
+            ylabel=r"$I_{\mathrm{corr}}\ (\mu\mathrm{A})$",
+            plot_start=PLOT_START_TIME,
+        )
+
+    plot_photoresponse_vs_wl(
+        traces_by_chip,
+        config,
+        OUTPUT_DIR / "alisson67_72_74_75_80_81_photoresponse_vs_wl.png",
+    )
 
     rows = build_comparison_table(traces_by_chip)
     print_markdown_table(rows)

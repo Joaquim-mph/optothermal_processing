@@ -119,6 +119,7 @@ class CLIConfig(BaseModel):
     model_config = {
         "validate_assignment": True,
         "arbitrary_types_allowed": True,
+        "validate_default": True,
     }
 
     @field_validator("raw_data_dir", "stage_dir", "history_dir", "output_dir", mode="before")

@@ -337,7 +337,7 @@ def _generate_vt(meta, stage_dir, plot_tag, plot_config, config, progress):
 def _generate_cnp(request, progress):
     """Generate CNP time evolution plot (requires enriched history)."""
     from src.plotting import cnp_time
-    from src.tui.history_detection import load_chip_history
+    from src.core.history_detection import load_chip_history
 
     progress(20, "Loading enriched history...")
     enriched_dir = Path("data/03_derived/chip_histories_enriched")
@@ -376,7 +376,7 @@ def _generate_cnp(request, progress):
 def _generate_photoresponse(request, progress):
     """Generate photoresponse analysis plot (requires enriched history)."""
     from src.plotting import photoresponse
-    from src.tui.history_detection import load_chip_history
+    from src.core.history_detection import load_chip_history
 
     progress(20, "Loading enriched history...")
     enriched_dir = Path("data/03_derived/chip_histories_enriched")

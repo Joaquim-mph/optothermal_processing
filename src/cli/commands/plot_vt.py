@@ -11,6 +11,8 @@ from rich.panel import Panel
 import polars as pl
 
 from src.plotting import vt
+from src.plotting.vt_presets import PRESETS, get_preset, preset_summary
+from rich.table import Table
 from src.cli.helpers import (
     parse_seq_list,
     generate_plot_tag,
@@ -23,6 +25,51 @@ from src.cli.helpers import (
     display_plot_success
 )
 
+
+@cli_command(
+    name="plot-vt-presets",
+    group="plotting",
+    description="List available Vt plot presets",
+    aliases=["list-vt-presets"]
+)
+def list_vt_presets_command():
+    """List all available Vt plot presets with descriptions."""
+    ctx = get_context()
+
+    ctx.print()
+    ctx.print(Panel.fit(
+        "[bold cyan]Available Vt Plot Presets[/bold cyan]",
+        border_style="cyan"
+    ))
+    ctx.print()
+
+    table = Table(show_header=True, header_style="bold cyan", show_lines=True)
+    table.add_column("Preset Name", style="yellow", width=20)
+    table.add_column("Description", style="white", width=40)
+    table.add_column("Configuration", style="dim", width=50)
+
+    for name, preset in PRESETS.items():
+        config_lines = []
+        if preset.baseline_mode == "none":
+            config_lines.append("• No baseline correction")
+        elif preset.baseline_mode == "auto":
+            config_lines.append(f"• Auto baseline (period / {preset.baseline_auto_divisor})")
+        else:
+            config_lines.append(f"• Fixed baseline: {preset.baseline_value}s")
+
+        config_lines.append(f"• Plot start: {preset.plot_start_time}s")
+        config_lines.append(f"• Legend by: {preset.legend_by}")
+        if preset.check_duration_mismatch:
+            config_lines.append(f"• Duration check: ±{preset.duration_tolerance*100:.0f}%")
+
+        config_str = "\n".join(config_lines)
+        table.add_row(name, preset.description, config_str)
+
+    ctx.print(table)
+    ctx.print()
+    ctx.print("[dim]Usage: [cyan]plot-vt --preset <preset_name>[/cyan][/dim]")
+    ctx.print("[dim]Example: [cyan]plot-vt 67 --seq 52,57,58 --preset dark[/cyan][/dim]")
+    ctx.print()
 
 
 @cli_command(
@@ -81,15 +128,21 @@ def plot_vt_command(
         "--padding",
         help="Y-axis padding (fraction of data range, e.g., 0.02 = 2%)"
     ),
-    baseline_t: Optional[float] = typer.Option(
-        60.0,
-        "--baseline",
-        help="Baseline time in seconds (default: 60.0). Use 0 for t=0 baseline, or --baseline-mode none for no correction."
+    preset: Optional[str] = typer.Option(
+        None,
+        "--preset",
+        "-p",
+        help="Use preset configuration: dark, light_power_sweep, light_spectral, custom. Run 'plot-vt-presets' to list."
     ),
-    baseline_mode: str = typer.Option(
-        "fixed",
+    baseline_t: Optional[float] = typer.Option(
+        None,
+        "--baseline",
+        help="Baseline time in seconds (overrides preset). If neither --preset nor --baseline is set, defaults to 60.0s with fixed mode."
+    ),
+    baseline_mode: Optional[str] = typer.Option(
+        None,
         "--baseline-mode",
-        help="Baseline mode: 'fixed', 'auto', or 'none' (default: fixed)"
+        help="Baseline mode: 'fixed', 'auto', or 'none' (overrides preset)."
     ),
     vg: Optional[float] = typer.Option(
         None,
@@ -301,7 +354,13 @@ def plot_vt_command(
         # Calculate output filename (using standardized naming)
         output_dir_calc = setup_output_dir(chip_number, chip_group, output_dir)
         plot_tag = generate_plot_tag(seq_numbers, custom_tag=tag)
-        raw_suffix = "_raw" if baseline_mode == "none" else ""
+        # Use preset's baseline_mode for filename if --preset is set and --baseline-mode is not
+        preview_baseline_mode = baseline_mode
+        if preview_baseline_mode is None and preset and preset in PRESETS:
+            preview_baseline_mode = PRESETS[preset].baseline_mode
+        if preview_baseline_mode is None:
+            preview_baseline_mode = "fixed"
+        raw_suffix = "_raw" if preview_baseline_mode == "none" else ""
         resistance_suffix = "_R" if resistance else ""
         output_file = output_dir_calc / f"encap{chip_number}_Vt_{plot_tag}{raw_suffix}{resistance_suffix}.png"
 
@@ -362,6 +421,50 @@ def plot_vt_command(
             raise typer.Exit(1)
 
         ctx.print(f"[green]✓[/green] Filtered: {original_count} → {history.height} experiment(s)")
+
+    # Step 4b: Apply preset configuration (if specified)
+    baseline_auto_divisor = 2.0
+    plot_start_time: Optional[float] = None  # vt.plot_vt_overlay defaults via PlotConfig if None
+
+    if preset:
+        if preset not in PRESETS:
+            ctx.print(f"[red]Error:[/red] Unknown preset '{preset}'")
+            ctx.print(f"[yellow]Available presets:[/yellow] {', '.join(PRESETS.keys())}")
+            ctx.print("[dim]Use 'plot-vt-presets' to see detailed preset information[/dim]")
+            raise typer.Exit(1)
+
+        preset_config = PRESETS[preset]
+        ctx.print(f"\n[green]✓[/green] Using preset: [bold]{preset_config.name}[/bold]")
+        ctx.print(f"[dim]  {preset_config.description}[/dim]\n")
+
+        # Apply preset settings (CLI flags still take precedence)
+        if baseline_mode is None:
+            baseline_mode = preset_config.baseline_mode
+        else:
+            ctx.print(f"[dim]  Baseline mode overridden: {baseline_mode} (preset default ignored)[/dim]")
+
+        baseline_auto_divisor = preset_config.baseline_auto_divisor
+        plot_start_time = preset_config.plot_start_time
+
+        # baseline_t handling: only apply preset's fixed value if user didn't pass --baseline
+        if baseline_t is None and baseline_mode == "fixed":
+            baseline_t = preset_config.baseline_value
+        elif baseline_t is not None:
+            # User passed --baseline: force fixed mode unless explicitly set otherwise
+            if baseline_mode is None or baseline_mode == preset_config.baseline_mode:
+                baseline_mode = "fixed"
+            ctx.print(f"[dim]  Baseline overridden: {baseline_t}s (preset default ignored)[/dim]")
+
+        # Apply legend_by if user kept the default
+        if legend_by == "wavelength":  # Default from argument
+            legend_by = preset_config.legend_by
+            ctx.print(f"[dim]  Legend by: {legend_by} (from preset)[/dim]")
+
+    # Fallbacks if no preset applied
+    if baseline_mode is None:
+        baseline_mode = "fixed"
+    if baseline_t is None:
+        baseline_t = 60.0
 
     # Step 5: Verify all are Vt experiments
     if "proc" in history.columns:
@@ -451,6 +554,8 @@ def plot_vt_command(
             plot_tag,
             baseline_t=baseline_t,
             baseline_mode=baseline_mode,
+            baseline_auto_divisor=baseline_auto_divisor,
+            plot_start_time=plot_start_time,
             legend_by=legend_by,
             padding=padding,
             resistance=resistance,

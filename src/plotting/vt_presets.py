@@ -6,6 +6,9 @@ Defines preset configurations for common Vt plotting scenarios:
 - Power sweep (same wavelength, different LED powers)
 - Spectral response (same power, different wavelengths)
 - Custom (fully configurable)
+
+Mirrors the structure of `its_presets` so the two preset systems share the
+same field set and helper API.
 """
 
 from dataclasses import dataclass
@@ -38,6 +41,11 @@ class VtPreset:
         Legend grouping field: "wavelength", "led_voltage", "vg", "power", "datetime"
     padding : float
         Y-axis padding as fraction (0.02 = 2%)
+    check_duration_mismatch : bool
+        Enable duration mismatch warning (passed through to plot_vt_overlay
+        when supported; ignored otherwise — kept for parity with ITSPreset)
+    duration_tolerance : float
+        Maximum allowed variation in durations (0.10 = 10%)
     """
 
     name: str
@@ -53,6 +61,10 @@ class VtPreset:
     legend_by: str = "wavelength"
     padding: float = 0.02
 
+    # Validation
+    check_duration_mismatch: bool = True
+    duration_tolerance: float = 0.10
+
 
 # Built-in preset configurations
 PRESETS = {
@@ -63,6 +75,8 @@ PRESETS = {
         plot_start_time=1.0,  # Start at 1s instead of 20s for dark experiments
         legend_by="vg",
         padding=0.02,
+        check_duration_mismatch=True,
+        duration_tolerance=0.10,
     ),
 
     "light_power_sweep": VtPreset(
@@ -73,6 +87,8 @@ PRESETS = {
         plot_start_time=20.0,
         legend_by="led_voltage",
         padding=0.02,
+        check_duration_mismatch=True,
+        duration_tolerance=0.10,
     ),
 
     "light_spectral": VtPreset(
@@ -83,6 +99,8 @@ PRESETS = {
         plot_start_time=20.0,
         legend_by="wavelength",
         padding=0.02,
+        check_duration_mismatch=True,
+        duration_tolerance=0.10,
     ),
 
     "custom": VtPreset(
@@ -93,6 +111,8 @@ PRESETS = {
         plot_start_time=20.0,
         legend_by="wavelength",
         padding=0.02,
+        check_duration_mismatch=False,
+        duration_tolerance=0.10,
     ),
 }
 
@@ -159,5 +179,11 @@ def preset_summary(preset: VtPreset) -> str:
     lines.append(f"  • Plot start: {preset.plot_start_time}s")
     lines.append(f"  • Legend by: {preset.legend_by}")
     lines.append(f"  • Y-axis padding: {preset.padding*100:.0f}%")
+
+    # Duration check
+    if preset.check_duration_mismatch:
+        lines.append(f"  • Duration check: Enabled (±{preset.duration_tolerance*100:.0f}% tolerance)")
+    else:
+        lines.append("  • Duration check: Disabled")
 
     return "\n".join(lines)

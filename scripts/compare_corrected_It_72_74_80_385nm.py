@@ -1,6 +1,6 @@
 """
-Drift-corrected It overlay at 385 nm for chips 72 (hBN), 74 (biotite), and
-80 (biotite). One trace per chip on a single figure.
+Drift-corrected It overlay at 365 nm and 385 nm for chips 72 (hBN), 74
+(biotite), and 80 (biotite). One trace per chip on a figure per wavelength.
 
 Drift model: stretched exponential fit on t ∈ [20, 60] s, subtracted from the
 full trace. Baseline anchored so I_corr(60 s) = 0.
@@ -32,7 +32,7 @@ FIT_T_START = 20.0
 FIT_T_END = 60.0
 EVAL_T_PRE = 60.0
 PLOT_START_TIME = 20.0
-TARGET_WL = 385.0
+TARGET_WAVELENGTHS = (365.0, 385.0)
 TICK_STEP = 30.0
 
 # Candidate seqs per chip (from compare_corrected_It_67_72_74_75_80_81_pairs.py).
@@ -68,17 +68,19 @@ def load_history(chip_number: int) -> pl.DataFrame:
     return pl.read_parquet(path)
 
 
-def find_385_row(history: pl.DataFrame, candidate_seqs: list[int]) -> dict:
+def find_wavelength_row(
+    history: pl.DataFrame, candidate_seqs: list[int], wavelength: float
+) -> dict:
     rows = (
         history
         .filter(pl.col("seq").is_in(candidate_seqs))
         .filter(pl.col("proc") == "It")
         .filter(pl.col("has_light") == True)  # noqa: E712
-        .filter(pl.col("wavelength_nm") == TARGET_WL)
+        .filter(pl.col("wavelength_nm") == wavelength)
     )
     if rows.height == 0:
         raise ValueError(
-            f"no It+light row with wavelength_nm == {TARGET_WL} found among "
+            f"no It+light row with wavelength_nm == {wavelength} found among "
             f"seqs={candidate_seqs}"
         )
     return rows.row(0, named=True)
@@ -100,17 +102,19 @@ def corrected_trace(t: np.ndarray, i: np.ndarray) -> np.ndarray:
     return i - drift
 
 
-def main() -> None:
-    config = PlotConfig()
-    set_plot_style(config.theme)
-
+def make_figure(wavelength: float, config: PlotConfig) -> None:
+    print(f"\n=== {wavelength:g} nm ===")
     traces: list[dict] = []
     starts_vl: list[float] = []
     ends_vl: list[float] = []
 
     for chip in CHIPS:
         history = load_history(chip["chip_number"])
-        row = find_385_row(history, chip["candidate_seqs"])
+        try:
+            row = find_wavelength_row(history, chip["candidate_seqs"], wavelength)
+        except ValueError as exc:
+            print(f"  chip {chip['chip_number']}: {exc}")
+            continue
         seq = row["seq"]
         parquet_path = Path(row.get("parquet_path") or "")
         if not parquet_path.exists():
@@ -146,6 +150,10 @@ def main() -> None:
             if on_idx.size:
                 starts_vl.append(float(t[on_idx[0]]))
                 ends_vl.append(float(t[on_idx[-1]]))
+
+    if not traces:
+        print(f"  no traces for {wavelength:g} nm — skipping figure")
+        return
 
     side = float(config.figsize_timeseries[1])
     fig, ax = plt.subplots(1, 1, figsize=(side, side))
@@ -190,11 +198,20 @@ def main() -> None:
     ax.legend(loc="best", framealpha=0.9)
     plt.tight_layout()
 
-    output_path = OUTPUT_DIR / "alisson72_74_80_It_corrected_overlay_385nm.png"
+    output_path = (
+        OUTPUT_DIR / f"alisson72_74_80_It_corrected_overlay_{int(wavelength)}nm.png"
+    )
     output_path.parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(output_path, dpi=config.dpi, bbox_inches="tight")
     plt.close(fig)
     print(f"saved {output_path}")
+
+
+def main() -> None:
+    config = PlotConfig()
+    set_plot_style(config.theme)
+    for wavelength in TARGET_WAVELENGTHS:
+        make_figure(wavelength, config)
 
 
 if __name__ == "__main__":

@@ -1,10 +1,13 @@
 """
-Same as compare_ivg_first_67_72_74_75.py but adds a vertical dashed line per
-chip at the gate voltage used for that chip's wavelength-sweep It traces
-(see scripts/compare_corrected_It_67_72_74_75_80_81_pairs.py for the seq lists).
+First-IVg overlay for six Alisson chips (67/72 hBN, 74/75/80/81 biotite),
+with the IVg picked from the same calendar day as the chip's wavelength-sweep
+It traces (seq lists from scripts/compare_corrected_It_67_72_74_75_80_81_pairs.py).
 
-Outputs:
-    figs/compare/alisson67_72_74_75_80_81_IVg_first_with_Vg.png
+Outputs (figs/compare/):
+    alisson67_72_74_75_80_81_IVg_first.png            (plain I vs Vg)
+    alisson67_72_74_75_80_81_IVg_first_with_Vg.png    (+ dashed Vg lines)
+    alisson67_72_74_75_80_81_dIdVg_first.png          (Sav-Gol derivative)
+    alisson{a}_{b}_IVg_first_with_Vg.png              (per pair, with Vg lines)
 
 Run from repo root:
     python scripts/compare_ivg_first_with_vg_lines.py
@@ -21,11 +24,18 @@ import polars as pl
 
 from src.core.utils import read_measurement_parquet
 from src.plotting.config import PlotConfig
-from src.plotting.plot_utils import ensure_standard_columns
+from src.plotting.plot_utils import (
+    _savgol_derivative_corrected,
+    ensure_standard_columns,
+    segment_voltage_sweep,
+)
 from src.plotting.styles import set_plot_style
+from src.plotting.transconductance import auto_select_savgol_params
 
 HISTORY_DIR = Path("data/03_derived/chip_histories_enriched")
+OUTPUT_PATH_PLAIN = Path("figs/compare/alisson67_72_74_75_80_81_IVg_first.png")
 OUTPUT_PATH = Path("figs/compare/alisson67_72_74_75_80_81_IVg_first_with_Vg.png")
+OUTPUT_PATH_DERIV = Path("figs/compare/alisson67_72_74_75_80_81_dIdVg_first.png")
 PAIR_OUTPUT_DIR = Path("figs/compare")
 PAIRS = [(67, 72), (74, 75), (80, 81)]
 
@@ -119,9 +129,26 @@ def lookup_it_vg(chip_number: int, seqs: list[int]) -> float | None:
     return float(np.median(vgs))
 
 
-def _plot_chip(ax, chip: dict) -> None:
-    vg, i_uA = load_first_ivg(chip["chip_number"], chip["label"])
+def _first_half_sweep(vg: np.ndarray) -> slice:
+    """0 -> Vgmin -> 0 -> Vgmax -> 0 (first half of the full IVg sweep)."""
+    i_max = int(np.argmax(vg))
+    tail = vg[i_max:]
+    below = np.where(tail <= 0.0)[0]
+    end = i_max + int(below[0]) if below.size else len(vg) - 1
+    return slice(0, end + 1)
+
+
+def _plot_chip(
+    ax,
+    chip: dict,
+    vg: np.ndarray,
+    i_uA: np.ndarray,
+    *,
+    with_vg_line: bool,
+) -> None:
     ax.plot(vg, i_uA, label=chip["label"], color=chip["color"], linewidth=2.7)
+    if not with_vg_line:
+        return
     vg_used = lookup_it_vg(chip["chip_number"], IT_SEQS[chip["chip_number"]])
     if vg_used is not None:
         ax.axvline(
@@ -138,35 +165,74 @@ def _plot_chip(ax, chip: dict) -> None:
         )
 
 
+def _finalize_iv_axes(ax) -> None:
+    ax.set_xlabel("$\\rm{V_g\\ (V)}$")
+    ax.set_ylabel("$\\rm{I_{ds}\\ (\\mu A)}$")
+    ax.set_ylim(bottom=0)
+    ax.legend(loc="best", framealpha=0.9)
+
+
 def main() -> None:
     config = PlotConfig()
     set_plot_style(config.theme)
 
     chip_by_num = {c["chip_number"]: c for c in CHIPS}
 
-    # Combined figure
+    # Load all curves once.
+    curves: dict[int, tuple[np.ndarray, np.ndarray]] = {
+        chip["chip_number"]: load_first_ivg(chip["chip_number"], chip["label"])
+        for chip in CHIPS
+    }
+
+    OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+    # Combined I vs Vg, plain + with-Vg.
+    for out_path, with_vg in ((OUTPUT_PATH_PLAIN, False), (OUTPUT_PATH, True)):
+        fig, ax = plt.subplots(figsize=(20, 20))
+        for chip in CHIPS:
+            vg, i_uA = curves[chip["chip_number"]]
+            _plot_chip(ax, chip, vg, i_uA, with_vg_line=with_vg)
+        _finalize_iv_axes(ax)
+        plt.tight_layout()
+        plt.savefig(out_path, dpi=config.dpi, bbox_inches="tight")
+        plt.close(fig)
+        print(f"saved {out_path}")
+
+    # dI/dVg derivative (first-half sweep, Sav-Gol smoothed, per monotonic segment).
     fig, ax = plt.subplots(figsize=(20, 20))
     for chip in CHIPS:
-        _plot_chip(ax, chip)
+        vg, i_uA = curves[chip["chip_number"]]
+        s = _first_half_sweep(vg)
+        first = True
+        for vg_seg, i_seg, _direction in segment_voltage_sweep(vg[s], i_uA[s]):
+            window, polyorder = auto_select_savgol_params(vg_seg, i_seg, "auto")
+            gm = _savgol_derivative_corrected(
+                vg_seg, i_seg, window_length=window, polyorder=polyorder
+            )
+            ax.plot(
+                vg_seg,
+                gm,
+                color=chip["color"],
+                linewidth=2.7,
+                label=chip["label"] if first else None,
+            )
+            first = False
+    ax.axhline(0.0, color="k", linewidth=0.5, alpha=0.5)
     ax.set_xlabel("$\\rm{V_g\\ (V)}$")
-    ax.set_ylabel("$\\rm{I_{ds}\\ (\\mu A)}$")
-    ax.set_ylim(bottom=0)
+    ax.set_ylabel("$\\rm{dI_{ds}/dV_g\\ (\\mu A/V)}$")
     ax.legend(loc="best", framealpha=0.9)
     plt.tight_layout()
-    OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
-    plt.savefig(OUTPUT_PATH, dpi=config.dpi, bbox_inches="tight")
+    plt.savefig(OUTPUT_PATH_DERIV, dpi=config.dpi, bbox_inches="tight")
     plt.close(fig)
-    print(f"saved {OUTPUT_PATH}")
+    print(f"saved {OUTPUT_PATH_DERIV}")
 
-    # Pair figures
+    # Pair figures (with Vg lines).
     for a, b in PAIRS:
         fig, ax = plt.subplots(figsize=(20, 20))
-        _plot_chip(ax, chip_by_num[a])
-        _plot_chip(ax, chip_by_num[b])
-        ax.set_xlabel("$\\rm{V_g\\ (V)}$")
-        ax.set_ylabel("$\\rm{I_{ds}\\ (\\mu A)}$")
-        ax.set_ylim(bottom=0)
-        ax.legend(loc="best", framealpha=0.9)
+        for n in (a, b):
+            vg, i_uA = curves[n]
+            _plot_chip(ax, chip_by_num[n], vg, i_uA, with_vg_line=True)
+        _finalize_iv_axes(ax)
         plt.tight_layout()
         out = PAIR_OUTPUT_DIR / f"alisson{a}_{b}_IVg_first_with_Vg.png"
         plt.savefig(out, dpi=config.dpi, bbox_inches="tight")

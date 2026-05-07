@@ -146,19 +146,19 @@ def _draw_triplet_on_ax(
             off1["Vg (V)"].to_numpy(),
             off1["I (A)"].to_numpy() * 1e6,
             "(1) OFF (before)",
-            {"linewidth": 2.7, "linestyle": "--"},
+            {"linewidth": 3.7, "linestyle": "--"},
         ),
         (
             on["Vg (V)"].to_numpy(),
             on["I (A)"].to_numpy() * 1e6,
             "(2) ON",
-            {"linewidth": 2.3},
+            {"linewidth": 3.3},
         ),
         (
             off2["Vg (V)"].to_numpy(),
             off2["I (A)"].to_numpy() * 1e6,
             "(3) OFF (after)",
-            {"linewidth": 2.7, "linestyle": ":"},
+            {"linewidth": 3.7, "linestyle": ":"},
         ),
     ]
 
@@ -245,9 +245,9 @@ def _draw_photocurrent_subtractions_on_ax(
     vg = vg2[:n]
 
     subs: list[tuple[np.ndarray, str, dict]] = [
-        ((i2[:n] - i1[:n]) * 1e6, "(2)-(1)", {"linewidth": 2.7, "linestyle": "-"}),
-        ((i3[:n] - i2[:n]) * 1e6, "(3)-(2)", {"linewidth": 2.3, "linestyle": "--"}),
-        ((i3[:n] - i1[:n]) * 1e6, "(3)-(1)", {"linewidth": 2.7, "linestyle": ":"}),
+        ((i2[:n] - i1[:n]) * 1e6, "(2)-(1)", {"linewidth": 3.7, "linestyle": "-"}),
+        ((i3[:n] - i2[:n]) * 1e6, "(3)-(2)", {"linewidth": 3.3, "linestyle": "--"}),
+        ((i3[:n] - i1[:n]) * 1e6, "(3)-(1)", {"linewidth": 3.7, "linestyle": ":"}),
     ]
 
     # Plot raw faded + smoothed bold, both restricted to the first-half sweep.
@@ -265,7 +265,9 @@ def _draw_photocurrent_subtractions_on_ax(
         )
         color = line_full.get_color()
         window, polyorder = auto_select_savgol_params(vg_half, iph_half, "auto")
-        iph_smooth = savgol_filter(iph_half, window_length=window, polyorder=polyorder)
+        iph_smooth = np.asarray(
+            savgol_filter(iph_half, window_length=window, polyorder=polyorder)
+        )
         ax.plot(vg_half, iph_smooth, color=color, label=label, **kw)
         smoothed_curves.append((vg_half, iph_smooth, label, {**kw, "color": color}))
 
@@ -396,13 +398,15 @@ def plot_photocurrent_overlay(
         color = line_full.get_color()
 
         window, polyorder = auto_select_savgol_params(vg_half, iph_half, "auto")
-        iph_smooth = savgol_filter(iph_half, window_length=window, polyorder=polyorder)
+        iph_smooth = np.asarray(
+            savgol_filter(iph_half, window_length=window, polyorder=polyorder)
+        )
         ax.plot(
             vg_half,
             iph_smooth,
             color=color,
             label=_label(t.chip_number, materials),
-            linewidth=2.7,
+            linewidth=3.7,
         )
 
     ax.axhline(0.0, color="k", linewidth=0.5, alpha=0.5)

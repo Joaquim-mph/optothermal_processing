@@ -116,7 +116,7 @@ It does **not** commit and does **not** push — those steps are still manual.
 
 ## Using a Different Virtualenv
 
-The project's `biotite` and `biotite-tui` commands are tied to `.venv/`, but `dvc` itself is just a Python package. You can run it from any environment that has `dvc[ssh]` installed.
+The project's `biotite` command is tied to `.venv/`, but `dvc` itself is just a Python package. You can run it from any environment that has `dvc[ssh]` installed.
 
 ### Option A: Use a separate venv for DVC
 

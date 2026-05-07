@@ -13,7 +13,6 @@ This pipeline processes raw measurement CSV files from lab equipment (Keithley s
 - **Derived Metrics Extraction**: Automatic CNP, photoresponse, and laser power extraction
 - **Publication-Quality Plotting**: ITS, IVg, VVg, CNP, photoresponse, and more with scienceplots styling
 - **Parallel Processing**: Multi-core data staging and metric extraction
-- **Terminal UI**: User-friendly TUI for non-technical lab users
 - **Plugin Architecture**: Extensible CLI with auto-discovery of commands
 
 ## Quick Start
@@ -35,7 +34,7 @@ pip install -e ".[jupyter]"   # Jupyter/IPython support
 
 ### Basic Usage
 
-After installation, two commands are available system-wide:
+After installation, the `biotite` command is available system-wide:
 
 ```bash
 # CLI: data processing and plotting
@@ -46,12 +45,9 @@ biotite plot-its 67 --seq 52,57,58
 biotite plot-ivg 67 --auto
 biotite plot-cnp-time 81
 biotite plot-photoresponse 81 power
-
-# TUI: interactive terminal UI for lab users
-biotite-tui
 ```
 
-Legacy script entry points (`python process_and_analyze.py`, `python tui_app.py`) still work for backward compatibility.
+The legacy `python process_and_analyze.py` script entry point still works for backward compatibility.
 
 ### List Available Commands
 
@@ -244,10 +240,9 @@ src/
 │   ├── its.py
 │   ├── ivg.py
 │   └── transconductance.py
-├── models/                # Data models (Pydantic)
-│   ├── manifest.py
-│   └── parameters.py
-└── tui/                   # Terminal user interface
+└── models/                # Data models (Pydantic)
+    ├── manifest.py
+    └── parameters.py
 ```
 
 ### Key Technologies
@@ -257,7 +252,6 @@ src/
 - **Polars** - Fast dataframe operations
 - **Pydantic** - Data validation
 - **Matplotlib + scienceplots** - Publication-quality plots
-- **Textual** - Terminal UI framework
 
 ## Configuration
 

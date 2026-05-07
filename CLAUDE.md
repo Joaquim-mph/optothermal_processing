@@ -6,7 +6,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Python data processing and visualization pipeline for optothermal semiconductor device characterization. Processes raw measurement CSVs from lab equipment (Keithley sourcemeter, laser control, temperature sensors), stages them into Parquet format, builds experiment histories, and generates publication-quality scientific plots.
 
-**Key Technologies:** Python 3.11+, Polars (NOT pandas), Pydantic v2+, Typer + Rich CLI, Matplotlib + scienceplots, Textual TUI, Numba (accelerated fitting)
+**Key Technologies:** Python 3.11+, Polars (NOT pandas), Pydantic v2+, Typer + Rich CLI, Matplotlib + scienceplots, Numba (accelerated fitting)
+
+The GUI (`src/gui/`, PyQt6) and TUI (`src/tui/`, Textual) subsystems were removed from `main`; they are preserved on the `gui-tui-experimental` branch.
 
 ## Environment Setup
 
@@ -19,14 +21,13 @@ pip install -e ".[jupyter]"   # Include Jupyter/IPython
 
 ## Entry Points
 
-The package provides two console entry points via `pyproject.toml`:
+The package provides one console entry point via `pyproject.toml`:
 
 | Command | Entry point | Description |
 |---|---|---|
 | `biotite` | `src.cli.main:main` | Typer CLI (data processing, plotting, validation) |
-| `biotite-tui` | `src.tui.app:main` | Textual TUI (interactive wizard for lab users) |
 
-Legacy scripts (`python3 process_and_analyze.py`, `python3 tui_app.py`) still work.
+The legacy `python3 process_and_analyze.py` script still works.
 
 ## Essential Commands
 
@@ -55,9 +56,6 @@ biotite batch-plot config/batch_plots/alisson67_plots.yaml
 # Validation
 biotite validate-manifest
 biotite list-plugins
-
-# TUI
-biotite-tui
 ```
 
 ### Testing
@@ -92,20 +90,22 @@ data/03_derived/
 - **`src/core/`** - Staging pipeline, schema validation, history builder, pipeline orchestration, utilities
   - `utils.py`: `read_measurement_parquet()` -- the single function all plotting code uses to load data
   - `pipeline.py`: Formal pipeline builder with error handling, rollback, checkpointing
-- **`src/models/`** - Pydantic schemas (manifest rows, staging params, TUI config)
-- **`src/plotting/`** - One module per plot type (its, ivg, vvg, vt, transconductance, cnp_time, photoresponse, laser_calibration). `transforms.py` for resistance/conductance conversions
+  - `history_detection.py`: `load_chip_history()` for picking enriched vs. plain history
+- **`src/models/`** - Pydantic schemas (manifest rows, staging params)
+- **`src/plotting/`** - One module per plot type (its, ivg, vvg, vt, transconductance, cnp_time, photoresponse, laser_calibration, plus `*_presets`, `its_relaxation_*`, `consecutive_sweep_diff`, `overlays`, `ivg_by_sample`). `transforms.py` for resistance/conductance conversions
 - **`src/derived/`** - Metric extraction pipeline. Extractors in `extractors/` are auto-discovered via `registry.py`. Numba-accelerated algorithms in `algorithms/`
 - **`src/cli/`** - Typer CLI with plugin auto-discovery (`@cli_command` decorator). Commands in `commands/` are auto-registered
-- **`src/tui/`** - Textual terminal UI for lab users
-- **`pyproject.toml`** - Package config with `biotite` and `biotite-tui` entry points
+- **`scripts/`** - Ad-hoc per-paper analysis scripts (cross-chip overlays, photoresponse comparisons). See `scripts/CATALOG.md`. When writing new ones, use the `photoresponse-analysis` skill.
+- **`pyproject.toml`** - Package config with the `biotite` entry point
 - **`process_and_analyze.py`** - Legacy CLI entry point (use `biotite` command instead)
 
 ### Configuration Files
 
-- **`config/procedures.yml`** - Schema definitions for all measurement procedures. Modify this to add new procedures (no Python changes needed). See `docs/YAML_DRIVEN_MANIFEST.md`
+- **`config/procedures.yml`** - Schema definitions for all measurement procedures. Modify this to add new procedures (no Python changes needed). See `docs/guides/ADDING_PROCEDURES.md`
 - **`config/chip_params.yaml`** - Chip metadata, global defaults (timezone: `America/Santiago`, workers: 6)
 - **`config/cli_plugins.yaml`** - Enable/disable CLI command groups
 - **`config/batch_plots/`** - YAML configs for batch plot generation
+- **`config/pipelines/`** - Pipeline presets (`full-pipeline.yml`, `quick-staging.yml`, `chip-specific.yml`)
 
 ## Critical Rules
 
@@ -149,14 +149,14 @@ def my_command(chip_number: int = typer.Argument(..., help="Chip number")):
 1. Create `src/plotting/my_proc.py` using `read_measurement_parquet()` to load data
 2. Create `src/cli/commands/plot_my_proc.py` with `@cli_command`
 3. Reference implementations: `src/plotting/its.py` (time-series), `src/plotting/ivg.py` (sweeps)
-4. See `docs/PLOTTING_IMPLEMENTATION_GUIDE.md` for templates
+4. See `docs/guides/PLOTTING_IMPLEMENTATION_GUIDE.md` for templates
 
 ### Adding a Derived Metric Extractor
 
 1. Create `src/derived/extractors/my_metric.py` with `@register_extractor` class
 2. Import in `extractors/__init__.py` for auto-discovery
 3. For CPU-heavy work, use Numba `@jit(nopython=True)` with NumPy arrays (not Polars)
-4. See `docs/ADDING_NEW_METRICS_GUIDE.md`
+4. See `docs/guides/ADDING_NEW_METRICS_GUIDE.md`
 
 ### Adding a New Procedure Type
 

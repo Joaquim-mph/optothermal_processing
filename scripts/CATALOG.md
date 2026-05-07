@@ -23,6 +23,7 @@ scripts/
 **Output (all in `figs/compare/`):**
 - `alisson72_74_80_IVg_first.png`, `alisson72_74_80_IVg_first_with_Vg.png`, `alisson72_74_80_dIdVg_first.png`.
 - `alisson{72,74,80}_IVg_first_with_Vg.png` (per chip).
+- `alisson80_74_72_IVg_first_row.png` (1×3 shared-y row, order 80|74|72).
 
 ### `compare_ivg_first_with_vg_lines.py`
 **Goal:** First-IVg overlay for six Alisson chips (67/72 hBN, 74/75/80/81 biotite), with the IVg picked from the same calendar day as that chip's wavelength-sweep It traces (seq lists from `compare_corrected_It_67_72_74_75_80_81_pairs.py`). Also emits a Sav-Gol dI/dVg derivative figure and per-pair panels (67|72, 74|75, 80|81).

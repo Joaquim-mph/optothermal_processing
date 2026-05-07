@@ -8,6 +8,7 @@ Outputs (figs/compare/):
     alisson72_74_80_IVg_first_with_Vg.png    (+ dashed Vg lines)
     alisson72_74_80_dIdVg_first.png          (Sav-Gol derivative)
     alisson{N}_IVg_first_with_Vg.png         (one per chip, with Vg line)
+    alisson80_74_72_IVg_first_row.png        (1x3 shared-y row, order 80|74|72)
 
 Run from repo root:
     python scripts/compare_ivg_first_72_74_80.py
@@ -212,6 +213,23 @@ def main() -> None:
         plt.savefig(out, dpi=config.dpi, bbox_inches="tight")
         plt.close(fig)
         print(f"saved {out}")
+
+    row_order = [80, 74, 72]
+    chip_by_num = {c["chip_number"]: c for c in CHIPS}
+    fig, axes = plt.subplots(1, 3, figsize=(60, 20), sharey=True)
+    for ax, n in zip(axes, row_order):
+        chip = chip_by_num[n]
+        vg, i_uA = curves[n]
+        _plot_chip(ax, chip, vg, i_uA, with_vg_line=True)
+        ax.set_xlabel("$\\rm{V_g\\ (V)}$")
+        ax.set_ylim(bottom=0)
+        ax.legend(loc="best", framealpha=0.9)
+    axes[0].set_ylabel("$\\rm{I_{ds}\\ (\\mu A)}$")
+    plt.tight_layout()
+    out = OUTPUT_DIR / "alisson80_74_72_IVg_first_row.png"
+    plt.savefig(out, dpi=config.dpi, bbox_inches="tight")
+    plt.close(fig)
+    print(f"saved {out}")
 
 
 if __name__ == "__main__":

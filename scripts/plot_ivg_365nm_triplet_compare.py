@@ -42,9 +42,15 @@ class Triplet:
     off_before: int
     on: int
     off_after: int
+    # Left inset (around CNP / negative-Vg side)
     inset_vg: float = INSET_VG_CENTER
+    inset_halfwidth: float = INSET_VG_HALFWIDTH
     # (x0, y0, w, h) in axes-fraction
     inset_bbox: tuple[float, float, float, float] = (0.55, 0.08, 0.2, 0.2)  # (x,y,w,h)
+    # Right inset (positive-Vg side, default ~2.5 V, bottom-right)
+    inset2_vg: float = 2.5
+    inset2_halfwidth: float = INSET_VG_HALFWIDTH
+    inset2_bbox: tuple[float, float, float, float] = (0.78, 0.08, 0.2, 0.2)
 
 
 # 365 nm triplets per chip (off_before, on, off_after)
@@ -57,7 +63,9 @@ TRIPLETS: list[Triplet] = [
         58,
         inset_vg=-3.6,
         # (x0, y0, w, h) in axes-fraction
-        inset_bbox=(0.45, 0.76, 0.2, 0.2),  # upper-middle
+        inset_bbox=(0.08, 0.25, 0.2, 0.2),  # upper-middle
+        inset2_vg=2.5,
+        inset2_bbox=(0.75, 0.28, 0.2, 0.2),  # bottom-right
     ),
     Triplet(
         72,
@@ -68,6 +76,8 @@ TRIPLETS: list[Triplet] = [
         inset_vg=-1.5,
         # (x0, y0, w, h) in axes-fraction
         inset_bbox=(0.12, 0.25, 0.2, 0.2),  # bottom-left
+        inset2_vg=2.25,
+        inset2_bbox=(0.7, 0.25, 0.2, 0.2),  # bottom-right
     ),
     Triplet(
         80,
@@ -76,7 +86,9 @@ TRIPLETS: list[Triplet] = [
         123,
         124,
         # (x0, y0, w, h) in axes-fraction
-        inset_bbox=(0.65, 0.76, 0.2, 0.2),  # upper-right
+        inset_bbox=(0.12, 0.25, 0.2, 0.2),  # upper-right
+        inset2_vg=2.25,
+        inset2_bbox=(0.7, 0.25, 0.2, 0.2),  # bottom-right
     ),
 ]
 
@@ -125,6 +137,50 @@ def _y_range_in_window(
     return float(np.min(vals)), float(np.max(vals))
 
 
+def _add_zoom_inset(
+    ax,
+    curves: list[tuple[np.ndarray, np.ndarray, str, dict]],
+    vg_center: float,
+    vg_half: float,
+    bbox: tuple[float, float, float, float],
+    *,
+    y_fmt: str = "%.0f",
+) -> None:
+    """Draw a zoom inset on `ax` showing `curves` within
+    [vg_center - vg_half, vg_center + vg_half], placed at axes-fraction `bbox`."""
+    from matplotlib.ticker import FixedLocator, FormatStrFormatter
+
+    xy_curves = [(vg, y) for vg, y, _, _ in curves]
+    y_lo, y_hi = _y_range_in_window(xy_curves, vg_center, vg_half)
+    y_pad = 0.08 * (y_hi - y_lo) if y_hi > y_lo else 0.05 * abs(y_hi or 1.0)
+    x_lo = vg_center - vg_half
+    x_hi = vg_center + vg_half
+
+    axins = ax.inset_axes(list(bbox))
+    for vg, y, _, kw in curves:
+        axins.plot(vg, y, **kw)
+    axins.axvline(vg_center, color="k", linewidth=0.6, alpha=0.4, linestyle="-")
+    axins.set_xlim(x_lo, x_hi)
+    axins.set_ylim(y_lo - y_pad, y_hi + y_pad)
+
+    frac = 0.20
+    xa, xb = axins.get_xlim()
+    ya, yb = axins.get_ylim()
+    axins.xaxis.set_major_locator(
+        FixedLocator([xa + frac * (xb - xa), xb - frac * (xb - xa)])
+    )
+    axins.yaxis.set_major_locator(
+        FixedLocator([ya + frac * (yb - ya), yb - frac * (yb - ya)])
+    )
+    axins.xaxis.set_major_formatter(FormatStrFormatter("%.1f"))
+    axins.yaxis.set_major_formatter(FormatStrFormatter(y_fmt))
+    axins.tick_params(axis="both", labelsize=39, length=4, pad=3)
+    for spine in axins.spines.values():
+        spine.set_linewidth(0.8)
+
+    ax.indicate_inset_zoom(axins, edgecolor="0.4", alpha=0.6, linewidth=0.8)
+
+
 def _draw_triplet_on_ax(
     ax,
     triplet: Triplet,
@@ -171,41 +227,24 @@ def _draw_triplet_on_ax(
         ax.set_title(_label(triplet.chip_number, materials))
     ax.set_ylim(bottom=0)
     if show_legend:
-        ax.legend(loc="lower right")
+        ax.legend(loc="best")
 
-    # Inset: zoom around triplet.inset_vg
-    vg_center = triplet.inset_vg
-    xy_curves = [(vg, y) for vg, y, _, _ in curves]
-    y_lo, y_hi = _y_range_in_window(xy_curves, vg_center, INSET_VG_HALFWIDTH)
-    y_pad = 0.08 * (y_hi - y_lo) if y_hi > y_lo else 0.05 * abs(y_hi or 1.0)
-    x_lo = vg_center - INSET_VG_HALFWIDTH
-    x_hi = vg_center + INSET_VG_HALFWIDTH
-
-    axins = ax.inset_axes(list(triplet.inset_bbox))
-    for vg, y, _, kw in curves:
-        axins.plot(vg, y, **kw)
-    axins.axvline(vg_center, color="k", linewidth=0.6, alpha=0.4, linestyle="-")
-    axins.set_xlim(x_lo, x_hi)
-    axins.set_ylim(y_lo - y_pad, y_hi + y_pad)
-
-    from matplotlib.ticker import FixedLocator, FormatStrFormatter
-
-    frac = 0.20
-    xa, xb = axins.get_xlim()
-    ya, yb = axins.get_ylim()
-    axins.xaxis.set_major_locator(
-        FixedLocator([xa + frac * (xb - xa), xb - frac * (xb - xa)])
+    _add_zoom_inset(
+        ax,
+        curves,
+        triplet.inset_vg,
+        triplet.inset_halfwidth,
+        triplet.inset_bbox,
+        y_fmt="%.0f",
     )
-    axins.yaxis.set_major_locator(
-        FixedLocator([ya + frac * (yb - ya), yb - frac * (yb - ya)])
+    _add_zoom_inset(
+        ax,
+        curves,
+        triplet.inset2_vg,
+        triplet.inset2_halfwidth,
+        triplet.inset2_bbox,
+        y_fmt="%.0f",
     )
-    axins.xaxis.set_major_formatter(FormatStrFormatter("%.1f"))
-    axins.yaxis.set_major_formatter(FormatStrFormatter("%.0f"))
-    axins.tick_params(axis="both", labelsize=39, length=4, pad=3)
-    for spine in axins.spines.values():
-        spine.set_linewidth(0.8)
-
-    ax.indicate_inset_zoom(axins, edgecolor="0.4", alpha=0.6, linewidth=0.8)
 
 
 def _draw_photocurrent_subtractions_on_ax(

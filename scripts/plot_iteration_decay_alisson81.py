@@ -98,7 +98,7 @@ def main() -> None:
     # ax1.set_title(
     #    r"Alisson81 — It iteration decay at $\lambda = 455$ nm, $P \approx 6\ \mu$W"
     # )
-    # ax1.legend(fontsize="small")
+    ax1.legend(title=r"$V_g$", fontsize="small", title_fontsize="small")
 
     plt.tight_layout()
 

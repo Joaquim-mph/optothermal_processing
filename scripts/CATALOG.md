@@ -18,6 +18,12 @@ scripts/
 
 ## 1. Cross-chip IVg overlays (`compare_ivg_*.py`)
 
+### `compare_ivg_first_72_74_80.py`
+**Goal:** First-IVg overlay restricted to chips 72 (hBN), 74, 80 (biotite). Same IVg-on-It-day selection as `compare_ivg_first_with_vg_lines.py`. Emits the combined plain/with-Vg overlays, a Sav-Gol dI/dVg derivative, and three standalone per-chip transfer curves with the It-sweep Vg line.
+**Output (all in `figs/compare/`):**
+- `alisson72_74_80_IVg_first.png`, `alisson72_74_80_IVg_first_with_Vg.png`, `alisson72_74_80_dIdVg_first.png`.
+- `alisson{72,74,80}_IVg_first_with_Vg.png` (per chip).
+
 ### `compare_ivg_first_with_vg_lines.py`
 **Goal:** First-IVg overlay for six Alisson chips (67/72 hBN, 74/75/80/81 biotite), with the IVg picked from the same calendar day as that chip's wavelength-sweep It traces (seq lists from `compare_corrected_It_67_72_74_75_80_81_pairs.py`). Also emits a Sav-Gol dI/dVg derivative figure and per-pair panels (67|72, 74|75, 80|81).
 **Input:** `data/03_derived/chip_histories_enriched/Alisson{67,72,74,75,80,81}_history.parquet`.
@@ -87,6 +93,11 @@ scripts/
 **Goal:** Per-chip 365 nm IVg triplet figures for three chips (one figure each, OFF → ON → OFF raw I_ds vs Vg) plus a single cross-chip overlay of photocurrent (I_on − I_off) vs Vg at 365 nm. Material labels read from `config/encap_characteristics.yaml`. Includes an inset zoom near Vg = −2.6 V.
 **Output:** 4 PNGs (3 per-chip triplets + 1 overlay).
 
+### `plot_corrected_deltai_vs_wl_72_74_80.py`
+**Goal:** Drift-corrected |ΔI_corr| vs wavelength for chips 72 (hBN), 74, 80 (biotite) — single figure, one curve per chip. Uses the seq lists from `compare_corrected_It_67_72_74_75_80_81_pairs.py`.
+**Method:** Stretched-exp fit on [fit_t_start, 60] s; `|ΔI_corr| = |I_corr(120) − I_corr(60)|`.
+**Output:** `figs/It/photoresponse/alisson72_74_80_photoresponse_vs_wl.png`.
+
 ### `plot_corrected_deltai_vs_wl_alisson74_vg.py`
 **Goal:** Drift-corrected |Δi| vs wavelength for Alisson74 at three gate voltages (Vg = −0.5 V from 2026-04-16; +0.5 V and +2.5 V from 2026-04-21). Restricted to wavelengths common to 2026-04-21 (365–505 nm).
 **Method:** Stretched-exp fit on [20, 60] s; |Δi_corrected| = |I_corr(120) − I_corr(60)|.
@@ -153,7 +164,7 @@ Documentation for the LaTeX-related scripts (not executable).
 
 | Category | Scripts | Output target |
 |---|---|---|
-| Cross-chip IVg overlays | `compare_ivg_first_with_vg_lines` | `figs/compare/alisson*_IVg_first*.png`, `*_dIdVg_first.png` |
+| Cross-chip IVg overlays | `compare_ivg_first_with_vg_lines`, `compare_ivg_first_72_74_80` | `figs/compare/alisson*_IVg_first*.png`, `*_dIdVg_first.png` |
 | Cross-chip raw photoresponse | `compare_photoresponse_72_81`, `compare_photoresponse_72_74_75_81` | `figs/compare/*photoresponse*.png` |
 | Cross-chip corrected photoresponse | `compare_corrected_photoresponse_67_72_74_75`, `compare_80_81_ivg_and_corrected_photoresponse` | `figs/compare/*corrected*.png` |
 | Cross-chip corrected It | `compare_corrected_It_67_74_uv`, `compare_corrected_It_67_72_74_75_80_81_pairs`, `compare_corrected_It_72_74_80_385nm`, `compare_corrected_It_74_80_385nm` | `figs/compare/*.png` (+ LaTeX table for the 6-chip pairs script) |

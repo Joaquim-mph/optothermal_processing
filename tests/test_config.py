@@ -35,7 +35,7 @@ class TestConfigCreation:
         assert config.output_dir == Path("figs").resolve()
         assert config.verbose is False
         assert config.dry_run is False
-        assert config.parallel_workers == 4
+        assert config.parallel_workers == 8
         assert config.cache_enabled is True
         assert config.cache_ttl == 300
         assert config.default_plot_format == "png"
@@ -245,7 +245,7 @@ class TestEnvironmentVariables:
         assert config.verbose is True
         # Defaults
         assert config.dry_run is False
-        assert config.parallel_workers == 4
+        assert config.parallel_workers == 8
 
 
 class TestFileOperations:
@@ -366,7 +366,7 @@ class TestConfigPrecedence:
         )
 
         assert config.verbose is False
-        assert config.parallel_workers == 4
+        assert config.parallel_workers == 8
 
     def test_load_config_env_overrides_defaults(self, monkeypatch):
         """Test that environment variables override defaults."""

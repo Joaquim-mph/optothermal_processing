@@ -20,7 +20,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import matplotlib as mpl
 import matplotlib.pyplot as plt
+import matplotlib.ticker as ticker
 import numpy as np
 import polars as pl
 
@@ -85,14 +87,14 @@ def delta_i_for_row(row: dict) -> float | None:
 
 
 def rows_for_group(hist: pl.DataFrame, group: dict) -> pl.DataFrame:
-    return (
-        hist.filter(pl.col("seq").is_in(group["seqs"]))
-        .filter(pl.col("date") == group["date"])
-        .filter(pl.col("proc") == "It")
-        .filter(pl.col("has_light") == True)  # noqa: E712
-        .filter(pl.col("wavelength_nm") == WAVELENGTH_NM)
-        .sort("irradiated_power_w")
-    )
+    # Optimized to a single filter operation to prevent intermediate copies in memory
+    return hist.filter(
+        pl.col("seq").is_in(group["seqs"]),
+        pl.col("date") == group["date"],
+        pl.col("proc") == "It",
+        pl.col("has_light"),  # Implicitly evaluates to True without needing == True
+        pl.col("wavelength_nm") == WAVELENGTH_NM,
+    ).sort("irradiated_power_w")
 
 
 def curve_for_group(hist: pl.DataFrame, group: dict) -> tuple[np.ndarray, np.ndarray]:
@@ -115,16 +117,28 @@ def plot_it_overlay(config: PlotConfig, hist: pl.DataFrame, group: dict) -> None
         print(f"[warn] no It traces for {group['label']}")
         return
 
-    fig, ax = plt.subplots(figsize=(20, 20))
+    set_plot_style(config.theme)
+    fig, ax = plt.subplots(1, 1, figsize=(20, 20))
+
+    n = rows.height
+    line_color = group.get("color", "#d62728")
+
+    seg_t: list[np.ndarray] = []
+    seg_I_corr: list[np.ndarray] = []
+    all_y: list[float] = []
+    time_offset = 0.0
+    label_used = False
+
     for row in rows.iter_rows(named=True):
         meas = read_measurement_parquet(Path(row["parquet_path"]))
-        t = meas["t (s)"].to_numpy()
-        I = meas["I (A)"].to_numpy()
+        t = meas["t (s)"].to_numpy().astype(np.float64)
+        I = meas["I (A)"].to_numpy().astype(np.float64)
         finite = np.isfinite(t) & np.isfinite(I)
         t, I = t[finite], I[finite]
+        if t.size == 0:
+            continue
 
-        # Same drift correction as the |Δi| vs power plot:
-        # stretched-exp fit on t ∈ [FIT_T_START, FIT_T_END], anchored at EVAL_T_PRE.
+        # Drift-corrected trace for the inset
         mask = (t >= FIT_T_START) & (t <= FIT_T_END)
         if mask.sum() >= 10:
             fit = fit_stretched_exponential(t[mask], I[mask])
@@ -138,23 +152,106 @@ def plot_it_overlay(config: PlotConfig, hist: pl.DataFrame, group: dict) -> None
             idx_pre = int(np.argmin(np.abs(t - EVAL_T_PRE)))
             I_corr = I - I[idx_pre]
 
-        p_uW = float(row["irradiated_power_w"]) * 1e6
-        ax.plot(
-            t,
-            I_corr * 1e6,
-            linewidth=3.0,
-            label=f"{p_uW:.1f} µW",
-        )
+        seg_t.append(t.copy())
+        seg_I_corr.append(I_corr * 1e6)
 
-    ax.set_xlabel(r"Time (s)")
-    ax.set_ylabel(r"$\Delta I_{ds}$ ($\mu$A)")
-    # ax.set_title(group["label"])
-    ax.set_xlim(50, 180)
-    ax.legend(fontsize="small")
+        # Sequential raw trace: zero-base each segment, drop first sample
+        # (instrument glitch on It restart), single color per group.
+        t_seg = t - t[0]
+        y_seg = I * 1e6
+        if t_seg.size > 1:
+            t_seg = t_seg[1:]
+            y_seg = y_seg[1:]
+
+        ax.plot(
+            t_seg + time_offset,
+            y_seg,
+            color=line_color,
+            linewidth=2.0,
+            label=group["label"] if not label_used else None,
+        )
+        label_used = True
+        all_y.extend(y_seg.tolist())
+
+        time_offset += float(t_seg[-1])
+
+    ax.set_xlabel(r"t (s)")
+    ax.set_ylabel(r"$I_{ds}\ (\mu\mathrm{A})$")
+    ax.legend(loc="best", framealpha=0.9)
+
+    if all_y:
+        y = np.array(all_y, dtype=float)
+        y = y[np.isfinite(y)]
+        if y.size:
+            y_min, y_max = float(y.min()), float(y.max())
+            if y_max > y_min:
+                pad = config.padding_fraction * (y_max - y_min)
+                ax.set_ylim(y_min - pad, y_max + pad)
+    ax.set_xlim(0.0, time_offset)
+
+    # --- inset: drift-corrected overlay, plasma_r by power ---
+    inset = ax.inset_axes([0.18, 0.16, 0.3, 0.3])
+    cmap = mpl.colormaps["plasma_r"]
+    cmap_levels = np.linspace(0.15, 1.0, max(1, n))
+
+    inset_t_totals: list[float] = []
+
+    for i, (t_full, ic_uA) in enumerate(zip(seg_t, seg_I_corr)):
+        color = cmap(cmap_levels[i])
+        inset.plot(t_full, ic_uA, color=color, linewidth=1.5)
+        inset_t_totals.append(float(t_full[-1]))
+
+    inset.axvspan(EVAL_T_PRE, EVAL_T_POST, alpha=config.light_window_alpha)
+
+    x_lo = 50.0
+    x_hi = None
+    if inset_t_totals:
+        T_total = float(np.median(inset_t_totals))
+        if np.isfinite(T_total) and T_total > 0:
+            x_hi = T_total
+            inset.set_xlim(x_lo, x_hi)
+    inset.set_xticks([60, 120, 180])
+
+    visible_y: list[float] = []
+    for t_full, ic_uA in zip(seg_t, seg_I_corr):
+        m = t_full >= x_lo
+        if x_hi is not None:
+            m &= t_full <= x_hi
+        visible_y.extend(ic_uA[m].tolist())
+    if visible_y:
+        y = np.array(visible_y, dtype=float)
+        y = y[np.isfinite(y)]
+        if y.size:
+            y_min, y_max = float(y.min()), float(y.max())
+            if y_max > y_min:
+                pad = config.padding_fraction * (y_max - y_min)
+                inset.set_ylim(y_min - pad, y_max + pad)
+
+    inset.set_xlabel(r"$t\ (\mathrm{s})$")
+    inset.set_ylabel(r"$I_{\mathrm{corr}}\ (\mu\mathrm{A})$")
+
+    y_lo, y_hi = inset.get_ylim()
+    arrow_top = y_hi - 0.10 * (y_hi - y_lo)
+    arrow_bot = y_lo + 0.10 * (y_hi - y_lo)
+    inset.annotate(
+        "",
+        xy=(90, arrow_bot),
+        xytext=(90, arrow_top),
+        arrowprops=dict(arrowstyle="->", color="k", lw=1.5),
+    )
+    inset.text(
+        92,
+        0.5 * (arrow_top + arrow_bot),
+        "P",
+        va="center",
+        ha="left",
+        fontsize="medium",
+    )
+
     plt.tight_layout()
 
     seq_tag = "_".join(str(s) for s in group["seqs"])
-    filename = f"Alisson{CHIP}_It_overlay_seq_{seq_tag}"
+    filename = f"Alisson{CHIP}_It_sequential_with_overlay_seq_{seq_tag}"
     out = config.get_output_path(
         filename,
         chip_number=CHIP,
@@ -191,7 +288,9 @@ def main() -> None:
         mask = (p > 0) & (di > 0) & np.isfinite(p) & np.isfinite(di)
         n_fit, log_a = np.polyfit(np.log10(p[mask]), np.log10(di[mask]), 1)
         a_fit = 10.0**log_a
-        p_fit = np.logspace(np.log10(p[mask].min()), np.log10(p[mask].max()), 100)
+
+        # geomspace is a cleaner abstraction than logspace with log10 boundaries
+        p_fit = np.geomspace(p[mask].min(), p[mask].max(), 100)
         di_fit = a_fit * p_fit**n_fit
 
         ax.plot(
@@ -210,8 +309,27 @@ def main() -> None:
             f"fit: |Δi| = {a_fit:.3g} * P^{n_fit:.3f}"
         )
 
+    # Apply logarithmic scales
     ax.set_xscale("log")
     ax.set_yscale("log")
+
+    # Definir ticks mayores explícitos en X (mostrarán números)
+    ax.set_xticks([6, 18, 30])
+    # Definir ticks menores explícitos en X (marcas intermedias sin número)
+    ax.set_xticks([12, 24], minor=True)
+
+    # Definir ticks mayores explícitos en Y
+    ax.set_yticks([5, 10, 20])
+
+    # Use FuncFormatter to force plain numbers and prevent scientific formatting
+    formatter = ticker.FuncFormatter(lambda x, pos: f"{x:g}")
+    ax.xaxis.set_major_formatter(formatter)
+    ax.yaxis.set_major_formatter(formatter)
+
+    # Ensure minor ticks don't print messy text
+    ax.xaxis.set_minor_formatter(ticker.NullFormatter())
+    ax.yaxis.set_minor_formatter(ticker.NullFormatter())
+
     ax.set_xlabel(r"LED power ($\mu$W)")
     ax.set_ylabel(r"$|\Delta i_{\mathrm{corr}}|$ ($\mu$A)")
     ax.legend()

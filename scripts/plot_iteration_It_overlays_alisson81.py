@@ -242,14 +242,15 @@ def plot_sequential_with_overlay_inset(
 
     # --- inset: drift-corrected overlay, viridis_r by iteration ---
     inset = ax.inset_axes([0.5, 0.16, 0.40, 0.40])
-    cmap = mpl.colormaps["magma_r"]
+    cmap = mpl.colormaps["plasma_r"]
+    cmap_levels = np.linspace(0.15, 1.0, max(1, n))
 
     inset_y: list[float] = []
     inset_t_totals: list[float] = []
     inset_spans: list[tuple[float, float]] = []
 
     for k, tr in enumerate(traces):
-        color = cmap(k / max(1, n - 1))
+        color = cmap(cmap_levels[k])
         inset.plot(
             tr["t"], tr["i_corr_uA"], color=color, linewidth=1.5, label=f"#{k + 1}"
         )
@@ -314,12 +315,13 @@ def plot_cluster_sequential(
     traces: list[dict],
     config: PlotConfig,
 ) -> None:
-    """Raw I(t) concatenated on a continuous axis, magma-by-iteration."""
+    """Raw I(t) concatenated on a continuous axis, plasma-by-iteration."""
     set_plot_style(config.theme)
     fig, ax = plt.subplots(1, 1, figsize=config.figsize_timeseries)
 
     n = len(traces)
-    cmap = mpl.colormaps["magma_r"]
+    cmap = mpl.colormaps["plasma_r"]
+    cmap_levels = np.linspace(0.15, 1.0, max(1, n))
 
     boundaries: list[float] = []
     all_y: list[float] = []
@@ -336,7 +338,7 @@ def plot_cluster_sequential(
         t_seg = t_seg - t_seg[0]
         boundaries.append(time_offset)
 
-        color = cmap(k / max(1, n - 1))
+        color = cmap(cmap_levels[k])
         ax.plot(
             t_seg + time_offset,
             y_seg,

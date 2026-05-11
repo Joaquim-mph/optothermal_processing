@@ -31,7 +31,7 @@ def _load_encap_characteristics() -> dict[int, dict]:
         return {}
     with ENCAP_YAML.open("r") as f:
         data = yaml.safe_load(f) or {}
-    return {int(k): (v or {}) for k, v in data.items()}
+    return {int(k): (v or {}) for k, v in data.items() if isinstance(k, int)}
 
 
 def _resolve_history_path(chip_group: str, chip_number: int) -> Path:

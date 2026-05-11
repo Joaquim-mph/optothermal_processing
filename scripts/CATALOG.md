@@ -121,6 +121,10 @@ scripts/
 **Goal:** Diagnostic figure showing raw I(t), the stretched-exp drift fit, and the corrected trace for Encap75 / seq 85, illustrating the `delta_i_corrected` correction recipe on one example.
 **Output:** PNG in `figs/compare/`.
 
+### `estimate_mobility.py`
+**Goal:** Rough graphene field-effect mobility per chip from the first dark IVg sweep. Uses `config/encap_characteristics.yaml` (top hBN + bottom dielectric thicknesses, ε_r, global L/W) to compute series gate capacitance C_ox, then μ = (L/W) · |gm|_peak / (C_ox · |Vds|) for both hole and electron branches. Peak |gm| from Savgol derivative on the longest monotonic sweep segment.
+**Output:** Rich console table; `figs/mobility/mobility_estimates.csv` and `figs/mobility/mobility_estimates.png` (bar chart of μ_h/μ_e per chip + |gm|(Vg) overlay, colored by bottom dielectric).
+
 ---
 
 ## 4. Subdirectory utilities

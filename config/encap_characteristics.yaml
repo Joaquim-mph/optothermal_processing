@@ -3,65 +3,120 @@
 #
 # Per-chip physical characteristics, indexed by chip_number. Used by
 # analysis/plotting commands (e.g. `biotite compare-first-ivg`) to label
-# devices by their material stack and, eventually, by geometry.
+# devices by their material stack and to estimate gate capacitance.
 #
-# Required field:
-#   material  -- short tag, e.g. "biotite", "hBN", "MoS2"
+# Stack convention: graphene channel is sandwiched between a top hBN
+# encapsulant and a bottom dielectric (either hBN or biotite). The
+# `material` field refers to the *bottom* dielectric (the one that varies
+# between devices); the top is always hBN.
 #
-# Planned/optional fields (populate as data becomes available):
-#   flake_size_um            -- characteristic flake lateral size (µm)
-#   bottom_dielectric_nm     -- bottom dielectric (encapsulant) thickness (nm)
-#   top_dielectric_nm        -- top dielectric (encapsulant) thickness (nm)
-#   substrate                -- e.g. "SiO2/Si"
-#   notes                    -- free-form
+# Per-chip fields:
+#   material              -- bottom dielectric tag: "hBN" or "biotite"
+#   top_hBN_nm            -- top hBN encapsulant thickness (nm)
+#   bottom_dielectric_nm  -- bottom dielectric thickness (nm)
+#
+# Optional/planned:
+#   flake_size_um, substrate, notes
+#
+# Shared material properties (see `materials:` block below) provide the
+# dielectric constants used to estimate gate capacitance:
+#   C_ox = eps_0 / (t_top/eps_r_top + t_bot/eps_r_bot)
 #
 # Chips not listed here will be plotted with no material tag (just the chip
 # number) and a warning will be emitted.
 
-# ── Confirmed materials ────────────────────────────────────────────────
+# ── Channel geometry ──────────────────────────────────────────────────
+# Aspect ratio L/W used for mobility estimates (μ ∝ L/W · gm / (C_ox·Vds)).
+# Rough placeholder until per-device geometry is measured.
+# Per-chip override: add `aspect_ratio_LW: <value>` inside that chip's entry.
+#
+# `aspect_ratio_LW_range` is a uniform-prior range used by the Monte Carlo
+# confidence-band estimator in scripts/estimate_mobility.py.
+geometry:
+  aspect_ratio_LW: 2.0
+  aspect_ratio_LW_range: [2.0, 3.0]
+
+# ── Shared material properties ─────────────────────────────────────────
+# Out-of-plane dielectric constants (literature values).
+#   hBN: ~3.5 (perpendicular epsilon_r, e.g. Laturia et al., npj 2D Mater. 2018)
+#   biotite: ~6.0 (mica-group phyllosilicate, typical out-of-plane value)
+materials:
+  hBN:
+    epsilon_r: 3.5
+    epsilon_r_range: [3.0, 4.0]
+  biotite:
+    epsilon_r: 6.0
+    epsilon_r_range: [8, 9]
+
+# ── Per-chip stack ─────────────────────────────────────────────────────
+# hBN bottom layer
 67:
   material: hBN
+  top_hBN_nm: 54
+  bottom_dielectric_nm: 43
 
 72:
   material: hBN
-
-74:
-  material: biotite
-
-75:
-  material: biotite
-
-80:
-  material: biotite
-
-81:
-  material: biotite
-
-68:
-  material: biotite
-  # flake_size_um:
-  # bottom_dielectric_nm:
-  # top_dielectric_nm:
-  # substrate:
-  # notes:
-
-69:
-  material: biotite
-
-71:
-  material: biotite
-
-73:
-  material: biotite
-
-76:
-  material: biotite
+  top_hBN_nm: 5
+  bottom_dielectric_nm: 31
 
 79:
   material: hBN
+  top_hBN_nm: 12
+  bottom_dielectric_nm: 92
+
+# Biotite bottom layer
+68:
+  material: biotite
+  top_hBN_nm: 58
+  bottom_dielectric_nm: 30
+
+69:
+  material: biotite
+  top_hBN_nm: 33
+  bottom_dielectric_nm: 24
+
+71:
+  material: biotite
+  top_hBN_nm: 13
+  bottom_dielectric_nm: 45
+
+73:
+  material: biotite
+  top_hBN_nm: 7
+  bottom_dielectric_nm: 65
+
+74:
+  material: biotite
+  top_hBN_nm: 13
+  bottom_dielectric_nm: 45
+
+75:
+  material: biotite
+  top_hBN_nm: 5
+  bottom_dielectric_nm: 37
+
+76:
+  material: biotite
+  top_hBN_nm: 17
+  bottom_dielectric_nm: 24
+
+80:
+  material: biotite
+  top_hBN_nm: 20
+  bottom_dielectric_nm: 90
+
+81:
+  material: biotite
+  top_hBN_nm: 9
+  bottom_dielectric_nm: 70
 
 100:
   material: biotite
+  top_hBN_nm: 15
+  bottom_dielectric_nm: 35
 
 101:
   material: biotite
+  top_hBN_nm: 10
+  bottom_dielectric_nm: 37

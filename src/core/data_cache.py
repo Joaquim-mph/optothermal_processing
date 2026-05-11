@@ -217,7 +217,10 @@ def enable_parquet_caching():
         # Only cache file paths (not URLs, buffers, etc.)
         if isinstance(source, (str, Path)):
             path = Path(source).resolve()
-            cache_key = f"parquet:{path}"
+            # Include kwargs in the key so partial reads (columns=, n_rows=, etc.)
+            # don't poison the cache for full reads of the same path.
+            kwargs_key = repr(sorted(kwargs.items())) if kwargs else ""
+            cache_key = f"parquet:{path}|{kwargs_key}"
 
             # Check cache
             cached = _global_cache.get(cache_key, file_path=path)

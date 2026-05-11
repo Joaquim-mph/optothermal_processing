@@ -981,7 +981,7 @@ def ingest_file_task(
             # Schema validation results
             "validation_errors": len(validation_result.errors),
             "validation_warnings": len(validation_result.warnings),
-            "validation_messages": validation_messages if validation_messages else None,
+            "validation_messages": validation_messages,
             # Dynamically extracted manifest columns (all of them)
             **manifest_cols,
         }
@@ -1123,7 +1123,7 @@ def merge_events_to_manifest(events_dir: Path, manifest_path: Path) -> None:
         normalized = {k: row.get(k, None) for k in ordered_keys}
         normalized_rows.append(normalized)
 
-    df = pl.DataFrame(normalized_rows)
+    df = pl.DataFrame(normalized_rows, infer_schema_length=None)
     ensure_dir(manifest_path.parent)
     if manifest_path.exists():
         prev = pl.read_parquet(manifest_path)
@@ -1147,7 +1147,7 @@ def merge_events_to_manifest(events_dir: Path, manifest_path: Path) -> None:
         prev = prev.select(common_cols)
         df = df.select(common_cols)
 
-        all_df = pl.concat([prev, df], how="vertical")
+        all_df = pl.concat([prev, df], how="vertical_relaxed")
         # Deduplicate by run_id only (run_id is deterministic hash of path+timestamp)
         # Keep "last" to update records when re-running with --force
         all_df = all_df.unique(subset=["run_id"], keep="last")

@@ -162,17 +162,8 @@ def print_summary(stats: pl.DataFrame) -> None:
     console.print(t)
 
 
-def plot_time_stability(rows: pl.DataFrame, stats: pl.DataFrame, path: Path) -> None:
-    set_plot_style()
-    plt.rcParams.update({
-        "font.size": 11, "axes.labelsize": 12, "axes.titlesize": 12,
-        "xtick.labelsize": 10, "ytick.labelsize": 10, "legend.fontsize": 9,
-        "figure.figsize": (16, 7),
-    })
-    fig, (ax_t, ax_r) = plt.subplots(1, 2, figsize=(16, 7),
-                                     gridspec_kw={"width_ratios": [1.3, 1.1]})
-
-    # ── Left: μ trajectory ──
+def _plot_trajectory(ax_t, rows: pl.DataFrame) -> None:
+    # ── μ trajectory ──
     chips = sorted(rows["chip_number"].unique().to_list())
     for chip in chips:
         for branch in ("holes", "electrons"):
@@ -212,7 +203,9 @@ def plot_time_stability(rows: pl.DataFrame, stats: pl.DataFrame, path: Path) -> 
     ]
     ax_t.legend(handles=legend, loc="best", fontsize=8)
 
-    # ── Right: retention bars (only chips with ≥ MIN_SPAN_DAYS span) ──
+
+def _plot_retention(ax_r, stats: pl.DataFrame) -> None:
+    # ── retention bars (only chips with ≥ MIN_SPAN_DAYS span) ──
     keepers = stats.filter(pl.col("days_in_air") >= MIN_SPAN_DAYS).sort(
         ["bottom_material", "chip_number", "branch"]
     )
@@ -258,6 +251,151 @@ def plot_time_stability(rows: pl.DataFrame, stats: pl.DataFrame, path: Path) -> 
         ax_r.set_title("Mobility retention (median of last vs first session)")
         ax_r.legend(loc="best", fontsize=8)
 
+
+def plot_time_stability(rows: pl.DataFrame, stats: pl.DataFrame, path: Path) -> None:
+    set_plot_style()
+    plt.rcParams.update({
+        "font.size": 11, "axes.labelsize": 12, "axes.titlesize": 12,
+        "xtick.labelsize": 10, "ytick.labelsize": 10, "legend.fontsize": 9,
+        "figure.figsize": (16, 7),
+    })
+    fig, (ax_t, ax_r) = plt.subplots(1, 2, figsize=(16, 7),
+                                     gridspec_kw={"width_ratios": [1.3, 1.1]})
+    _plot_trajectory(ax_t, rows)
+    _plot_retention(ax_r, stats)
+
+    fig.tight_layout()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(path, dpi=200)
+    plt.close(fig)
+
+
+def plot_index_normalized_history(
+    rows: pl.DataFrame, stats: pl.DataFrame, path: Path
+) -> None:
+    """One row per chip (with ≥ MIN_SPAN_DAYS span); μ normalized to its
+    first measurement, plotted vs sequential IVg index. Shared x-axis."""
+    set_plot_style()
+    plt.rcParams.update({
+        "font.size": 11, "axes.labelsize": 11, "axes.titlesize": 11,
+        "xtick.labelsize": 10, "ytick.labelsize": 10, "legend.fontsize": 9,
+    })
+
+    keepers = stats.filter(pl.col("days_in_air") >= MIN_SPAN_DAYS)
+    chip_list = sorted(set(keepers["chip_number"].to_list()))
+    n = len(chip_list)
+    if n == 0:
+        return
+
+    fig, axes = plt.subplots(n, 1, figsize=(9, 1.6 * n + 1), sharex=True)
+    if n == 1:
+        axes = [axes]
+
+    for ax, chip in zip(axes, chip_list):
+        chip_rows = rows.filter(pl.col("chip_number") == chip)
+        mat = chip_rows["bottom_material"][0] if chip_rows.height else None
+        c = COLOR_BY_MATERIAL.get(mat, "0.4")
+        for branch in ("holes", "electrons"):
+            sub = chip_rows.filter(pl.col("branch") == branch).sort("t")
+            if sub.height == 0:
+                continue
+            mu = sub["mu_central"].to_numpy()
+            n_pts = len(mu)
+            idx = np.arange(n_pts) / (n_pts - 1) if n_pts > 1 else np.zeros(1)
+            ls = "-" if branch == "holes" else "--"
+            ax.plot(
+                idx, mu, ls, color=c, alpha=0.85, lw=1.2,
+                marker=BRANCH_MARKER[branch], ms=4, mec="none",
+                label=branch,
+            )
+        # Days in air for this chip (max across branches).
+        days = float(
+            keepers.filter(pl.col("chip_number") == chip)["days_in_air"].max()
+        )
+        ax.text(
+            0.98, 0.92, f"chip {chip} · {mat or '?'} · {days:.0f} d",
+            transform=ax.transAxes, ha="right", va="top", fontsize=9,
+            bbox=dict(facecolor="white", edgecolor="none", alpha=0.7, pad=2),
+        )
+        ax.set_ylabel(r"$\mu_{FE}$")
+        ax.set_yscale("log")
+
+    axes[-1].set_xlabel("normalized IVg index (current / final)")
+    axes[0].legend(loc="best", fontsize=8)
+    fig.tight_layout()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(path, dpi=200)
+    plt.close(fig)
+
+
+def plot_index_normalized_history_combined(
+    rows: pl.DataFrame, stats: pl.DataFrame, path: Path
+) -> None:
+    """All chips (with ≥ MIN_SPAN_DAYS span) overlaid: μ vs normalized
+    IVg index (current/final). Colour = bottom material; linestyle = branch."""
+    set_plot_style()
+    plt.rcParams.update({
+        "font.size": 11, "axes.labelsize": 12, "axes.titlesize": 12,
+        "xtick.labelsize": 10, "ytick.labelsize": 10, "legend.fontsize": 9,
+    })
+    keepers = stats.filter(pl.col("days_in_air") >= MIN_SPAN_DAYS)
+    chip_list = sorted(set(keepers["chip_number"].to_list()))
+    if not chip_list:
+        return
+
+    fig, ax = plt.subplots(figsize=(9, 6))
+    for chip in chip_list:
+        chip_rows = rows.filter(pl.col("chip_number") == chip)
+        mat = chip_rows["bottom_material"][0] if chip_rows.height else None
+        c = COLOR_BY_MATERIAL.get(mat, "0.4")
+        for branch in ("holes", "electrons"):
+            sub = chip_rows.filter(pl.col("branch") == branch).sort("t")
+            if sub.height == 0:
+                continue
+            mu = sub["mu_central"].to_numpy()
+            n_pts = len(mu)
+            idx = np.arange(n_pts) / (n_pts - 1) if n_pts > 1 else np.zeros(1)
+            ls = "-" if branch == "holes" else "--"
+            ax.plot(
+                idx, mu, ls, color=c, alpha=0.75, lw=1.2,
+                marker=BRANCH_MARKER[branch], ms=3, mec="none",
+            )
+        # Label each chip at its last electron point (fall back to holes).
+        for branch in ("electrons", "holes"):
+            sub = chip_rows.filter(pl.col("branch") == branch).sort("t")
+            if sub.height:
+                ax.annotate(
+                    str(chip), (1.0, sub["mu_central"][-1]),
+                    fontsize=7, xytext=(3, 0), textcoords="offset points",
+                    va="center", color="0.25",
+                )
+                break
+
+    ax.set_yscale("log")
+    ax.set_xlabel("normalized IVg index (current / final)")
+    ax.set_ylabel(r"$\mu_{FE}$ (cm$^2$ V$^{-1}$ s$^{-1}$)")
+    ax.set_title("Mobility vs normalized IVg index — all chips")
+    legend = [
+        Patch(facecolor="tab:blue", label="bottom = hBN"),
+        Patch(facecolor="tab:orange", label="bottom = biotite"),
+        plt.Line2D([0], [0], color="0.3", lw=1, marker="o", ms=4, label="holes (solid)"),
+        plt.Line2D([0], [0], color="0.3", lw=1, ls="--", marker="s", ms=4, label="electrons (dashed)"),
+    ]
+    ax.legend(handles=legend, loc="best", fontsize=8)
+    fig.tight_layout()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(path, dpi=200)
+    plt.close(fig)
+
+
+def plot_retention_only(stats: pl.DataFrame, path: Path) -> None:
+    set_plot_style()
+    plt.rcParams.update({
+        "font.size": 11, "axes.labelsize": 12, "axes.titlesize": 12,
+        "xtick.labelsize": 10, "ytick.labelsize": 10, "legend.fontsize": 9,
+    })
+    fig, ax_r = plt.subplots(figsize=(9, 6))
+    _plot_retention(ax_r, stats)
     fig.tight_layout()
     path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(path, dpi=200)
@@ -274,10 +412,19 @@ def main() -> None:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     csv_path = OUTPUT_DIR / "mobility_time_stability.csv"
     fig_path = OUTPUT_DIR / "mobility_time_stability.png"
+    retention_path = OUTPUT_DIR / "mobility_retention.png"
+    history_path = OUTPUT_DIR / "mobility_index_history.png"
+    history_combined_path = OUTPUT_DIR / "mobility_index_history_combined.png"
     stats.write_csv(csv_path)
     plot_time_stability(rows, stats, fig_path)
+    plot_retention_only(stats, retention_path)
+    plot_index_normalized_history(rows, stats, history_path)
+    plot_index_normalized_history_combined(rows, stats, history_combined_path)
     console.print(f"\nWrote {csv_path}")
     console.print(f"Wrote {fig_path}")
+    console.print(f"Wrote {retention_path}")
+    console.print(f"Wrote {history_path}")
+    console.print(f"Wrote {history_combined_path}")
 
 
 if __name__ == "__main__":

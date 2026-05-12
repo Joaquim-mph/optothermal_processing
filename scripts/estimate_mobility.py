@@ -20,141 +20,36 @@ from typing import Optional
 import matplotlib.pyplot as plt
 import numpy as np
 import polars as pl
-import yaml
 from rich.console import Console
 from rich.table import Table
 
 from src.core.utils import read_measurement_parquet
-from src.plotting.plot_utils import (
-    _savgol_derivative_corrected,
-    segment_voltage_sweep,
+from src.derived.algorithms.mobility import (
+    EncapConfig,
+    chip_geometry,
+    cox_per_area,
+    load_encap_config,
+    mobility_bounds,
+    mobility_cm2,
+    peak_gm_signed,
+    saturation_fraction,
 )
 from src.plotting.styles import set_plot_style
 
-ENCAP_YAML = Path("config/encap_characteristics.yaml")
 ENRICHED_HISTORY_DIR = Path("data/03_derived/chip_histories_enriched")
 STAGE_HISTORY_DIR = Path("data/02_stage/chip_histories")
 OUTPUT_DIR = Path("figs/mobility")
 DEFAULT_CHIP_GROUP = "Alisson"
 
-EPS_0 = 8.8541878128e-12  # F / m
+# Saturation threshold for picking the first non-clipped dark IVg sweep.
+# (The metric extractor uses a separate, configurable threshold; here we just
+# want a clean representative sweep for the figures.)
+SATURATION_FRAC_THRESHOLD = 0.10
+
 console = Console()
 
 
-# ── Config loading ─────────────────────────────────────────────────────────
-
-
-@dataclass
-class EncapConfig:
-    chips: dict[int, dict]
-    materials: dict[str, dict]
-    aspect_ratio_LW: float
-    aspect_ratio_LW_range: tuple[float, float]
-
-
-def load_encap_config(path: Path = ENCAP_YAML) -> EncapConfig:
-    with path.open("r") as f:
-        data = yaml.safe_load(f) or {}
-    chips = {int(k): (v or {}) for k, v in data.items() if isinstance(k, int)}
-    materials = data.get("materials", {}) or {}
-    geometry = data.get("geometry", {}) or {}
-    LW = float(geometry.get("aspect_ratio_LW", 2.0))
-    LW_range = tuple(geometry.get("aspect_ratio_LW_range", [LW, LW]))
-    return EncapConfig(
-        chips=chips, materials=materials,
-        aspect_ratio_LW=LW, aspect_ratio_LW_range=LW_range,
-    )
-
-
-# ── Physics helpers ────────────────────────────────────────────────────────
-
-
-def cox_per_area(
-    t_top_nm: float, eps_top: float, t_bot_nm: float, eps_bot: float
-) -> float:
-    """Series capacitance per area, F/m^2."""
-    t_top_m = t_top_nm * 1e-9
-    t_bot_m = t_bot_nm * 1e-9
-    return EPS_0 / (t_top_m / eps_top + t_bot_m / eps_bot)
-
-
-def _cnp_vg(vg: np.ndarray, i: np.ndarray) -> float:
-    """Coarse CNP estimate: Vg at min(|I|)."""
-    return float(vg[int(np.argmin(np.abs(i)))])
-
-
-def peak_gm_branches(
-    vg: np.ndarray, i: np.ndarray
-) -> tuple[float, float, np.ndarray, np.ndarray, float]:
-    """Return (peak |gm| holes, peak |gm| electrons, vg_smooth, gm_smooth, cnp_vg).
-
-    Uses Savgol derivative on the longest monotonic segment of the sweep to avoid
-    the turnaround artifact at the sweep apex.
-    """
-    nan_out = (float("nan"), float("nan"), np.array([]), np.array([]), float("nan"))
-    segs = segment_voltage_sweep(vg, i)
-    if not segs:
-        return nan_out
-    vg_s, i_s, _ = max(segs, key=lambda s: len(s[0]))
-    order = np.argsort(vg_s)
-    vg_s = vg_s[order]
-    i_s = i_s[order]
-
-    gm = _savgol_derivative_corrected(vg_s, i_s)
-    if gm.size == 0:
-        return float("nan"), float("nan"), vg_s, gm, float("nan")
-
-    cnp = _cnp_vg(vg_s, i_s)
-    abs_gm = np.abs(gm)
-    h_mask = vg_s < cnp
-    e_mask = vg_s > cnp
-    gm_h = float(abs_gm[h_mask].max()) if h_mask.any() else float("nan")
-    gm_e = float(abs_gm[e_mask].max()) if e_mask.any() else float("nan")
-    return gm_h, gm_e, vg_s, gm, cnp
-
-
-def mobility_cm2(gm: float, cox: float, vds: float, LW: float) -> float:
-    """mu = (L/W) * gm / (C_ox * |Vds|), returned in cm^2 / V s."""
-    if not np.isfinite(gm) or cox <= 0 or vds == 0:
-        return float("nan")
-    mu_si = LW * gm / (cox * abs(vds))  # m^2 / V s
-    return mu_si * 1e4
-
-
-# ── Parameter-corner bounds ─────────────────────────────────────────────────
-#
-# mu = (L/W) * gm / (C_ox * |Vds|) is monotonic in each input:
-#   - increasing in L/W
-#   - decreasing in eps_top and eps_bot (through C_ox = eps_0 / (t_top/eps_top + t_bot/eps_bot))
-# So the extreme values of mu within the parameter box are attained at corners:
-#   mu_max -> max(L/W), min(eps_top), min(eps_bot)
-#   mu_min -> min(L/W), max(eps_top), max(eps_bot)
-
-
-def mobility_bounds(
-    gm: float,
-    t_top_nm: float, t_bot_nm: float,
-    eps_top_range: tuple[float, float],
-    eps_bot_range: tuple[float, float],
-    LW_range: tuple[float, float],
-    vds: float,
-) -> tuple[float, float]:
-    """Return (mu_min, mu_max) in cm^2/Vs over the parameter ranges."""
-    if not np.isfinite(gm) or vds == 0:
-        return float("nan"), float("nan")
-    cox_min = cox_per_area(t_top_nm, eps_top_range[0], t_bot_nm, eps_bot_range[0])
-    cox_max = cox_per_area(t_top_nm, eps_top_range[1], t_bot_nm, eps_bot_range[1])
-    mu_max = LW_range[1] * gm / (cox_min * abs(vds)) * 1e4
-    mu_min = LW_range[0] * gm / (cox_max * abs(vds)) * 1e4
-    return float(mu_min), float(mu_max)
-
-
-# ── History resolution ─────────────────────────────────────────────────────
-
-
-def resolve_history(
-    chip_number: int, group: str = DEFAULT_CHIP_GROUP
-) -> Optional[Path]:
+def resolve_history(chip_number: int, group: str = DEFAULT_CHIP_GROUP) -> Optional[Path]:
     for base in (ENRICHED_HISTORY_DIR, STAGE_HISTORY_DIR):
         p = base / f"{group}{chip_number}_history.parquet"
         if p.exists():
@@ -162,12 +57,29 @@ def resolve_history(
     return None
 
 
-def first_dark_ivg(history_path: Path) -> Optional[dict]:
+def first_unsaturated_dark_ivg(history_path: Path) -> Optional[dict]:
+    """First dark IVg whose current trace is not clipped by the source-meter limit.
+
+    Falls back to the very first dark IVg if no sweep meets the threshold.
+    """
     df = pl.read_parquet(history_path)
     sub = df.filter((pl.col("proc") == "IVg") & (~pl.col("has_light"))).sort("seq")
     if sub.height == 0:
         return None
-    return sub.row(0, named=True)
+    fallback = sub.row(0, named=True)
+    for row in sub.iter_rows(named=True):
+        pq = row.get("parquet_path")
+        if not pq or not Path(pq).exists():
+            continue
+        m = read_measurement_parquet(pq)
+        sat = saturation_fraction(m["I (A)"].to_numpy())
+        if sat < SATURATION_FRAC_THRESHOLD:
+            row["_saturation_fraction"] = sat
+            return row
+    fallback["_saturation_fraction"] = saturation_fraction(
+        read_measurement_parquet(fallback["parquet_path"])["I (A)"].to_numpy()
+    )
+    return fallback
 
 
 # ── Per-chip computation ───────────────────────────────────────────────────
@@ -193,32 +105,37 @@ class ChipResult:
     cox_lo: float    # F/m^2; min Cox (eps_top_min, eps_bot_min)
     cox_hi: float    # F/m^2; max Cox
     vg: np.ndarray
+    i: np.ndarray
     gm: np.ndarray
     cnp: float
     seq: int
 
 
-def compute_chip(chip: int, chip_cfg: dict, cfg: EncapConfig) -> Optional[ChipResult]:
-    mat = chip_cfg.get("material")
-    t_top = chip_cfg.get("top_hBN_nm")
-    t_bot = chip_cfg.get("bottom_dielectric_nm")
-    if mat is None or t_top is None or t_bot is None:
-        console.print(f"[skip] chip {chip}: missing geometry in YAML")
-        return None
-    eps_top = cfg.materials.get("hBN", {}).get("epsilon_r")
-    eps_bot = cfg.materials.get(mat, {}).get("epsilon_r")
-    if eps_top is None or eps_bot is None:
-        console.print(f"[skip] chip {chip}: missing epsilon_r for hBN/{mat}")
+def compute_chip(chip: int, cfg: EncapConfig) -> Optional[ChipResult]:
+    geom = chip_geometry(cfg, chip)
+    if geom is None:
+        console.print(f"[skip] chip {chip}: missing geometry/material in YAML")
         return None
 
     hist = resolve_history(chip)
     if hist is None:
         console.print(f"[skip] chip {chip}: no history parquet")
         return None
-    row = first_dark_ivg(hist)
+    row = first_unsaturated_dark_ivg(hist)
     if row is None:
         console.print(f"[skip] chip {chip}: no dark IVg")
         return None
+    sat = row.get("_saturation_fraction", 0.0) or 0.0
+    if sat >= SATURATION_FRAC_THRESHOLD:
+        console.print(
+            f"[warn] chip {chip}: all dark IVg sweeps are current-limited "
+            f"(best is seq {row.get('seq')} with {sat*100:.0f}% saturated points); "
+            "mobility estimate will be a lower bound."
+        )
+    elif int(row.get("seq", 1)) != 1:
+        console.print(
+            f"[info] chip {chip}: skipped seq 1 (clipped); using seq {row.get('seq')}"
+        )
     vds = row.get("vds_v")
     if vds is None or not np.isfinite(vds) or vds == 0:
         console.print(f"[skip] chip {chip}: missing/zero Vds (seq {row.get('seq')})")
@@ -232,38 +149,38 @@ def compute_chip(chip: int, chip_cfg: dict, cfg: EncapConfig) -> Optional[ChipRe
     vg = m["Vg (V)"].to_numpy()
     i = m["I (A)"].to_numpy()
 
-    gm_h, gm_e, vg_s, gm_arr, cnp = peak_gm_branches(vg, i)
-    cox = cox_per_area(t_top, eps_top, t_bot, eps_bot)
-    LW = float(chip_cfg.get("aspect_ratio_LW", cfg.aspect_ratio_LW))
-    mu_h = mobility_cm2(gm_h, cox, vds, LW)
-    mu_e = mobility_cm2(gm_e, cox, vds, LW)
+    gm_h_s, gm_e_s, _vgh, _vge, vg_s, i_s, gm_arr, cnp = peak_gm_signed(vg, i)
+    gm_h = abs(gm_h_s)
+    gm_e = abs(gm_e_s)
+    cox = cox_per_area(
+        geom["top_hBN_nm"], geom["eps_top"],
+        geom["bottom_dielectric_nm"], geom["eps_bot"],
+    )
+    mu_h = mobility_cm2(gm_h, cox, vds, geom["LW"])
+    mu_e = mobility_cm2(gm_e, cox, vds, geom["LW"])
 
-    # Parameter-corner bounds on mu and Cox over the YAML-declared ranges.
-    eps_top_range = tuple(
-        cfg.materials.get("hBN", {}).get("epsilon_r_range", [eps_top, eps_top])
-    )
-    eps_bot_range = tuple(
-        cfg.materials.get(mat, {}).get("epsilon_r_range", [eps_bot, eps_bot])
-    )
-    LW_range = cfg.aspect_ratio_LW_range
-    if "aspect_ratio_LW" in chip_cfg and "aspect_ratio_LW_range" not in chip_cfg:
-        LW_range = (float(chip_cfg["aspect_ratio_LW"]),) * 2  # chip override pins L/W
     mu_h_lo, mu_h_hi = mobility_bounds(
-        gm_h, float(t_top), float(t_bot),
-        eps_top_range, eps_bot_range, LW_range, float(vds),
+        gm_h, geom["top_hBN_nm"], geom["bottom_dielectric_nm"],
+        geom["eps_top_range"], geom["eps_bot_range"], geom["LW_range"], float(vds),
     )
     mu_e_lo, mu_e_hi = mobility_bounds(
-        gm_e, float(t_top), float(t_bot),
-        eps_top_range, eps_bot_range, LW_range, float(vds),
+        gm_e, geom["top_hBN_nm"], geom["bottom_dielectric_nm"],
+        geom["eps_top_range"], geom["eps_bot_range"], geom["LW_range"], float(vds),
     )
-    cox_lo = cox_per_area(float(t_top), eps_top_range[0], float(t_bot), eps_bot_range[0])
-    cox_hi = cox_per_area(float(t_top), eps_top_range[1], float(t_bot), eps_bot_range[1])
+    cox_lo = cox_per_area(
+        geom["top_hBN_nm"], geom["eps_top_range"][0],
+        geom["bottom_dielectric_nm"], geom["eps_bot_range"][0],
+    )
+    cox_hi = cox_per_area(
+        geom["top_hBN_nm"], geom["eps_top_range"][1],
+        geom["bottom_dielectric_nm"], geom["eps_bot_range"][1],
+    )
 
     return ChipResult(
         chip=chip,
-        material=mat,
-        t_top=float(t_top),
-        t_bot=float(t_bot),
+        material=geom["bottom_material"],
+        t_top=geom["top_hBN_nm"],
+        t_bot=geom["bottom_dielectric_nm"],
         cox=cox,
         vds=float(vds),
         gm_h=gm_h,
@@ -274,6 +191,7 @@ def compute_chip(chip: int, chip_cfg: dict, cfg: EncapConfig) -> Optional[ChipRe
         mu_e_lo=float(mu_e_lo), mu_e_hi=float(mu_e_hi),
         cox_lo=float(cox_lo), cox_hi=float(cox_hi),
         vg=vg_s,
+        i=i_s,
         gm=gm_arr,
         cnp=cnp,
         seq=int(row.get("seq", -1)),
@@ -345,8 +263,8 @@ def save_csv(results: list[ChipResult], path: Path) -> None:
     pl.DataFrame(rows).write_csv(path)
 
 
-def make_per_chip_gm_plots(results: list[ChipResult], out_dir: Path) -> None:
-    """One small figure per chip showing |gm|(Vg) with peak markers."""
+def make_per_chip_ivg_gm_plots(results: list[ChipResult], out_dir: Path) -> None:
+    """One figure per chip: IVg (top) + signed gm (bottom), shared Vg axis."""
     set_plot_style()
     plt.rcParams.update(
         {
@@ -355,59 +273,66 @@ def make_per_chip_gm_plots(results: list[ChipResult], out_dir: Path) -> None:
             "axes.titlesize": 10,
             "xtick.labelsize": 9,
             "ytick.labelsize": 9,
-            "legend.fontsize": 9,
+            "legend.fontsize": 8,
         }
     )
     color_map = {"hBN": "tab:blue", "biotite": "tab:orange"}
     for r in sorted(results, key=lambda r: r.chip):
-        if r.gm.size == 0:
+        if r.gm.size == 0 or r.i.size == 0:
             continue
-        fig, ax = plt.subplots(figsize=(6.0, 4.2))
         c = color_map.get(r.material, "k")
-        abs_gm_uS = np.abs(r.gm) * 1e6
-        ax.plot(r.vg, abs_gm_uS, color=c, lw=1.4)
-        h_mask = r.vg < r.cnp
-        e_mask = r.vg > r.cnp
-        ax.axvline(r.cnp, color="0.5", lw=0.7, ls=":", label=f"CNP ≈ {r.cnp:.2f} V")
-        if h_mask.any():
-            idx_h = np.argmax(abs_gm_uS[h_mask])
-            vg_h = r.vg[h_mask][idx_h]
-            gm_h = abs_gm_uS[h_mask][idx_h]
-            ax.plot(
-                vg_h,
-                gm_h,
-                "v",
-                color=c,
-                ms=8,
-                label=rf"holes: $\mu$={r.mu_h:,.0f} [{r.mu_h_lo:,.0f}–{r.mu_h_hi:,.0f}] cm$^2$/Vs",
-            )
-        if e_mask.any():
-            idx_e = np.argmax(abs_gm_uS[e_mask])
-            vg_e = r.vg[e_mask][idx_e]
-            gm_e = abs_gm_uS[e_mask][idx_e]
-            ax.plot(
-                vg_e,
-                gm_e,
-                "^",
-                color=c,
-                ms=8,
-                label=rf"electrons: $\mu$={r.mu_e:,.0f} [{r.mu_e_lo:,.0f}–{r.mu_e_hi:,.0f}] cm$^2$/Vs",
-            )
-        ax.set_xlabel(r"$V_g$ (V)")
-        ax.set_ylabel(r"$|g_m|$ (µS)")
+        fig, (ax_iv, ax_gm) = plt.subplots(
+            2, 1, figsize=(6.0, 6.0), sharex=True,
+            gridspec_kw={"height_ratios": [1.0, 1.0]},
+        )
+
+        i_uA = r.i * 1e6
+        gm_uS = r.gm * 1e6  # signed
+        ax_iv.plot(r.vg, i_uA, color=c, lw=1.4)
+        ax_iv.axvline(r.cnp, color="0.5", lw=0.7, ls=":")
+        ax_iv.set_ylabel(r"$\rm{I_{ds}\ (\mu A)}$")
         cox_nFcm2 = r.cox * 1e5
         cox_lo_nFcm2 = r.cox_lo * 1e5
         cox_hi_nFcm2 = r.cox_hi * 1e5
-        ax.set_title(
+        ax_iv.set_title(
             f"chip {r.chip} ({r.material} bottom, t_top={r.t_top:.0f} nm, "
-            f"t_bot={r.t_bot:.0f} nm)\n"
-            f"C_ox={cox_nFcm2:.1f} [{cox_lo_nFcm2:.1f}–{cox_hi_nFcm2:.1f}] nF/cm², "
-            f"Vds={r.vds:g} V, seq {r.seq}",
-            fontsize=9,
+            f"t_bot={r.t_bot:.0f} nm) — seq {r.seq}\n"
+            rf"$\rm{{C_{{ox}}}}$={cox_nFcm2:.1f} [{cox_lo_nFcm2:.1f}–{cox_hi_nFcm2:.1f}]"
+            rf" nF/cm², $\rm{{V_{{ds}}}}$={r.vds:g} V"
         )
-        ax.legend(loc="best", fontsize=8)
+
+        # Signed gm
+        ax_gm.plot(r.vg, gm_uS, color=c, lw=1.4)
+        ax_gm.axhline(0.0, color="0.6", lw=0.6)
+        ax_gm.axvline(r.cnp, color="0.5", lw=0.7, ls=":",
+                      label=fr"CNP $\approx$ {r.cnp:.2f} V")
+        h_mask = r.vg < r.cnp
+        e_mask = r.vg > r.cnp
+        abs_gm_uS = np.abs(gm_uS)
+        if h_mask.any():
+            idx_h = np.argmax(abs_gm_uS[h_mask])
+            ax_gm.plot(
+                r.vg[h_mask][idx_h], gm_uS[h_mask][idx_h],
+                "v", color=c, ms=8,
+                label=(rf"holes: $\mu$={r.mu_h:,.0f} "
+                       rf"[{r.mu_h_lo:,.0f}–{r.mu_h_hi:,.0f}] "
+                       rf"cm$^2$ V$^{{-1}}$ s$^{{-1}}$"),
+            )
+        if e_mask.any():
+            idx_e = np.argmax(abs_gm_uS[e_mask])
+            ax_gm.plot(
+                r.vg[e_mask][idx_e], gm_uS[e_mask][idx_e],
+                "^", color=c, ms=8,
+                label=(rf"electrons: $\mu$={r.mu_e:,.0f} "
+                       rf"[{r.mu_e_lo:,.0f}–{r.mu_e_hi:,.0f}] "
+                       rf"cm$^2$ V$^{{-1}}$ s$^{{-1}}$"),
+            )
+        ax_gm.set_xlabel(r"$\rm{V_g\ (V)}$")
+        ax_gm.set_ylabel(r"$\rm{g_m\ (\mu S)}$")
+        ax_gm.legend(loc="best")
+
         fig.tight_layout()
-        fig.savefig(out_dir / f"gm_chip{r.chip}.png", dpi=200)
+        fig.savefig(out_dir / f"ivg_gm_chip{r.chip}.png", dpi=200)
         plt.close(fig)
 
 
@@ -500,8 +425,8 @@ def main() -> None:
     cfg = load_encap_config()
     console.print(f"Loaded {len(cfg.chips)} chips; L/W default = {cfg.aspect_ratio_LW}")
     results: list[ChipResult] = []
-    for chip, chip_cfg in sorted(cfg.chips.items()):
-        r = compute_chip(chip, chip_cfg, cfg)
+    for chip in sorted(cfg.chips):
+        r = compute_chip(chip, cfg)
         if r is not None:
             results.append(r)
     if not results:
@@ -516,10 +441,10 @@ def main() -> None:
     make_plot(results, fig_path)
     per_chip_dir = OUTPUT_DIR / "per_chip"
     per_chip_dir.mkdir(parents=True, exist_ok=True)
-    make_per_chip_gm_plots(results, per_chip_dir)
+    make_per_chip_ivg_gm_plots(results, per_chip_dir)
     console.print(f"\nWrote {csv_path}")
     console.print(f"Wrote {fig_path}")
-    console.print(f"Wrote {len(results)} per-chip gm plots to {per_chip_dir}/")
+    console.print(f"Wrote {len(results)} per-chip IVg+gm plots to {per_chip_dir}/")
 
 
 if __name__ == "__main__":

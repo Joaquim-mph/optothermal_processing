@@ -175,12 +175,15 @@ class MetricPipeline:
         """
         from .extractors.cnp_extractor import CNPExtractor
         from .extractors.corrected_delta_i_extractor import CorrectedDeltaIExtractor
+        from .extractors.mobility_extractor import MobilityExtractor
         from .extractors.photoresponse_extractor import PhotoresponseExtractor
 
         return [
             CNPExtractor(cluster_threshold_v=0.5, prominence_factor=0.1),
             PhotoresponseExtractor(vl_threshold=0.1, min_samples_per_state=5),
             CorrectedDeltaIExtractor(),
+            MobilityExtractor(branch="holes"),
+            MobilityExtractor(branch="electrons"),
         ]
 
     def _default_pairwise_extractors(self) -> List[PairwiseMetricExtractor]:

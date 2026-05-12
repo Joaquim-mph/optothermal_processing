@@ -1,7 +1,7 @@
 # Field-Effect Mobility Estimator
 
 **Last Updated:** 2026-05-11
-**Status:** Prototype (script-level: `scripts/estimate_mobility.py`). Not yet a `DerivedMetric` extractor.
+**Status:** Production. Available as both a `DerivedMetric` extractor (`MobilityExtractor`, runs on every IVg measurement during `biotite derive-all-metrics`) and an ad-hoc script (`scripts/estimate_mobility.py`, summary figures + table). Both share pure-function primitives in `src/derived/algorithms/mobility.py`.
 
 ## Overview
 
@@ -64,7 +64,8 @@ For each chip in `config/encap_characteristics.yaml`:
 
 ### 1. Pick the IVg sweep
 - Load `data/03_derived/chip_histories_enriched/Alisson{N}_history.parquet` (or the staged history if no enriched exists).
-- Filter `proc == "IVg"` AND `has_light == False`, sort by `seq`, take the **first row**.
+- Filter `proc == "IVg"` AND `has_light == False`, sort by `seq`.
+- Walk the sorted sweeps and take the **first non-clipped one**: a sweep is rejected if more than `SATURATION_FRAC_THRESHOLD = 10%` of its current points lie within 1% of the global `max|I|` (signature of source-meter compliance limit). Such sweeps under-estimate peak `gm` and the resulting mobility. If every dark IVg fails the test, the first one is used and a warning prints — μ is then a lower bound.
 - Pull `vds_v` from the history row (manifest-level field).
 - Load the measurement parquet from `parquet_path` via `read_measurement_parquet`.
 
@@ -141,7 +142,7 @@ Returned per chip: `(mu_h, mu_e)` central plus min/max bounds. The CSV also incl
 - Rich console table: chip, bottom material, t_top, t_bot, C_ox [nF/cm²], V_ds, |gm|_h, |gm|_e, μ_h and μ_e each printed as `central [min–max]`, plus a flag (μ outside [10, 10⁵] cm²/V·s).
 - `figs/mobility/mobility_estimates.csv` — same columns, machine-readable, including `mu_*_min/max` and `cox_min/max`.
 - `figs/mobility/mobility_estimates.png` — left panel: μ bars per chip with min–max whiskers, colored by bottom dielectric; right panel: |g_m|(V_g) overlay for all chips.
-- `figs/mobility/per_chip/gm_chip{N}.png` — one figure per chip: |g_m|(V_g) trace, coarse CNP, hole/electron peak markers with `central [min–max]` μ in the legend, and the C_ox range in the title.
+- `figs/mobility/per_chip/ivg_gm_chip{N}.png` — one stacked 2-row figure per chip with shared V_g axis: **top** the source-drain current I_ds(V_g) from the same dark IVg sweep; **bottom** the signed transconductance g_m(V_g) = dI/dV_g (negative on the hole branch, positive on the electron branch). Both panels mark the coarse CNP; the g_m panel adds the hole and electron peak markers with `central [min–max]` μ in the legend, and the C_ox range is in the title.
 
 ## Reuse map
 
@@ -157,14 +158,76 @@ Returned per chip: `(mu_h, mu_e)` central plus min/max bounds. The CSV also incl
 
 For graphene FETs with hBN or biotite gating in the 5–90 nm thickness range, expect μ_FE in the range ~10² to ~10⁴ cm²/V·s. The script flags any chip outside `[10, 1e5]` cm²/V·s as suspicious so the user can inspect the underlying sweep manually.
 
-## Promotion to a CLI command / `DerivedMetric` extractor
+## DerivedMetric extractor
 
-When the numbers are validated and the workflow stabilizes:
+`src/derived/extractors/mobility_extractor.py` registers `MobilityExtractor` in the metric pipeline. Two instances are wired in `metric_pipeline.py:_default_extractors()` — one per branch — so every IVg measurement produces two rows in `data/03_derived/_metrics/metrics.parquet`:
 
-1. Move `peak_gm_branches` and `cox_per_area` into `src/derived/algorithms/mobility.py`.
-2. Add a `MobilityExtractor` in `src/derived/extractors/mobility_extractor.py` (pattern: `cnp_extractor.py`). Returns one `DerivedMetric` per IVg measurement, with `value_float = μ_peak`, plus per-branch values in `flags`/extras.
-3. Wire into `MetricPipeline._default_extractors()`.
-4. Add a `biotite plot-mobility` CLI command (under `src/cli/commands/`) for the chip-comparison figure, replacing the script.
-5. (Optional) Replace the coarse `argmin(|I|)` CNP with the value already computed by `CNPExtractor` (joinable via `chip_histories_enriched`).
+| `metric_name` | `metric_category` | `unit` | `value_float` |
+|---|---|---|---|
+| `mobility_fe_holes` | electrical | `cm^2/V/s` | central μ on the hole branch |
+| `mobility_fe_electrons` | electrical | `cm^2/V/s` | central μ on the electron branch |
 
-Until then, the script-level prototype lives at `scripts/estimate_mobility.py` and is documented here.
+The full per-row breakdown lands in `value_json`:
+
+```json
+{
+  "branch": "holes",
+  "mu_central": 11365.6,
+  "mu_min": 4972.5,
+  "mu_max": 19889.9,
+  "gm_peak_signed_S": -1.84e-05,
+  "vg_at_peak_V": -0.20,
+  "cnp_v_coarse": 0.40,
+  "cox_central_F_per_m2": 3.19e-4,
+  "cox_min_F_per_m2": 2.79e-4,
+  "cox_max_F_per_m2": 3.71e-4,
+  "vds_v": 0.1,
+  "has_light": false,
+  "saturation_fraction": 0.02,
+  "n_points_branch": 28,
+  "geometry": {
+    "top_hBN_nm": 54.0,
+    "bottom_dielectric_nm": 43.0,
+    "bottom_material": "hBN",
+    "aspect_ratio_LW": 2.0,
+    "epsilon_top_central": 3.5,
+    "epsilon_bot_central": 3.5
+  }
+}
+```
+
+### Pre-extraction filter: dead-sample skip
+
+Before running, the extractor consults the manifest's `quality_flags` column (populated at staging by `src/core/quality.py`). If the IVg carries any `DEAD_*` flag — `DEAD_OPEN_CIRCUIT`, `DEAD_FLAT_IVG`, or `DEAD_STUCK_SATURATED` — the extractor returns `None` and no mobility row is written. This is the cleanest place to drop unusable measurements: they never pollute metrics.parquet, plots automatically exclude them, and the dropped-but-recoverable parquet trace stays on disk for re-inspection.
+
+### Flags and confidence
+
+`flags` is a comma-separated subset of:
+
+| Flag | Trigger | Penalty |
+|---|---|---|
+| `NOT_SATURATED` | ≥10% of points within 1% of `max\|I\|` (source-meter clipping likely) | ×0.6 |
+| `NOT_HEAVILY_SATURATED` | ≥50% of points clipped — peak gm almost certainly missed | ×0.2 |
+| `MU_IN_RANGE` | central μ outside [10, 10⁵] cm²/V·s | ×0.5 |
+| `BRANCH_HAS_POINTS` | fewer than 5 points on the requested branch | ×0.3 |
+
+`confidence = product of applicable penalties`. So a chip with `NOT_SATURATED` and `NOT_HEAVILY_SATURATED` both flagged lands at confidence ≈ 0.12 — a clear signal to filter out downstream.
+
+The extractor returns `None` (no metric row) on hard preconditions: missing chip in YAML, missing `vds_v`, missing `Vg`/`I` columns, no peak detectable. These show up as debug logs in the pipeline, not as low-confidence rows.
+
+### Configuration
+
+The extractor loads `config/encap_characteristics.yaml` once at instantiation. To override thresholds, construct it directly when wiring a custom pipeline:
+
+```python
+from src.derived.extractors.mobility_extractor import MobilityExtractor
+ext = MobilityExtractor(
+    branch="holes",
+    saturation_warn_threshold=0.05,    # stricter
+    saturation_heavy_threshold=0.25,
+)
+```
+
+## Script
+
+`scripts/estimate_mobility.py` is now a thin caller over the same algorithm primitives (`src/derived/algorithms/mobility.py`). It picks the first non-clipped dark IVg per chip, computes the same μ central + min/max as the extractor, and emits the comparison figure / per-chip diagnostics / CSV described above. Use it for cross-chip comparison plots; use the extractor for per-measurement values landing in metrics.parquet.

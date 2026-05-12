@@ -964,6 +964,12 @@ def ingest_file_task(
         out_dir = stage_root / f"proc={proc}" / f"date={date_part}" / f"run_id={rid}"
         out_file = out_dir / "part-000.parquet"
 
+        # Per-measurement quality assessment (dead-sample detection, etc.).
+        # Cheap (operates on the in-memory DataFrame we already have); cost
+        # scales with data column reads only, no extra parquet I/O.
+        from src.core.quality import assess_measurement, join_flags
+        quality_flags = join_flags(assess_measurement(proc, df))
+
         event_common = {
             "ingested_at_utc": dt.datetime.now(tz=dt.timezone.utc),
             "run_id": rid,
@@ -982,6 +988,8 @@ def ingest_file_task(
             "validation_errors": len(validation_result.errors),
             "validation_warnings": len(validation_result.warnings),
             "validation_messages": validation_messages,
+            # Per-measurement quality (dead-sample, saturation, ...).
+            "quality_flags": quality_flags,
             # Dynamically extracted manifest columns (all of them)
             **manifest_cols,
         }

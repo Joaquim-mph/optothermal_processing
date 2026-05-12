@@ -503,6 +503,16 @@ class ManifestRow(BaseModel):
         description="Validation messages from staging (warnings, errors, info)"
     )
 
+    quality_flags: Optional[str] = Field(
+        default=None,
+        max_length=500,
+        description=(
+            "Comma-separated per-measurement quality flags computed at "
+            "staging (e.g. 'DEAD_FLAT_IVG,DEAD_STUCK_SATURATED'). None "
+            "for healthy measurements. See `src/core/quality.py`."
+        ),
+    )
+
     # ═══════════════════════════════════════════════════════════════════
     # Validators
     # ═══════════════════════════════════════════════════════════════════

@@ -11,6 +11,7 @@ Available extractors:
 - ITSRelaxationExtractor: Photoresponse relaxation time from ITS measurements (Numba-accelerated)
 - ITSThreePhaseFitExtractor: Three-phase relaxation fitting (PRE-DARK, LIGHT, POST-DARK)
 - DriftExtractor: Linear drift rate from time-series measurements (ITS, Vt, Tt)
+- MobilityExtractor: Peak-gm field-effect mobility per branch from IVg sweeps
 
 Pairwise extractors:
 - ConsecutiveSweepDifferenceExtractor: Differences between consecutive IVg/VVg sweeps
@@ -25,6 +26,7 @@ from .its_relaxation_extractor import ITSRelaxationExtractor
 from .its_three_phase_fit_extractor import ITSThreePhaseFitExtractor
 from .consecutive_sweep_difference import ConsecutiveSweepDifferenceExtractor
 from .drift_extractor import DriftExtractor
+from .mobility_extractor import MobilityExtractor
 
 __all__ = [
     "MetricExtractor",
@@ -38,4 +40,5 @@ __all__ = [
     "ITSThreePhaseFitExtractor",
     "ConsecutiveSweepDifferenceExtractor",
     "DriftExtractor",
+    "MobilityExtractor",
 ]

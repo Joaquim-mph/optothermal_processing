@@ -2,6 +2,7 @@
 
 import typer
 from src.cli.plugin_system import cli_command
+from src.cli._chip_args import CHIP_ARG, LIST_SAMPLES_OPTION, resolve_chip_cli_args
 from pathlib import Path
 from typing import Optional
 from rich.panel import Panel
@@ -124,10 +125,8 @@ def _all_its_are_dark(meta: pl.DataFrame) -> bool:
     description="Generate ITS overlay plots"
 )
 def plot_its_command(
-    chip_number: int = typer.Argument(
-        ...,
-        help="Chip number (e.g., 67 for Alisson67)"
-    ),
+    chip: list[str] = CHIP_ARG,
+    list_samples_flag: bool = LIST_SAMPLES_OPTION,
     seq: Optional[str] = typer.Option(
         None,
         "--seq",
@@ -162,12 +161,6 @@ def plot_its_command(
         "--output",
         "-o",
         help="Output directory for plots (default: from config)"
-    ),
-    chip_group: str = typer.Option(
-        "Alisson",
-        "--group",
-        "-g",
-        help="Chip group name"
     ),
     padding: float = typer.Option(
         0.05,
@@ -283,6 +276,10 @@ def plot_its_command(
         The 'irradiated_power'/'power' legend option requires enriched chip histories
         with calibration data. Run 'derive-all-metrics' to generate these.
     """
+    chip_id = resolve_chip_cli_args(chip, list_samples_flag)
+    chip_group = chip_id.group
+    chip_number = chip_id.number
+
     ctx = get_context()
 
     # Validate flag combinations
@@ -651,10 +648,8 @@ def plot_its_command(
     description="Generate sequential ITS plots"
 )
 def plot_its_sequential_command(
-    chip_number: int = typer.Argument(
-        ...,
-        help="Chip number (e.g., 67 for Alisson67)"
-    ),
+    chip: list[str] = CHIP_ARG,
+    list_samples_flag: bool = LIST_SAMPLES_OPTION,
     seq: Optional[str] = typer.Option(
         None,
         "--seq",
@@ -677,12 +672,6 @@ def plot_its_sequential_command(
         "--output",
         "-o",
         help="Output directory for plots (default: from config)"
-    ),
-    chip_group: str = typer.Option(
-        "Alisson",
-        "--group",
-        "-g",
-        help="Chip group name"
     ),
     plot_start_time: float = typer.Option(
         20.0,
@@ -746,6 +735,10 @@ def plot_its_sequential_command(
         python process_and_analyze.py plot-its-sequential 81 --seq 93,94,95,96 \\
             --plot-start 10.0 --no-boundaries --legend vg
     """
+    chip_id = resolve_chip_cli_args(chip, list_samples_flag)
+    chip_group = chip_id.group
+    chip_number = chip_id.number
+
     ctx = get_context()
 
     ctx.print()

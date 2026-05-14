@@ -9,10 +9,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 import polars as pl
 import typer
-import yaml
 from rich.console import Console
 
 from src.cli.plugin_system import cli_command
+from src.core.chip_metadata import ChipId, UnknownChipGroupError, load_chip_metadata
 from src.core.utils import read_measurement_parquet
 from src.plotting.config import PlotConfig
 from src.plotting.plot_utils import ensure_standard_columns
@@ -20,18 +20,17 @@ from src.plotting.styles import set_plot_style
 
 ENRICHED_HISTORY_DIR = Path("data/03_derived/chip_histories_enriched")
 STAGE_HISTORY_DIR = Path("data/02_stage/chip_histories")
-ENCAP_YAML = Path("config/encap_characteristics.yaml")
 DEFAULT_OUTPUT_DIR = Path("figs/compare/first-ivg")
 
 console = Console()
 
 
-def _load_encap_characteristics() -> dict[int, dict]:
-    if not ENCAP_YAML.exists():
+def _lookup_chip_metadata(chip_group: str, chip_number: int) -> dict:
+    """Return chip metadata or an empty dict if the chip / group is unknown."""
+    try:
+        return load_chip_metadata(ChipId(chip_group, chip_number))
+    except UnknownChipGroupError:
         return {}
-    with ENCAP_YAML.open("r") as f:
-        data = yaml.safe_load(f) or {}
-    return {int(k): (v or {}) for k, v in data.items() if isinstance(k, int)}
 
 
 def _resolve_history_path(chip_group: str, chip_number: int) -> Path:
@@ -133,7 +132,8 @@ def compare_first_ivg(
     """
     Overlay the first IVg sweep of multiple chips.
 
-    Material tags (biotite/hBN/etc.) are read from config/encap_characteristics.yaml.
+    Material tags (biotite/hBN/etc.) are read via the chip-metadata loader
+    (config/chip_apps.yaml → config/chip_metadata/biotite.yaml).
     Chips not listed are plotted with the chip number only and a warning is printed.
 
     Examples:
@@ -141,7 +141,6 @@ def compare_first_ivg(
         biotite compare-first-ivg 67,72,74,75 --group Alisson --tag baseline
     """
     chip_numbers = _parse_chip_list(chips)
-    encap = _load_encap_characteristics()
 
     plot_config = PlotConfig()
     set_plot_style(theme or plot_config.theme)
@@ -154,15 +153,15 @@ def compare_first_ivg(
             console.print(f"[red]error:[/red] {e}")
             raise typer.Exit(1)
 
-        info = encap.get(n)
-        material = (info or {}).get("material")
+        info = _lookup_chip_metadata(chip_group, n)
+        material = info.get("material")
         if material:
             label = f"{n} ({material})"
         else:
-            reason = "not listed" if info is None else "material missing"
+            reason = "not listed" if not info else "material missing"
             console.print(
-                f"[yellow]warning:[/yellow] chip {n} {reason} in {ENCAP_YAML} "
-                f"— plotting without material tag."
+                f"[yellow]warning:[/yellow] chip {n} {reason} in chip-metadata "
+                f"for group {chip_group!r} — plotting without material tag."
             )
             label = str(n)
 

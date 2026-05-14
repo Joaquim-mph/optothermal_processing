@@ -1,0 +1,41 @@
+# Biotite-app chip metadata (graphene encapsulated between hBN top and
+# either hBN or biotite bottom dielectric).
+#
+# Read via src.core.chip_metadata.load_chip_metadata(ChipId(...)).
+# Schema is declared in config/chip_apps.yaml (per_chip).
+#
+# Mirrors the per-chip block of config/encap_characteristics.yaml, which is
+# still consumed directly by:
+#   - src/derived/algorithms/mobility.py
+#   - src/derived/extractors/mobility_extractor.py
+#   - scripts/estimate_mobility.py
+#   - scripts/plot_mobility_time_stability.py
+#   - scripts/plot_ivg_365nm_triplet_compare.py
+# Keep the two files in sync until those callers migrate (see NOTES_GENERAL_BRANCH.md).
+#
+# Per-chip fields:
+#   material              -- bottom dielectric tag: "hBN" or "biotite"
+#   top_hBN_nm            -- top hBN encapsulant thickness (nm)
+#   bottom_dielectric_nm  -- bottom dielectric thickness (nm)
+
+schema: per_chip
+
+chips:
+  Alisson:
+    # hBN bottom layer
+    67: { material: hBN, top_hBN_nm: 54, bottom_dielectric_nm: 43 }
+    72: { material: hBN, top_hBN_nm: 5,  bottom_dielectric_nm: 31 }
+    79: { material: hBN, top_hBN_nm: 12, bottom_dielectric_nm: 92 }
+
+    # Biotite bottom layer
+    68:  { material: biotite, top_hBN_nm: 58, bottom_dielectric_nm: 30 }
+    69:  { material: biotite, top_hBN_nm: 33, bottom_dielectric_nm: 24 }
+    71:  { material: biotite, top_hBN_nm: 13, bottom_dielectric_nm: 45 }
+    73:  { material: biotite, top_hBN_nm: 7,  bottom_dielectric_nm: 65 }
+    74:  { material: biotite, top_hBN_nm: 13, bottom_dielectric_nm: 45 }
+    75:  { material: biotite, top_hBN_nm: 5,  bottom_dielectric_nm: 37 }
+    76:  { material: biotite, top_hBN_nm: 17, bottom_dielectric_nm: 24 }
+    80:  { material: biotite, top_hBN_nm: 20, bottom_dielectric_nm: 90 }
+    81:  { material: biotite, top_hBN_nm: 9,  bottom_dielectric_nm: 70 }
+    100: { material: biotite, top_hBN_nm: 15, bottom_dielectric_nm: 35 }
+    101: { material: biotite, top_hBN_nm: 10, bottom_dielectric_nm: 37 }

@@ -253,6 +253,13 @@ class ITSRiseFallExtractor(MetricExtractor):
             flags.append("NEGATIVE_I_MAX")
             confidence *= 0.5
 
+        if i_max == 0.0:
+            logger.debug(
+                f"Extractor {self.metric_name} skipped: PRECONDITION_FAILED (i_max is zero)",
+                extra={"run_id": metadata.get("run_id"), "reason": "PRECONDITION_FAILED"},
+            )
+            return None
+
         if self.mode == "rise":
             phase_start, phase_end = light_start, light_end
         else:

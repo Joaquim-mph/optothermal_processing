@@ -272,15 +272,28 @@ class TestExtract:
         assert "SIGN_SWITCH" in (m.flags or "")
 
     def test_negative_i_max_flag(self):
+        # strictly-negative photocurrent: i_max = -0.1 (< 0), still flagged.
+        # The illuminated phase dips to -200 then recovers to -0.1 so that
+        # the sign-switch path fires and _section_time can find valid crossings;
+        # i_max = max(light) = -0.1 which is strictly negative, triggering the flag.
         pre = np.zeros(100)
-        light = np.linspace(0.0, -100.0, 300)  # all-negative photocurrent
-        post = np.linspace(-100.0, 0.0, 300)
+        down = np.linspace(-1.0, -200.0, 150)
+        up = np.linspace(-200.0, -0.1, 150)
+        light = np.concatenate([down, up])
+        post = np.linspace(-0.1, -50.0, 300)
         df = _make_trace(pre, light, post)
         m = ITSRiseFallExtractor(mode="rise").extract(df, _meta())
-        # I_max <= 0 -> NEGATIVE_I_MAX flag set, confidence reduced
-        if m is not None:
-            assert "NEGATIVE_I_MAX" in (m.flags or "")
-            assert m.confidence <= 0.5
+        assert m is not None
+        assert "NEGATIVE_I_MAX" in (m.flags or "")
+        assert m.confidence <= 0.5
+
+    def test_zero_i_max_returns_none(self):
+        # illuminated phase max is exactly 0.0 -> no rise/fall to measure
+        pre = np.zeros(100)
+        light = np.linspace(0.0, -100.0, 300)
+        post = np.linspace(-100.0, 0.0, 300)
+        df = _make_trace(pre, light, post)
+        assert ITSRiseFallExtractor(mode="rise").extract(df, _meta()) is None
 
     def test_rise_onset_clamped_flag(self):
         # light phase starts already at 20 (>= 10% of I_max=100)
@@ -291,6 +304,17 @@ class TestExtract:
         m = ITSRiseFallExtractor(mode="rise").extract(df, _meta())
         assert m is not None
         assert "RISE_ONSET_CLAMPED" in (m.flags or "")
+        assert m.confidence == pytest.approx(0.7)
+
+    def test_fall_onset_clamped_flag(self):
+        # post-dark phase starts already at 50 (<= 90% of I_max=100)
+        pre = np.zeros(100)
+        light = np.linspace(0.0, 100.0, 300)
+        post = np.linspace(50.0, 0.0, 300)
+        df = _make_trace(pre, light, post)
+        m = ITSRiseFallExtractor(mode="fall").extract(df, _meta())
+        assert m is not None
+        assert "FALL_ONSET_CLAMPED" in (m.flags or "")
         assert m.confidence == pytest.approx(0.7)
 
     def test_validate_accepts_good_result(self):

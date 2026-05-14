@@ -90,6 +90,50 @@ class ITSRiseFallExtractor(MetricExtractor):
             hits = np.where(values <= level)[0]
         return int(hits[0]) if len(hits) > 0 else None
 
+    def _section_time(
+        self,
+        t: np.ndarray,
+        i: np.ndarray,
+        start: int,
+        end: int,
+        extremum_idx: int,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Compute the 10-90 response time for section [start, end) whose
+        reference extremum is at absolute index `extremum_idx`.
+
+        Returns a details dict, or None if either crossing is missing.
+        """
+        seg_i = i[start:end]
+        if len(seg_i) < 2:
+            return None
+        E = float(i[extremum_idx])
+        start_val = float(seg_i[0])
+        going_up = E >= start_val
+        level_10 = self.low_frac * E
+        level_90 = self.high_frac * E
+        idx_10 = self._crossing_index(seg_i, level_10, going_up)
+        idx_90 = self._crossing_index(seg_i, level_90, going_up)
+        if idx_10 is None or idx_90 is None:
+            return None
+        abs_10 = start + idx_10
+        abs_90 = start + idx_90
+        response_time = abs(float(t[abs_90]) - float(t[abs_10]))
+        return {
+            "response_time": response_time,
+            "extremum": E,
+            "extremum_idx": int(extremum_idx),
+            "extremum_t": float(t[extremum_idx]),
+            "level_10": level_10,
+            "level_90": level_90,
+            "idx_10": int(abs_10),
+            "idx_90": int(abs_90),
+            "t_10": float(t[abs_10]),
+            "t_90": float(t[abs_90]),
+            "section_start_idx": int(start),
+            "section_end_idx": int(end),
+        }
+
     def extract(
         self, measurement: pl.DataFrame, metadata: Dict[str, Any]
     ) -> Optional[DerivedMetric]:

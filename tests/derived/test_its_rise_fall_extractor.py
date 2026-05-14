@@ -69,3 +69,39 @@ class TestCrossingIndex:
         ext = ITSRiseFallExtractor(mode="rise")
         values = np.array([0.0, 1.0, 2.0])
         assert ext._crossing_index(values, 99.0, going_up=True) is None
+
+
+class TestSectionTime:
+    def test_section_rising_toward_positive_peak(self):
+        ext = ITSRiseFallExtractor(mode="rise")
+        # values 0..100 over 101 samples, t == index
+        t = np.arange(101, dtype=float)
+        i = np.linspace(0.0, 100.0, 101)
+        # extremum at index 100 (value 100); levels 10 and 90
+        sec = ext._section_time(t, i, start=0, end=101, extremum_idx=100)
+        assert sec is not None
+        assert sec["idx_10"] == 10   # first value >= 10
+        assert sec["idx_90"] == 90   # first value >= 90
+        assert sec["response_time"] == pytest.approx(80.0)
+        assert sec["extremum"] == pytest.approx(100.0)
+
+    def test_section_moving_toward_negative_peak(self):
+        ext = ITSRiseFallExtractor(mode="rise")
+        # section starts at +100, ends at -50 (sign switch); t == index
+        t = np.arange(151, dtype=float)
+        i = np.linspace(100.0, -50.0, 151)
+        # extremum at index 150 (value -50); levels -5 and -45
+        sec = ext._section_time(t, i, start=0, end=151, extremum_idx=150)
+        assert sec is not None
+        # going down: first value <= -5, first value <= -45
+        assert sec["idx_10"] < sec["idx_90"]
+        assert sec["response_time"] >= 0.0
+
+    def test_section_returns_none_when_level_unreached(self):
+        ext = ITSRiseFallExtractor(mode="rise")
+        t = np.arange(50, dtype=float)
+        i = np.linspace(0.0, 100.0, 50)
+        # extremum index points at value 100, but section only covers 0..20
+        sec = ext._section_time(t, i, start=0, end=20, extremum_idx=49)
+        # within [0,20) max value ~38.8, never reaches 90 -> None
+        assert sec is None

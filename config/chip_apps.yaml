@@ -1,0 +1,20 @@
+# Routes chip groups to "apps" — bundles of chip-architecture metadata.
+# Each app owns a set of ChipGroup names and a metadata sidecar.
+#
+# Schema:
+#   per_chip   — one block per (group, number); samples concept not used.
+#   per_sample — one block per (group, number) with sub-blocks per sample
+#                (or a compact `geometry_pairs:` form for paired layouts).
+
+default_chip_group: Alisson
+
+apps:
+  biotite:
+    chip_groups: [Alisson]
+    metadata_file: config/chip_metadata/biotite.yaml
+    schema: per_chip
+
+  sio2_legacy:
+    chip_groups: []   # populated as historic chips are imported
+    metadata_file: config/chip_metadata/sio2_legacy.yaml
+    schema: per_sample

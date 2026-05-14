@@ -127,3 +127,43 @@ class TestSingleFall:
         i = np.linspace(100.0, 20.0, 101)
         sec = ext._single_fall(t, i, start=0, end=101, i_max=100.0, i_max_idx=0)
         assert sec is None
+
+
+class TestFindFirstPeak:
+    def test_monotonic_signal_no_peak(self):
+        ext = ITSRiseFallExtractor(mode="rise")
+        signal = np.linspace(0.0, 100.0, 300)
+        assert ext._find_first_peak(signal) is None
+
+    def test_sign_switch_signal_splits_near_peak(self):
+        ext = ITSRiseFallExtractor(mode="rise")
+        # rise 0->100 over 150 samples, then fall 100->-80 over 150 samples
+        up = np.linspace(0.0, 100.0, 150)
+        down = np.linspace(100.0, -80.0, 150)
+        signal = np.concatenate([up, down])
+        result = ext._find_first_peak(signal)
+        assert result is not None
+        peak_idx, s0 = result
+        assert s0 == 1
+        # peak should be located near the turning point (index ~149)
+        assert 140 <= peak_idx <= 158
+
+    def test_brief_dip_not_sustained_no_peak(self):
+        ext = ITSRiseFallExtractor(mode="rise")
+        # mostly rising, with a 5-sample dip that is shorter than
+        # min_reversal_run (15) -> must not trigger a split
+        signal = np.linspace(0.0, 300.0, 300).copy()
+        signal[150:155] = signal[150]  # flat/dip, only 5 samples
+        assert ext._find_first_peak(signal) is None
+
+    def test_descending_then_rising_negative_s0(self):
+        ext = ITSRiseFallExtractor(mode="fall")
+        # decay 100->-40 over 150, then recover -40->0 over 150
+        down = np.linspace(100.0, -40.0, 150)
+        up = np.linspace(-40.0, 0.0, 150)
+        signal = np.concatenate([down, up])
+        result = ext._find_first_peak(signal)
+        assert result is not None
+        peak_idx, s0 = result
+        assert s0 == -1
+        assert 140 <= peak_idx <= 158

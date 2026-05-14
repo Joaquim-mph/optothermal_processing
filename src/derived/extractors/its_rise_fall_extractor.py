@@ -175,6 +175,47 @@ class ITSRiseFallExtractor(MetricExtractor):
             "section_end_idx": int(end),
         }
 
+    def _find_first_peak(
+        self, signal: np.ndarray
+    ) -> Optional[Tuple[int, int]]:
+        """
+        Detect a sustained derivative reversal (sign switch) in `signal`.
+
+        Returns (peak_index, s0): `peak_index` is the extremum reached
+        before the sustained reversal (index relative to `signal`), `s0`
+        is the initial direction (+1 or -1). Returns None if `signal`
+        does not sustain a reversal.
+        """
+        n = len(signal)
+        w = self.smooth_window
+        if n < 2 * w + self.min_reversal_run:
+            return None
+        kernel = np.ones(w) / w
+        smooth = np.convolve(signal, kernel, mode="valid")
+        d = np.diff(smooth)
+        if len(d) == 0:
+            return None
+        s0 = int(np.sign(np.sum(d[: max(1, self.min_reversal_run)])))
+        if s0 == 0:
+            return None
+        reversed_mask = np.sign(d) == -s0
+        run = 0
+        offset = (w - 1) // 2
+        for k in range(len(reversed_mask)):
+            if reversed_mask[k]:
+                run += 1
+                if run >= self.min_reversal_run:
+                    reversal_start = k - run + 1
+                    seg = smooth[: reversal_start + 1]
+                    if s0 > 0:
+                        peak_smooth_idx = int(np.argmax(seg))
+                    else:
+                        peak_smooth_idx = int(np.argmin(seg))
+                    return peak_smooth_idx + offset, s0
+            else:
+                run = 0
+        return None
+
     def extract(
         self, measurement: pl.DataFrame, metadata: Dict[str, Any]
     ) -> Optional[DerivedMetric]:

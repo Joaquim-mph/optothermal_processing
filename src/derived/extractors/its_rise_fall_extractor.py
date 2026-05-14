@@ -80,6 +80,16 @@ class ITSRiseFallExtractor(MetricExtractor):
         idx = int(np.argmax(lengths))
         return int(on_edges[idx]), int(off_edges[idx])
 
+    def _crossing_index(
+        self, values: np.ndarray, level: float, going_up: bool
+    ) -> Optional[int]:
+        """First index where `values` reaches `level` (>= if going_up else <=)."""
+        if going_up:
+            hits = np.where(values >= level)[0]
+        else:
+            hits = np.where(values <= level)[0]
+        return int(hits[0]) if len(hits) > 0 else None
+
     def extract(
         self, measurement: pl.DataFrame, metadata: Dict[str, Any]
     ) -> Optional[DerivedMetric]:

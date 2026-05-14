@@ -50,3 +50,22 @@ class TestSkeleton:
         ext = ITSRiseFallExtractor(mode="rise")
         vl = np.array([0.0] * 5 + [5.0] * 3 + [0.0] * 5 + [5.0] * 10 + [0.0] * 5)
         assert ext._find_led_segment(vl) == (13, 23)
+
+
+class TestCrossingIndex:
+    def test_crossing_going_up(self):
+        ext = ITSRiseFallExtractor(mode="rise")
+        values = np.array([0.0, 2.0, 4.0, 6.0, 8.0, 10.0])
+        # first index with value >= 5.0
+        assert ext._crossing_index(values, 5.0, going_up=True) == 3
+
+    def test_crossing_going_down(self):
+        ext = ITSRiseFallExtractor(mode="fall")
+        values = np.array([10.0, 8.0, 6.0, 4.0, 2.0, 0.0])
+        # first index with value <= 5.0
+        assert ext._crossing_index(values, 5.0, going_up=False) == 3
+
+    def test_crossing_not_found(self):
+        ext = ITSRiseFallExtractor(mode="rise")
+        values = np.array([0.0, 1.0, 2.0])
+        assert ext._crossing_index(values, 99.0, going_up=True) is None

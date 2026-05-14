@@ -219,7 +219,168 @@ class ITSRiseFallExtractor(MetricExtractor):
     def extract(
         self, measurement: pl.DataFrame, metadata: Dict[str, Any]
     ) -> Optional[DerivedMetric]:
-        return None
+        required = {"t (s)", "I (A)", "VL (V)"}
+        if not required.issubset(measurement.columns):
+            logger.debug(
+                f"Extractor {self.metric_name} skipped: MISSING_COLUMN",
+                extra={"run_id": metadata.get("run_id"), "reason": "MISSING_COLUMN"},
+            )
+            return None
+
+        t = measurement["t (s)"].to_numpy()
+        i = measurement["I (A)"].to_numpy()
+        vl = measurement["VL (V)"].to_numpy()
+
+        seg = self._find_led_segment(vl)
+        if seg is None:
+            logger.debug(
+                f"Extractor {self.metric_name} skipped: PRECONDITION_FAILED (no LED-ON segment)",
+                extra={"run_id": metadata.get("run_id"), "reason": "PRECONDITION_FAILED"},
+            )
+            return None
+        light_start, light_end = seg
+        if light_end - light_start < 1:
+            return None
+
+        illum_i = i[light_start:light_end]
+        i_max_rel = int(np.argmax(illum_i))
+        i_max = float(illum_i[i_max_rel])
+        i_max_idx = light_start + i_max_rel
+
+        flags: List[str] = []
+        confidence = 1.0
+        if i_max <= 0:
+            flags.append("NEGATIVE_I_MAX")
+            confidence *= 0.5
+
+        if self.mode == "rise":
+            phase_start, phase_end = light_start, light_end
+        else:
+            phase_start, phase_end = light_end, len(t)
+
+        if phase_end - phase_start < self.min_points_per_phase:
+            logger.debug(
+                f"Extractor {self.metric_name} skipped: PRECONDITION_FAILED (phase too short)",
+                extra={"run_id": metadata.get("run_id"), "reason": "PRECONDITION_FAILED"},
+            )
+            return None
+
+        phase_i = i[phase_start:phase_end]
+        peak = self._find_first_peak(phase_i)
+
+        sections: List[Dict[str, Any]] = []
+
+        if peak is None:
+            # Single section
+            if self.mode == "rise":
+                sec = self._section_time(t, i, phase_start, phase_end, i_max_idx)
+                if sec is None:
+                    return None
+                if sec["idx_10"] == phase_start:
+                    flags.append("RISE_ONSET_CLAMPED")
+                    confidence *= 0.7
+                sections.append(sec)
+            else:
+                sec = self._single_fall(
+                    t, i, phase_start, phase_end, i_max, i_max_idx
+                )
+                if sec is None:
+                    logger.debug(
+                        f"Extractor {self.metric_name} skipped: INCOMPLETE_DECAY",
+                        extra={
+                            "run_id": metadata.get("run_id"),
+                            "reason": "INCOMPLETE_DECAY",
+                        },
+                    )
+                    return None
+                if sec["idx_90"] == phase_start:
+                    flags.append("FALL_ONSET_CLAMPED")
+                    confidence *= 0.7
+                sections.append(sec)
+            boundary_idx = None
+        else:
+            # Two sections (sustained reversal detected)
+            peak_rel, s0 = peak
+            boundary_idx = phase_start + peak_rel
+            flags.append("SIGN_SWITCH")
+
+            sec0 = self._section_time(
+                t, i, phase_start, boundary_idx + 1, boundary_idx
+            )
+            if sec0 is None:
+                return None
+            if self.mode == "rise" and sec0["idx_10"] == phase_start:
+                flags.append("RISE_ONSET_CLAMPED")
+                confidence *= 0.7
+            sections.append(sec0)
+
+            sec1_i = i[boundary_idx:phase_end]
+            if len(sec1_i) >= 2:
+                if s0 > 0:
+                    sec1_ext_rel = int(np.argmin(sec1_i))
+                else:
+                    sec1_ext_rel = int(np.argmax(sec1_i))
+                sec1_ext_idx = boundary_idx + sec1_ext_rel
+                sec1 = self._section_time(
+                    t, i, boundary_idx, phase_end, sec1_ext_idx
+                )
+            else:
+                sec1 = None
+            if sec1 is None:
+                flags.append("SECTION1_INCOMPLETE")
+            else:
+                sections.append(sec1)
+
+        details = {
+            "mode": self.mode,
+            "n_sections": len(sections),
+            "sign_switch": peak is not None,
+            "i_max": i_max,
+            "smooth_window": self.smooth_window,
+            "min_reversal_run": self.min_reversal_run,
+            "low_frac": self.low_frac,
+            "high_frac": self.high_frac,
+            "phase_start_t": float(t[phase_start]),
+            "phase_end_t": float(t[phase_end - 1]),
+            "sections": [
+                {"section": k, **sec} for k, sec in enumerate(sections)
+            ],
+        }
+        if boundary_idx is not None:
+            details["boundary_idx"] = int(boundary_idx)
+
+        return DerivedMetric(
+            run_id=metadata["run_id"],
+            chip_number=metadata["chip_number"],
+            chip_group=metadata["chip_group"],
+            procedure=metadata.get("proc", metadata.get("procedure")),
+            seq_num=metadata.get("seq_num"),
+            metric_name=self.metric_name,
+            metric_category=self.metric_category,
+            value_float=sections[0]["response_time"],
+            value_json=json.dumps(details),
+            unit="s",
+            extraction_method=(
+                "ten_ninety_rise" if self.mode == "rise" else "ten_ninety_fall"
+            ),
+            extraction_version=metadata.get("extraction_version", "unknown"),
+            extraction_timestamp=datetime.now(timezone.utc),
+            confidence=max(0.0, min(1.0, confidence)),
+            flags=",".join(flags) if flags else None,
+        )
 
     def validate(self, result: DerivedMetric) -> bool:
+        if result.value_float is None:
+            return False
+        v = result.value_float
+        if not np.isfinite(v) or v < 0:
+            return False
+        try:
+            details = json.loads(result.value_json)
+            for sec in details.get("sections", []):
+                rt = sec.get("response_time")
+                if rt is None or not np.isfinite(rt) or rt < 0:
+                    return False
+        except (json.JSONDecodeError, KeyError, TypeError):
+            return False
         return True

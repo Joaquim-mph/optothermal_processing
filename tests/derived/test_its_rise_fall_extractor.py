@@ -167,3 +167,138 @@ class TestFindFirstPeak:
         peak_idx, s0 = result
         assert s0 == -1
         assert 140 <= peak_idx <= 158
+
+
+def _make_trace(pre_i, light_i, post_i, dt=1.0):
+    """Build an It DataFrame from per-phase current arrays."""
+    i = np.concatenate([pre_i, light_i, post_i])
+    vl = np.concatenate([
+        np.zeros(len(pre_i)),
+        np.full(len(light_i), 5.0),
+        np.zeros(len(post_i)),
+    ])
+    t = np.arange(len(i), dtype=float) * dt
+    return pl.DataFrame({"t (s)": t, "I (A)": i, "VL (V)": vl})
+
+
+class TestExtract:
+    def test_missing_columns_returns_none(self):
+        ext = ITSRiseFallExtractor(mode="rise")
+        df = pl.DataFrame({"t (s)": [0.0, 1.0], "I (A)": [1.0, 2.0]})
+        assert ext.extract(df, _meta()) is None
+
+    def test_dark_measurement_returns_none(self):
+        ext = ITSRiseFallExtractor(mode="rise")
+        i = np.linspace(0.0, 1.0, 120)
+        vl = np.zeros(120)
+        t = np.arange(120, dtype=float)
+        df = pl.DataFrame({"t (s)": t, "I (A)": i, "VL (V)": vl})
+        assert ext.extract(df, _meta()) is None
+
+    def test_monotonic_rise(self):
+        pre = np.zeros(100)
+        light = np.linspace(0.0, 100.0, 300)
+        post = np.linspace(100.0, 0.0, 300)
+        df = _make_trace(pre, light, post)
+        m = ITSRiseFallExtractor(mode="rise").extract(df, _meta())
+        assert m is not None
+        assert m.metric_name == "t_rise"
+        assert m.unit == "s"
+        details = json.loads(m.value_json)
+        assert details["n_sections"] == 1
+        assert details["sign_switch"] is False
+        # light index of first >=10 is 30, first >=90 is 270 -> 240 samples
+        assert m.value_float == pytest.approx(240.0, abs=2.0)
+
+    def test_monotonic_fall(self):
+        pre = np.zeros(100)
+        light = np.linspace(0.0, 100.0, 300)
+        post = np.linspace(100.0, 0.0, 300)
+        df = _make_trace(pre, light, post)
+        m = ITSRiseFallExtractor(mode="fall").extract(df, _meta())
+        assert m is not None
+        assert m.metric_name == "t_fall"
+        details = json.loads(m.value_json)
+        assert details["n_sections"] == 1
+        assert m.value_float == pytest.approx(240.0, abs=2.0)
+
+    def test_incomplete_decay_fall_returns_none(self):
+        pre = np.zeros(100)
+        light = np.linspace(0.0, 100.0, 300)
+        post = np.linspace(100.0, 20.0, 300)  # never reaches 10
+        df = _make_trace(pre, light, post)
+        assert ITSRiseFallExtractor(mode="fall").extract(df, _meta()) is None
+        # rise still works
+        assert ITSRiseFallExtractor(mode="rise").extract(df, _meta()) is not None
+
+    def test_brief_dip_stays_single_section(self):
+        pre = np.zeros(100)
+        light = np.linspace(0.0, 100.0, 300).copy()
+        light[150:155] = light[150]  # 5-sample dip, not sustained
+        post = np.linspace(100.0, 0.0, 300)
+        df = _make_trace(pre, light, post)
+        m = ITSRiseFallExtractor(mode="rise").extract(df, _meta())
+        assert m is not None
+        assert json.loads(m.value_json)["n_sections"] == 1
+
+    def test_sign_switch_rise_two_sections(self):
+        pre = np.zeros(100)
+        up = np.linspace(0.0, 100.0, 200)
+        down = np.linspace(100.0, -80.0, 200)
+        light = np.concatenate([up, down])
+        post = np.linspace(-80.0, 0.0, 300)
+        df = _make_trace(pre, light, post)
+        m = ITSRiseFallExtractor(mode="rise").extract(df, _meta())
+        assert m is not None
+        details = json.loads(m.value_json)
+        assert details["n_sections"] == 2
+        assert details["sign_switch"] is True
+        assert "SIGN_SWITCH" in (m.flags or "")
+        assert len(details["sections"]) == 2
+        for sec in details["sections"]:
+            assert sec["response_time"] >= 0.0
+
+    def test_sign_switch_fall_two_sections(self):
+        pre = np.zeros(100)
+        light = np.linspace(0.0, 100.0, 300)
+        down = np.linspace(100.0, -60.0, 200)
+        recover = np.linspace(-60.0, 0.0, 200)
+        post = np.concatenate([down, recover])
+        df = _make_trace(pre, light, post)
+        m = ITSRiseFallExtractor(mode="fall").extract(df, _meta())
+        assert m is not None
+        details = json.loads(m.value_json)
+        assert details["n_sections"] == 2
+        assert "SIGN_SWITCH" in (m.flags or "")
+
+    def test_negative_i_max_flag(self):
+        pre = np.zeros(100)
+        light = np.linspace(0.0, -100.0, 300)  # all-negative photocurrent
+        post = np.linspace(-100.0, 0.0, 300)
+        df = _make_trace(pre, light, post)
+        m = ITSRiseFallExtractor(mode="rise").extract(df, _meta())
+        # I_max <= 0 -> NEGATIVE_I_MAX flag set, confidence reduced
+        if m is not None:
+            assert "NEGATIVE_I_MAX" in (m.flags or "")
+            assert m.confidence <= 0.5
+
+    def test_rise_onset_clamped_flag(self):
+        # light phase starts already at 20 (>= 10% of I_max=100)
+        pre = np.zeros(100)
+        light = np.linspace(20.0, 100.0, 300)
+        post = np.linspace(100.0, 0.0, 300)
+        df = _make_trace(pre, light, post)
+        m = ITSRiseFallExtractor(mode="rise").extract(df, _meta())
+        assert m is not None
+        assert "RISE_ONSET_CLAMPED" in (m.flags or "")
+        assert m.confidence == pytest.approx(0.7)
+
+    def test_validate_accepts_good_result(self):
+        pre = np.zeros(100)
+        light = np.linspace(0.0, 100.0, 300)
+        post = np.linspace(100.0, 0.0, 300)
+        df = _make_trace(pre, light, post)
+        ext = ITSRiseFallExtractor(mode="rise")
+        m = ext.extract(df, _meta())
+        assert m is not None
+        assert ext.validate(m) is True

@@ -177,6 +177,7 @@ class MetricPipeline:
         from .extractors.corrected_delta_i_extractor import CorrectedDeltaIExtractor
         from .extractors.mobility_extractor import MobilityExtractor
         from .extractors.photoresponse_extractor import PhotoresponseExtractor
+        from .extractors.its_rise_fall_extractor import ITSRiseFallExtractor
 
         return [
             CNPExtractor(direction="forward"),
@@ -190,6 +191,8 @@ class MetricPipeline:
             MobilityExtractor(branch="electrons", direction="forward"),
             MobilityExtractor(branch="electrons", direction="backward"),
             MobilityExtractor(branch="electrons", direction="average"),
+            ITSRiseFallExtractor(mode="rise"),
+            ITSRiseFallExtractor(mode="fall"),
         ]
 
     def _default_pairwise_extractors(self) -> List[PairwiseMetricExtractor]:

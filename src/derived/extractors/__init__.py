@@ -27,6 +27,7 @@ from .its_three_phase_fit_extractor import ITSThreePhaseFitExtractor
 from .consecutive_sweep_difference import ConsecutiveSweepDifferenceExtractor
 from .drift_extractor import DriftExtractor
 from .mobility_extractor import MobilityExtractor
+from .its_rise_fall_extractor import ITSRiseFallExtractor
 
 __all__ = [
     "MetricExtractor",
@@ -41,4 +42,5 @@ __all__ = [
     "ConsecutiveSweepDifferenceExtractor",
     "DriftExtractor",
     "MobilityExtractor",
+    "ITSRiseFallExtractor",
 ]

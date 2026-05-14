@@ -326,3 +326,19 @@ class TestExtract:
         m = ext.extract(df, _meta())
         assert m is not None
         assert ext.validate(m) is True
+
+
+class TestRegistration:
+    def test_exported_from_extractors_package(self):
+        from src.derived.extractors import ITSRiseFallExtractor as Exported
+        assert Exported is ITSRiseFallExtractor
+
+    def test_registered_in_default_extractors(self):
+        from src.derived.metric_pipeline import MetricPipeline
+        pipeline = MetricPipeline(base_dir=Path("."))
+        names = {e.metric_name for e in pipeline.extractors}
+        assert "t_rise" in names
+        assert "t_fall" in names
+        it_extractors = pipeline.extractor_map.get("It", [])
+        it_names = {e.metric_name for e in it_extractors}
+        assert {"t_rise", "t_fall"} <= it_names

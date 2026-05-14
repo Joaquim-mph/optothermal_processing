@@ -197,7 +197,21 @@ discover_commands(
 
 
 def main():
-    """Main entry point for the CLI application."""
+    """Main entry point for the CLI application (used by both `graphene` and `biotite`)."""
+    app()
+
+
+def biotite_deprecated():
+    """Legacy `biotite` console script — warns and forwards to the same app.
+
+    Kept as an alias during the general-branch migration so muscle memory does
+    not break. Use `graphene` going forward.
+    """
+    import sys
+    print(
+        "warning: `biotite` is deprecated and will be removed; use `graphene` instead.",
+        file=sys.stderr,
+    )
     app()
 
 

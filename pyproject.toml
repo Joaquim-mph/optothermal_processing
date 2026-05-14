@@ -34,7 +34,8 @@ jupyter = ["ipython>=8.0.0", "jupyter>=1.0.0"]
 dev = ["pytest>=9.0.0"]
 
 [project.scripts]
-biotite = "src.cli.main:main"
+graphene = "src.cli.main:main"
+biotite = "src.cli.main:biotite_deprecated"
 
 [tool.setuptools.packages.find]
 include = ["src*"]

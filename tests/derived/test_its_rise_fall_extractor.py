@@ -105,3 +105,25 @@ class TestSectionTime:
         sec = ext._section_time(t, i, start=0, end=20, extremum_idx=49)
         # within [0,20) max value ~38.8, never reaches 90 -> None
         assert sec is None
+
+
+class TestSingleFall:
+    def test_single_fall_basic(self):
+        ext = ITSRiseFallExtractor(mode="fall")
+        # relaxation: value decays 100 -> 0 over 101 samples, t == index
+        t = np.arange(101, dtype=float)
+        i = np.linspace(100.0, 0.0, 101)
+        sec = ext._single_fall(t, i, start=0, end=101, i_max=100.0, i_max_idx=0)
+        assert sec is not None
+        # first value <= 90 at index 10, first value <= 10 at index 90
+        assert sec["idx_90"] == 10
+        assert sec["idx_10"] == 90
+        assert sec["response_time"] == pytest.approx(80.0)
+
+    def test_single_fall_incomplete_decay_returns_none(self):
+        ext = ITSRiseFallExtractor(mode="fall")
+        t = np.arange(101, dtype=float)
+        # decays only to 20, never reaches 10% of i_max (10.0)
+        i = np.linspace(100.0, 20.0, 101)
+        sec = ext._single_fall(t, i, start=0, end=101, i_max=100.0, i_max_idx=0)
+        assert sec is None

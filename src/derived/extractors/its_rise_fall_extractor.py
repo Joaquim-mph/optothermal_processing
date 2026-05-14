@@ -134,6 +134,47 @@ class ITSRiseFallExtractor(MetricExtractor):
             "section_end_idx": int(end),
         }
 
+    def _single_fall(
+        self,
+        t: np.ndarray,
+        i: np.ndarray,
+        start: int,
+        end: int,
+        i_max: float,
+        i_max_idx: int,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Single-section fall: current decays away from I_max in the
+        relaxation phase. Returns details dict, or None if the current
+        never decays to 10% of I_max (incomplete decay).
+        """
+        seg_i = i[start:end]
+        if len(seg_i) < 2:
+            return None
+        level_10 = self.low_frac * i_max
+        level_90 = self.high_frac * i_max
+        idx_90 = self._crossing_index(seg_i, level_90, going_up=False)
+        idx_10 = self._crossing_index(seg_i, level_10, going_up=False)
+        if idx_90 is None or idx_10 is None:
+            return None
+        abs_90 = start + idx_90
+        abs_10 = start + idx_10
+        response_time = abs(float(t[abs_10]) - float(t[abs_90]))
+        return {
+            "response_time": response_time,
+            "extremum": float(i_max),
+            "extremum_idx": int(i_max_idx),
+            "extremum_t": float(t[i_max_idx]),
+            "level_10": level_10,
+            "level_90": level_90,
+            "idx_10": int(abs_10),
+            "idx_90": int(abs_90),
+            "t_10": float(t[abs_10]),
+            "t_90": float(t[abs_90]),
+            "section_start_idx": int(start),
+            "section_end_idx": int(end),
+        }
+
     def extract(
         self, measurement: pl.DataFrame, metadata: Dict[str, Any]
     ) -> Optional[DerivedMetric]:

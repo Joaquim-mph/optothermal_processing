@@ -74,41 +74,41 @@ def _cnp_vg(vg: np.ndarray, i: np.ndarray) -> float:
     return float(vg[int(np.argmin(np.abs(i)))])
 
 
-def peak_gm_signed(
-    vg: np.ndarray, i: np.ndarray
+_EMPTY_GM_RESULT = (
+    float("nan"), float("nan"),
+    float("nan"), float("nan"),
+    np.array([]), np.array([]), np.array([]),
+    float("nan"),
+)
+
+
+def peak_gm_on_leg(
+    vg_leg: np.ndarray, i_leg: np.ndarray
 ) -> tuple[float, float, float, float, np.ndarray, np.ndarray, np.ndarray, float]:
-    """Compute signed peak gm on each branch from a single IVg sweep.
+    """Signed peak gm on each branch of a single monotonic Vg leg.
 
-    Returns a tuple
-        (gm_h_peak, gm_e_peak,
-         vg_at_h_peak, vg_at_e_peak,
-         vg_seg, i_seg, gm_seg, cnp_v)
-    where gm_*_peak is the signed gm at the branch's maximum |gm|
-    (negative on the hole branch, positive on the electron branch for a
-    typical graphene FET), and vg_at_*_peak is the corresponding Vg.
-
-    The function picks the longest monotonic segment of the sweep so the
-    turnaround artifact at the sweep apex is excluded, and computes gm via
-    the Savitzky-Golay derivative used elsewhere in the pipeline.
+    Same return tuple as `peak_gm_signed`, but the caller is responsible
+    for having already isolated one monotonic traversal (forward
+    V_min→V_max or backward V_max→V_min). No internal segmentation is
+    performed; the leg is sorted ascending in Vg, gm = dI/dVg is computed
+    via the Sav-Gol derivative, the coarse CNP (argmin|I|) splits hole
+    (Vg < CNP) and electron (Vg > CNP) branches, and the signed peak gm
+    on each branch is returned.
     """
-    empty = np.array([])
-    nan_out = (
-        float("nan"), float("nan"),
-        float("nan"), float("nan"),
-        empty, empty, empty,
-        float("nan"),
-    )
-    segs = segment_voltage_sweep(vg, i)
-    if not segs:
-        return nan_out
-    vg_s, i_s, _ = max(segs, key=lambda s: len(s[0]))
-    order = np.argsort(vg_s)
-    vg_s = vg_s[order]
-    i_s = i_s[order]
+    if vg_leg.size < 3:
+        return _EMPTY_GM_RESULT
+
+    order = np.argsort(vg_leg)
+    vg_s = vg_leg[order]
+    i_s = i_leg[order]
 
     gm = _savgol_derivative_corrected(vg_s, i_s)
     if gm.size == 0:
-        return float("nan"), float("nan"), float("nan"), float("nan"), vg_s, i_s, gm, float("nan")
+        return (
+            float("nan"), float("nan"),
+            float("nan"), float("nan"),
+            vg_s, i_s, gm, float("nan"),
+        )
 
     cnp = _cnp_vg(vg_s, i_s)
     abs_gm = np.abs(gm)
@@ -129,6 +129,23 @@ def peak_gm_signed(
         gm_e, vg_e = float("nan"), float("nan")
 
     return gm_h, gm_e, vg_h, vg_e, vg_s, i_s, gm, cnp
+
+
+def peak_gm_signed(
+    vg: np.ndarray, i: np.ndarray
+) -> tuple[float, float, float, float, np.ndarray, np.ndarray, np.ndarray, float]:
+    """Compute signed peak gm on each branch from a full IVg sweep.
+
+    Picks the longest monotonic segment via `segment_voltage_sweep` and
+    delegates to `peak_gm_on_leg`. Returns NaN-filled tuple if no
+    segment can be isolated. Preserved for backward compatibility with
+    `scripts/estimate_mobility.py` and any other external callers.
+    """
+    segs = segment_voltage_sweep(vg, i)
+    if not segs:
+        return _EMPTY_GM_RESULT
+    vg_s, i_s, _ = max(segs, key=lambda s: len(s[0]))
+    return peak_gm_on_leg(vg_s, i_s)
 
 
 def saturation_fraction(i: np.ndarray, tol: float = 0.01) -> float:

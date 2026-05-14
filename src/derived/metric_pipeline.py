@@ -179,11 +179,17 @@ class MetricPipeline:
         from .extractors.photoresponse_extractor import PhotoresponseExtractor
 
         return [
-            CNPExtractor(cluster_threshold_v=0.5, prominence_factor=0.1),
+            CNPExtractor(direction="forward"),
+            CNPExtractor(direction="backward"),
+            CNPExtractor(direction="average"),
             PhotoresponseExtractor(vl_threshold=0.1, min_samples_per_state=5),
             CorrectedDeltaIExtractor(),
-            MobilityExtractor(branch="holes"),
-            MobilityExtractor(branch="electrons"),
+            MobilityExtractor(branch="holes",     direction="forward"),
+            MobilityExtractor(branch="holes",     direction="backward"),
+            MobilityExtractor(branch="holes",     direction="average"),
+            MobilityExtractor(branch="electrons", direction="forward"),
+            MobilityExtractor(branch="electrons", direction="backward"),
+            MobilityExtractor(branch="electrons", direction="average"),
         ]
 
     def _default_pairwise_extractors(self) -> List[PairwiseMetricExtractor]:

@@ -46,6 +46,7 @@ def build_chip_history_from_manifest(
     chip_group: Optional[str] = None,
     information: Optional[str] = None,
     proc_filter: Optional[str] = None,
+    sample: Optional[str] = None,
 ) -> pl.DataFrame:
     """
     Build experiment history for a specific chip from manifest.parquet.
@@ -94,6 +95,8 @@ def build_chip_history_from_manifest(
         df = df.filter(pl.col("chip_number") == chip_number)
         if chip_group:
             df = df.filter(pl.col("chip_group") == chip_group)
+        if sample is not None and "sample" in df.columns:
+            df = df.filter(pl.col("sample") == sample)
     elif information:
         # Use Information column for filtering
         if "information" in df.columns:
@@ -381,26 +384,18 @@ def generate_chip_name(
     chip_number: Optional[int],
     chip_group: Optional[str],
     information: Optional[str],
+    sample: Optional[str] = None,
 ) -> str:
     """
     Generate chip name for history file.
 
-    Parameters
-    ----------
-    chip_number : int, optional
-        Chip numeric ID
-    chip_group : str, optional
-        Chip group prefix
-    information : str, optional
-        Information field value
-
-    Returns
-    -------
-    str
-        Chip name for filename (e.g., "Alisson67" or "CustomChipName")
+    When ``sample`` is provided alongside chip_number+chip_group, the returned
+    name is suffixed with `_<sample>` so per-sample histories on chips with
+    multiple device sites (Miguel_1_a, Miguel_1_b, …) do not collide.
     """
     if chip_number is not None and chip_group:
-        return f"{chip_group}{chip_number}"
+        base = f"{chip_group}{chip_number}"
+        return f"{base}_{sample}" if sample else base
     elif information:
         # Clean information string for filename
         import re
@@ -488,11 +483,18 @@ def generate_all_chip_histories(
     # Discover unique chips
     chip_identifiers = []
 
-    # Group by chip_number and chip_group (if available)
+    # Group by (chip_number, chip_group, sample). Sample is only used as an
+    # identity column when present in the manifest *and* at least one row has
+    # a non-null value for the chip — biotite data has sample=null and falls
+    # back to legacy `{group}{number}_history.parquet` naming.
     if "chip_number" in df.columns and "chip_group" in df.columns:
+        group_cols = ["chip_number", "chip_group"]
+        if "sample" in df.columns:
+            group_cols = ["chip_number", "chip_group", "sample"]
+
         chip_groups = (
             df.filter(pl.col("chip_number").is_not_null())
-            .group_by(["chip_number", "chip_group"])
+            .group_by(group_cols)
             .agg(pl.count().alias("count"))
             .filter(pl.col("count") >= min_experiments)
         )
@@ -501,6 +503,7 @@ def generate_all_chip_histories(
             chip_identifiers.append({
                 "chip_number": row["chip_number"],
                 "chip_group": row["chip_group"],
+                "sample": row.get("sample"),
                 "information": None,
                 "count": row["count"],
             })
@@ -525,6 +528,7 @@ def generate_all_chip_histories(
             chip_identifiers.append({
                 "chip_number": None,
                 "chip_group": None,
+                "sample": None,
                 "information": row["information"],
                 "count": row["count"],
             })
@@ -534,23 +538,27 @@ def generate_all_chip_histories(
 
     for chip_id in chip_identifiers:
         try:
-            # Build history
+            # Build history (filtered by sample if present in identity)
             history = build_chip_history_from_manifest(
                 manifest_path,
                 stage_root=stage_root,
                 chip_number=chip_id["chip_number"],
                 chip_group=chip_id["chip_group"],
                 information=chip_id["information"],
+                sample=chip_id.get("sample"),
             )
 
-            # Generate chip name
+            # Generate chip name (chip key in the result dict — uses sample suffix
+            # only when sample is non-null so legacy keys stay stable for biotite).
             chip_name = generate_chip_name(
                 chip_id["chip_number"],
                 chip_id["chip_group"],
                 chip_id["information"],
+                sample=chip_id.get("sample"),
             )
 
-            # Save history
+            # Save history. The filename uses the same chip_name, so a non-null
+            # sample yields `<group><number>_<sample>_history.parquet`.
             output_path = save_chip_history(history, output_dir, chip_name)
             histories[chip_name] = output_path
 

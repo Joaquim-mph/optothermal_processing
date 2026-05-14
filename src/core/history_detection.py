@@ -14,11 +14,28 @@ from typing import Tuple, Optional
 import polars as pl
 
 
+def chip_history_basename(
+    chip_group: str,
+    chip_number: int,
+    sample: Optional[str] = None,
+) -> str:
+    """Return the canonical `<chip>{_<sample>}_history` stem (no extension).
+
+    Backward-compatible: when sample is None, returns ``<group><number>_history``
+    matching the legacy per-chip history filename.
+    """
+    base = f"{chip_group}{chip_number}"
+    if sample:
+        return f"{base}_{sample}_history"
+    return f"{base}_history"
+
+
 def detect_history_availability(
     chip_number: int,
     chip_group: str,
     history_dir: Path,
     enriched_dir: Path,
+    sample: Optional[str] = None,
 ) -> Tuple[bool, bool, Optional[Path], Optional[Path]]:
     """
     Detect availability of regular and enriched chip histories.
@@ -50,10 +67,9 @@ def detect_history_availability(
     >>> print(f"Regular: {has_reg}, Enriched: {has_enr}")
     Regular: True, Enriched: True
     """
-    chip_name = f"{chip_group}{chip_number}"
-
-    regular_path = history_dir / f"{chip_name}_history.parquet"
-    enriched_path = enriched_dir / f"{chip_name}_history_enriched.parquet"
+    base = chip_history_basename(chip_group, chip_number, sample)
+    regular_path = history_dir / f"{base}.parquet"
+    enriched_path = enriched_dir / f"{base.replace('_history', '_history_enriched')}.parquet"
 
     has_regular = regular_path.exists()
     has_enriched = enriched_path.exists()
@@ -73,6 +89,7 @@ def load_chip_history(
     enriched_dir: Path,
     prefer_enriched: bool = True,
     require_enriched: bool = False,
+    sample: Optional[str] = None,
 ) -> Tuple[pl.DataFrame, bool]:
     """
     Load chip history, preferring enriched if available.
@@ -130,7 +147,7 @@ def load_chip_history(
     ...     print("Run: python3 process_and_analyze.py enrich-history 67")
     """
     has_regular, has_enriched, regular_path, enriched_path = detect_history_availability(
-        chip_number, chip_group, history_dir, enriched_dir
+        chip_number, chip_group, history_dir, enriched_dir, sample=sample
     )
 
     # Handle require_enriched mode (for CNP/Photoresponse plots)

@@ -1,0 +1,41 @@
+# Historic graphene-on-SiO2 chip metadata (per-sample schema).
+#
+# Read via src.core.chip_metadata.load_chip_metadata(ChipId(group, number, sample)).
+# Schema is declared in config/chip_apps.yaml under apps.sio2_legacy (per_sample).
+#
+# Each chip device hosts up to 10–14 samples; samples are identified by lowercase
+# letters (a, b, c, …). Two complementary representations are accepted:
+#
+#   geometry_pairs:                 # compact form for chips with paired layouts
+#     - { samples: [a, b], width_um: 10, length_um: 5 }
+#     - { samples: [c, d], width_um: 20, length_um: 5 }
+#
+#   samples:                        # explicit form for non-paired/irregular layouts
+#     a: { width_um: 10, length_um: 5, notes: "..." }
+#     b: { width_um: 10, length_um: 5 }
+#
+# Chip-level keys outside `samples` / `geometry_pairs` (sio2_thickness_nm,
+# al2o3_thickness_nm, fabrication_date, …) are merged into the per-sample
+# metadata dict returned by load_chip_metadata, with sample-level fields taking
+# precedence on collision.
+#
+# To register a new chip group with this app, add the group name to
+# `apps.sio2_legacy.chip_groups` in config/chip_apps.yaml.
+
+schema: per_sample
+
+# Example block — replace with real chip metadata as historic chips are imported.
+# Remove this `_example` placeholder once at least one real chip is present.
+chips:
+  _example:
+    1:
+      sio2_thickness_nm: 285
+      al2o3_thickness_nm: 30          # omit if not passivated
+      fabrication_date: "YYYY-MM-DD"
+      notes: "Replace this block — illustrates the 10-sample paired-geometry layout."
+      geometry_pairs:
+        - { samples: [a, b], width_um: 10, length_um: 5 }
+        - { samples: [c, d], width_um: 20, length_um: 5 }
+        - { samples: [e, f], width_um: 30, length_um: 5 }
+        - { samples: [g, h], width_um: 40, length_um: 5 }
+        - { samples: [i, j], width_um: 50, length_um: 5 }

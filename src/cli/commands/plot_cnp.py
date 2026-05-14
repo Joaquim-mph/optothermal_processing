@@ -9,6 +9,7 @@ from src.cli.cache import load_history_cached
 from rich.panel import Panel
 
 from src.cli.plugin_system import cli_command
+from src.cli._chip_args import CHIP_ARG, LIST_SAMPLES_OPTION, resolve_chip_cli_args
 
 
 
@@ -18,16 +19,8 @@ from src.cli.plugin_system import cli_command
     description="Plot CNP voltage evolution over time"
 )
 def plot_cnp_time_command(
-    chip_number: int = typer.Argument(
-        ...,
-        help="Chip number (e.g., 81 for Alisson81)"
-    ),
-    chip_group: str = typer.Option(
-        "Alisson",
-        "--group",
-        "-g",
-        help="Chip group name"
-    ),
+    chip: list[str] = CHIP_ARG,
+    list_samples_flag: bool = LIST_SAMPLES_OPTION,
     output_dir: Optional[Path] = typer.Option(
         None,
         "--output",
@@ -82,6 +75,10 @@ def plot_cnp_time_command(
         # Custom figure size (width, height in inches)
         python process_and_analyze.py plot-cnp-time 81 --figsize 16,8
     """
+    chip_id = resolve_chip_cli_args(chip, list_samples_flag)
+    chip_group = chip_id.group
+    chip_number = chip_id.number
+
     ctx = get_context()
     import polars as pl
     from src.plotting.cnp_time import plot_cnp_vs_time

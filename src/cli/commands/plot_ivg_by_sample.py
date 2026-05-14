@@ -7,6 +7,7 @@ import typer
 from rich.console import Console
 
 from src.cli.plugin_system import cli_command
+from src.cli._chip_args import CHIP_ARG, LIST_SAMPLES_OPTION, resolve_chip_cli_args
 from src.plotting.config import PlotConfig
 
 
@@ -16,8 +17,8 @@ from src.plotting.config import PlotConfig
     description="Plot last IVg for each sample (A-J) of a chip"
 )
 def plot_ivg_by_sample_command(
-    chip_group: str = typer.Argument(..., help="Chip group name (e.g., 'Margarita')"),
-    chip_number: int = typer.Argument(..., help="Chip number (e.g., 1)"),
+    chip: list[str] = CHIP_ARG,
+    list_samples_flag: bool = LIST_SAMPLES_OPTION,
     conductance: bool = typer.Option(False, "--conductance", "-g", help="Plot conductance G=I/V instead of current"),
     raw_root: Optional[Path] = typer.Option(None, "--raw-root", help="Raw data directory (for fallback if no manifest)"),
     manifest_path: Optional[Path] = typer.Option(None, "--manifest", help="Path to manifest.parquet (if available)"),
@@ -47,6 +48,10 @@ def plot_ivg_by_sample_command(
     The command tries to use the staged manifest first (fast), and falls back
     to scanning raw CSV files if the manifest is not available.
     """
+    chip_id = resolve_chip_cli_args(chip, list_samples_flag)
+    chip_group = chip_id.group
+    chip_number = chip_id.number
+
     console = Console()
 
     from src.plotting.ivg_by_sample import plot_ivg_by_sample

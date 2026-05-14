@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Optional
 
 from src.cli.plugin_system import cli_command
+from src.cli._chip_args import CHIP_ARG, LIST_SAMPLES_OPTION, resolve_chip_cli_args
 from src.cli.context import get_context
 from src.cli.cache import load_history_cached
 from src.cli.helpers import parse_seq_list
@@ -20,21 +21,13 @@ import polars as pl
     aliases=["batch-its-relaxation"]
 )
 def plot_its_relaxation_batch_command(
-    chip_number: int = typer.Argument(
-        ...,
-        help="Chip number (e.g., 67 for Alisson67)"
-    ),
+    chip: list[str] = CHIP_ARG,
+    list_samples_flag: bool = LIST_SAMPLES_OPTION,
     seq: Optional[str] = typer.Option(
         None,
         "--seq",
         "-s",
         help="Seq numbers: comma-separated or ranges (e.g., '10,15,20' or '10-20'). If not provided, processes all It experiments with metrics."
-    ),
-    chip_group: str = typer.Option(
-        "Alisson",
-        "--group",
-        "-g",
-        help="Chip group name"
     ),
     output_subdir: Optional[str] = typer.Option(
         None,
@@ -87,6 +80,10 @@ def plot_its_relaxation_batch_command(
     # Filter by segment type
     plot-its-relaxation-batch 81 --segment dark
     """
+    chip_id = resolve_chip_cli_args(chip, list_samples_flag)
+    chip_group = chip_id.group
+    chip_number = chip_id.number
+
     ctx = get_context()
     base_dir = Path.cwd()
 

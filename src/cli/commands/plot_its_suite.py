@@ -5,6 +5,7 @@ Generates 3 plots in one call: overlay, sequential, and photoresponse.
 
 import typer
 from src.cli.plugin_system import cli_command
+from src.cli._chip_args import CHIP_ARG, LIST_SAMPLES_OPTION, resolve_chip_cli_args
 from pathlib import Path
 from typing import Optional
 from rich.panel import Panel
@@ -32,10 +33,8 @@ import polars as pl
     description="Generate ITS suite: overlay + sequential + photoresponse",
 )
 def plot_its_suite_command(
-    chip_number: int = typer.Argument(
-        ...,
-        help="Chip number (e.g., 67 for Alisson67)",
-    ),
+    chip: list[str] = CHIP_ARG,
+    list_samples_flag: bool = LIST_SAMPLES_OPTION,
     seq: Optional[str] = typer.Option(
         None,
         "--seq",
@@ -64,12 +63,6 @@ def plot_its_suite_command(
         "--output",
         "-o",
         help="Output directory for plots (default: from config)",
-    ),
-    chip_group: str = typer.Option(
-        "Alisson",
-        "--group",
-        "-g",
-        help="Chip group name",
     ),
     padding: float = typer.Option(
         0.05,
@@ -174,6 +167,10 @@ def plot_its_suite_command(
         biotite plot-its-suite 67 --seq 4-7 --photoresponse-x wavelength
         biotite plot-its-suite 67 --auto --conductance
     """
+    chip_id = resolve_chip_cli_args(chip, list_samples_flag)
+    chip_group = chip_id.group
+    chip_number = chip_id.number
+
     ctx = get_context()
 
     # Validate flag combinations

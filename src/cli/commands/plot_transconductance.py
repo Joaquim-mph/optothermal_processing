@@ -2,6 +2,7 @@
 
 import typer
 from src.cli.plugin_system import cli_command
+from src.cli._chip_args import CHIP_ARG, LIST_SAMPLES_OPTION, resolve_chip_cli_args
 from pathlib import Path
 from typing import Optional
 from rich.console import Console
@@ -31,10 +32,8 @@ from src.cli.helpers import (
     description="Generate transconductance (gm = dI/dVg) plots"
 )
 def plot_transconductance_command(
-    chip_number: int = typer.Argument(
-        ...,
-        help="Chip number (e.g., 67 for Alisson67)"
-    ),
+    chip: list[str] = CHIP_ARG,
+    list_samples_flag: bool = LIST_SAMPLES_OPTION,
     seq: Optional[str] = typer.Option(
         None,
         "--seq",
@@ -85,12 +84,6 @@ def plot_transconductance_command(
         "--output",
         "-o",
         help="Output directory for plots (default: from config)"
-    ),
-    chip_group: str = typer.Option(
-        "Alisson",
-        "--group",
-        "-g",
-        help="Chip group name"
     ),
     vds: Optional[float] = typer.Option(
         None,
@@ -162,6 +155,10 @@ def plot_transconductance_command(
         # Filter by date
         python process_and_analyze.py plot-transconductance 67 --auto --date 2025-10-15
     """
+    chip_id = resolve_chip_cli_args(chip, list_samples_flag)
+    chip_group = chip_id.group
+    chip_number = chip_id.number
+
     ctx = get_context()
     ctx.print()
     ctx.print(Panel.fit(

@@ -7,6 +7,7 @@ from rich.console import Console
 from rich.panel import Panel
 
 from src.cli.plugin_system import cli_command
+from src.cli._chip_args import CHIP_ARG, LIST_SAMPLES_OPTION, resolve_chip_cli_args
 from src.plotting.consecutive_sweep_diff import plot_consecutive_sweep_differences
 
 console = Console()
@@ -18,8 +19,8 @@ console = Console()
     description="Plot differences between consecutive IVg/VVg sweeps"
 )
 def plot_consecutive_sweep_diff_command(
-    chip_number: int = typer.Argument(..., help="Chip number"),
-    group: str = typer.Option("Alisson", "--group", "-g", help="Chip group prefix"),
+    chip: list[str] = CHIP_ARG,
+    list_samples_flag: bool = LIST_SAMPLES_OPTION,
     procedure: Optional[str] = typer.Option(
         None,
         "--proc", "-p",
@@ -93,6 +94,9 @@ def plot_consecutive_sweep_diff_command(
     Individual plots: figs/{ChipGroup}{ChipNumber}/{Procedure}/ConsecutiveSweepDiff/
     Summary plot: Same directory with "_summary" tag
     """
+    chip_id = resolve_chip_cli_args(chip, list_samples_flag)
+    group = chip_id.group
+    chip_number = chip_id.number
 
     chip_name = f"{group}{chip_number}"
 

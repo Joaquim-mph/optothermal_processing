@@ -67,6 +67,84 @@ def sha1_short(s: str, n: int = 16) -> str:
     return hashlib.sha1(s.encode()).hexdigest()[:n]
 
 
+def content_hash(df: pl.DataFrame) -> str:
+    """
+    Deterministic SHA-1 digest of a measurement's data block.
+
+    Hashes the raw numeric table (as read from the CSV, before YAML
+    rename/cast) so the digest depends only on the file's data contents,
+    not on `procedures.yml`. `DataFrame.write_csv()` with no path argument
+    returns a string and is deterministic for given data + column order.
+
+    Args:
+        df: The data table read from the source CSV.
+
+    Returns:
+        Full 40-char hexadecimal SHA-1 digest of the serialized table.
+    """
+    return hashlib.sha1(df.write_csv().encode()).hexdigest()
+
+
+def normalize_timestamp(start_dt: dt.datetime) -> str:
+    """
+    Canonical UTC string form of a measurement start time.
+
+    Replaces the unstable float repr of `datetime.timestamp()` with a
+    fixed-format UTC string so it can be hashed reproducibly.
+
+    Args:
+        start_dt: Measurement start time (any timezone; converted to UTC).
+
+    Returns:
+        UTC timestamp formatted as "YYYY-MM-DDTHH:MM:SS.ffffff".
+    """
+    return start_dt.astimezone(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")
+
+
+def compute_run_id(
+    proc: str,
+    chip_group: Optional[Any],
+    chip_number: Optional[Any],
+    start_dt: dt.datetime,
+    data_df: pl.DataFrame,
+) -> str:
+    """
+    Compute a measurement's intrinsic `run_id`.
+
+    Identity is derived purely from properties of the measurement itself —
+    procedure, chip, start time, and data-block contents — so it is stable
+    across machines/checkouts (no filesystem path involved) and changes
+    when the underlying data changes.
+
+        run_id = sha1_short( proc | chip_group | chip_number
+                             | normalized_start_ts | content_hash(data) )
+
+    `chip_group` / `chip_number` may be None (e.g. LaserCalibration has no
+    chip); they become empty strings. Uniqueness still holds because the
+    data-block content hash is part of the key.
+
+    Args:
+        proc: Procedure name (from the CSV header).
+        chip_group: Chip group name, or None.
+        chip_number: Chip number, or None.
+        start_dt: Measurement start time.
+        data_df: Raw data table read from the source CSV.
+
+    Returns:
+        16-char hexadecimal SHA-1 identifier.
+    """
+    canonical = "|".join(
+        [
+            proc,
+            "" if chip_group is None else str(chip_group),
+            "" if chip_number is None else str(chip_number),
+            normalize_timestamp(start_dt),
+            content_hash(data_df),
+        ]
+    )
+    return sha1_short(canonical, 16)
+
+
 def to_bool(s: Any) -> bool:
     """
     Convert various input types to boolean values.

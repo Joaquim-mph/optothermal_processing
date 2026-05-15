@@ -102,9 +102,42 @@ def _load_seq(hist: pl.DataFrame, seq: int) -> pl.DataFrame:
     return read_measurement_parquet(row["parquet_path"])
 
 
+def _triplet_available(triplet: Triplet) -> bool:
+    """True if all three of the triplet's IVg seqs exist in the chip history.
+
+    Guards against stale seq numbers after a history rebuild — a missing
+    seq means this triplet is skipped (with a warning) rather than crashing.
+    """
+    path = _history_path(triplet.chip_number)
+    if not path.exists():
+        print(f"[warn] no history for Alisson{triplet.chip_number}; skipping")
+        return False
+    hist = pl.read_parquet(path).filter(pl.col("proc") == "IVg")
+    present = set(hist["seq"].to_list())
+    needed = {triplet.off_before, triplet.on, triplet.off_after}
+    missing = sorted(needed - present)
+    if missing:
+        print(
+            f"[warn] Alisson{triplet.chip_number}: IVg seqs {missing} not in "
+            f"history; skipping this triplet"
+        )
+        return False
+    return True
+
+
 def _load_materials() -> dict[int, str]:
     raw = yaml.safe_load(ENCAP_PATH.read_text())
-    return {int(k): v.get("material", "?") for k, v in raw.items()}
+    materials: dict[int, str] = {}
+    for k, v in raw.items():
+        # Skip shared blocks (`geometry:`, `materials:`) — only per-chip
+        # entries are keyed by an integer chip number.
+        try:
+            chip = int(k)
+        except (TypeError, ValueError):
+            continue
+        if isinstance(v, dict):
+            materials[chip] = v.get("material", "?")
+    return materials
 
 
 def _first_half_sweep(vg: np.ndarray) -> slice:
@@ -492,18 +525,61 @@ def plot_triplets_grid_1x3(
     print(f"saved {out}")
 
 
+def plot_74_72_triplet_photocurrent_2x2(
+    triplets: list[Triplet], materials: dict[int, str], config: PlotConfig
+) -> None:
+    """2x2 grid for chips 74 and 72: triplet plots (with insets) on the top
+    row, the respective photocurrent subtractions on the bottom row."""
+    by_chip = {t.chip_number: t for t in triplets}
+    chips = [74, 72]
+    missing = [c for c in chips if c not in by_chip]
+    if missing:
+        print(f"[warn] no triplet configured for chips {missing}; skipping 2x2 grid")
+        return
+
+    fig, axes = plt.subplots(2, 2, figsize=(40, 40))
+
+    for col, chip in enumerate(chips):
+        t = by_chip[chip]
+        _draw_triplet_on_ax(
+            axes[0, col], t, materials, show_legend=True, show_title=False
+        )
+        _draw_photocurrent_subtractions_on_ax(
+            axes[1, col], t, materials, show_legend=True, show_title=False
+        )
+
+    fig.tight_layout()
+
+    filename = f"Compare_IVg_triplet_photocurrent_2x2_7472_{WAVELENGTH_NM}nm"
+    out = config.get_output_path(
+        filename,
+        procedure="IVg",
+        special_type="triplets",
+        create_dirs=True,
+    )
+    fig.savefig(out, dpi=config.dpi)
+    plt.close(fig)
+    print(f"saved {out}")
+
+
 def main() -> None:
     config = PlotConfig()
     set_plot_style(config.theme)
 
     materials = _load_materials()
 
-    for t in TRIPLETS:
+    triplets = [t for t in TRIPLETS if _triplet_available(t)]
+    if not triplets:
+        print("[error] no triplets with complete IVg seqs; nothing to plot")
+        return
+
+    for t in triplets:
         plot_chip_triplet(t, materials, config)
         plot_chip_photocurrent_subtractions(t, materials, config)
 
-    plot_photocurrent_overlay(TRIPLETS, materials, config)
-    plot_triplets_grid_1x3(TRIPLETS, materials, config)
+    plot_photocurrent_overlay(triplets, materials, config)
+    plot_triplets_grid_1x3(triplets, materials, config)
+    plot_74_72_triplet_photocurrent_2x2(triplets, materials, config)
 
 
 if __name__ == "__main__":

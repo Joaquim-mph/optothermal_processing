@@ -837,19 +837,23 @@ def ingest_file_task(
         
     Processing steps:
         1. Parse CSV header (procedure, parameters, metadata)
-        2. Validate against YAML schema
-        3. Cast parameter/metadata types
-        4. Read data table
-        5. Rename columns to YAML canonical names
-        6. Cast data column types
-        7. Derive computed flags (e.g., with_light)
-        8. Add metadata columns (run_id, proc, timestamps, etc.)
-        9. Write to Hive-partitioned Parquet structure
-        10. Write event JSON for tracking
-        
+        2. Cast parameter/metadata types
+        3. Read data table
+        4. Compute intrinsic run_id from the measurement contents
+        5. Validate against YAML schema
+        6. Rename columns to YAML canonical names
+        7. Cast data column types
+        8. Derive computed flags (e.g., with_light)
+        9. Add metadata columns (run_id, proc, timestamps, etc.)
+        10. Write to Hive-partitioned Parquet structure
+        11. Write event JSON for tracking
+
     Note:
         - Function takes string paths (not Path objects) for pickle serialization
-        - Generates unique run_id from source path + timestamp
+        - Generates an intrinsic run_id via compute_run_id(): a hash of
+          procedure, chip, normalized start time, and data-block contents —
+          independent of the source file's path, so it is stable across
+          machine/checkout moves and changes when the data changes
         - Skips processing if output exists and force=False
         - Writes reject record to separate directory on any error
         - Uses cached YAML schema (loaded once per worker process)
@@ -875,11 +879,21 @@ def ingest_file_task(
             meta["Start time"] = params["Start time"]
 
         start_dt, date_part, origin = resolve_start_dt_and_date(src, meta, local_tz)
-        rid = sha1_short(f"{src.as_posix()}|{start_dt.timestamp()}")
 
         df = read_numeric_table(src, hb.data_header_line)
         if df.height == 0:
             raise RuntimeError("empty data table")
+
+        # Intrinsic run_id: derived from the measurement itself (procedure,
+        # chip, start time, raw data-block contents), not the source path —
+        # stable across machine/checkout moves, sensitive to data changes.
+        rid = compute_run_id(
+            proc,
+            params.get("Chip group name"),
+            params.get("Chip number"),
+            start_dt,
+            df,
+        )
 
         # --- NEW: rename data columns to exact YAML "Data" names ---
         ren_map = {}

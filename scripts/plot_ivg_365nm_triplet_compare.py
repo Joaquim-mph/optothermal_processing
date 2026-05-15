@@ -15,6 +15,7 @@ Run from the repo root:
 
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -24,15 +25,25 @@ import polars as pl
 import yaml
 from scipy.signal import savgol_filter
 
-from src.core.utils import read_measurement_parquet
-from src.plotting.shared.config import PlotConfig
-from src.plotting.shared.styles import set_plot_style
-from src.plotting.transconductance import auto_select_savgol_params
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from scripts.plot_ivg_photocurrent_triplets import DATASETS as _WL_DATASETS  # noqa: E402
+from src.core.utils import read_measurement_parquet  # noqa: E402
+from src.plotting.shared.config import PlotConfig  # noqa: E402
+from src.plotting.shared.styles import set_plot_style  # noqa: E402
+from src.plotting.transconductance import auto_select_savgol_params  # noqa: E402
 
 ENCAP_PATH = Path("config/encap_characteristics.yaml")
 WAVELENGTH_NM = 365
 INSET_VG_CENTER = -2.6  # V — center of inset zoom window
 INSET_VG_HALFWIDTH = 0.1  # V — half-width of Vg window in inset
+
+# Per-chip (date, list of (off_before, on, off_after) triplets) covering the
+# four-wavelength sweep — sourced from plot_ivg_photocurrent_triplets.py so
+# the seq lists don't drift between the two scripts.
+WAVELENGTH_TRIPLETS_BY_CHIP: dict[int, tuple[str, list[tuple[int, int, int]]]] = {
+    d.chip_number: (d.date, d.triplets) for d in _WL_DATASETS
+}
 
 
 @dataclass(frozen=True)
@@ -147,6 +158,19 @@ def _first_half_sweep(vg: np.ndarray) -> slice:
     below = np.where(tail <= 0.0)[0]
     end = i_max + int(below[0]) if below.size else len(vg) - 1
     return slice(0, end + 1)
+
+
+def _forward_sweep_slice(vg: np.ndarray) -> slice:
+    """Monotonic ascending leg V_min -> V_max of the full IVg sweep.
+
+    Picks the first argmin, then the next argmax that follows it. For the
+    standard 0 -> Vmin -> 0 -> Vmax -> 0 -> Vmin -> 0 pattern this is the
+    monotonic up-leg from Vmin through 0 to Vmax.
+    """
+    i_min = int(np.argmin(vg))
+    after = vg[i_min:]
+    i_max_rel = int(np.argmax(after))
+    return slice(i_min, i_min + i_max_rel + 1)
 
 
 def _label(chip_number: int, materials: dict[int, str]) -> str:
@@ -525,19 +549,95 @@ def plot_triplets_grid_1x3(
     print(f"saved {out}")
 
 
-def plot_74_72_triplet_photocurrent_2x2(
+def _draw_wavelength_photocurrent_overlay_on_ax(
+    ax,
+    chip_number: int,
+    date: str,
+    triplets: list[tuple[int, int, int]],
+    *,
+    show_legend: bool = True,
+) -> None:
+    """Overlay smoothed photocurrent (I_on - I_off) vs Vg for one chip across
+    several wavelengths on a single axes. One smoothed curve per triplet,
+    labelled by the ON seq's `wavelength_nm`. Mirrors the per-chip overlay
+    produced by scripts/plot_ivg_photocurrent_triplets.py but renders into a
+    caller-supplied axes."""
+    hist = pl.read_parquet(_history_path(chip_number))
+    hist = hist.filter((pl.col("proc") == "IVg") & (pl.col("date") == date))
+
+    for off_seq, on_seq, _off_after in triplets:
+        off_row = hist.filter(pl.col("seq") == off_seq).row(0, named=True)
+        on_row = hist.filter(pl.col("seq") == on_seq).row(0, named=True)
+        off = read_measurement_parquet(off_row["parquet_path"])
+        on = read_measurement_parquet(on_row["parquet_path"])
+        wl = float(on_row["wavelength_nm"])
+
+        vg_off = off["Vg (V)"].to_numpy()
+        i_off = off["I (A)"].to_numpy()
+        vg_on = on["Vg (V)"].to_numpy()
+        i_on = on["I (A)"].to_numpy()
+
+        n = min(len(vg_off), len(vg_on))
+        if not np.allclose(vg_off[:n], vg_on[:n], atol=1e-6):
+            print(
+                f"[warn] Vg arrays not aligned for Alisson{chip_number} "
+                f"wl={wl:.0f} nm; subtracting by sample index anyway"
+            )
+
+        vg = vg_on[:n]
+        i_photo = (i_on[:n] - i_off[:n]) * 1e6  # µA
+
+        # Forward leg only (V_min -> V_max), not the full first-half sweep.
+        s = _forward_sweep_slice(vg)
+        vg_fwd = vg[s]
+        iph_fwd = i_photo[s]
+
+        (line_full,) = ax.plot(vg_fwd, iph_fwd, linewidth=0.6, alpha=0.3)
+        color = line_full.get_color()
+
+        window, polyorder = auto_select_savgol_params(vg_fwd, iph_fwd, "auto")
+        iph_smooth = np.asarray(
+            savgol_filter(iph_fwd, window_length=window, polyorder=polyorder)
+        )
+        ax.plot(
+            vg_fwd,
+            iph_smooth,
+            color=color,
+            label=f"{int(wl)} nm",
+            linewidth=3.7,
+        )
+
+    ax.axhline(0.0, color="k", linewidth=0.5, alpha=0.5)
+    ax.set_xlabel("$\\rm{V_g\\ (V)}$")
+    ax.set_ylabel("$\\rm{I_{ph} = I_{on} - I_{off}\\ (\\mu A)}$")
+    if show_legend:
+        ax.legend(title="Wavelength", loc="best")
+
+
+def plot_74_72_triplet_photocurrent_wavelength_3x2(
     triplets: list[Triplet], materials: dict[int, str], config: PlotConfig
 ) -> None:
-    """2x2 grid for chips 74 and 72: triplet plots (with insets) on the top
-    row, the respective photocurrent subtractions on the bottom row."""
+    """3x2 grid for chips 74 and 72:
+      row 1 — 365 nm OFF→ON→OFF triplet plots (with the two zoom insets),
+      row 2 — 365 nm photocurrent subtractions (2)-(1), (3)-(2), (3)-(1),
+      row 3 — multi-wavelength photocurrent overlay (365/385/405/455 nm),
+              using the per-chip wavelength triplet seqs from
+              plot_ivg_photocurrent_triplets.py."""
     by_chip = {t.chip_number: t for t in triplets}
     chips = [74, 72]
     missing = [c for c in chips if c not in by_chip]
     if missing:
-        print(f"[warn] no triplet configured for chips {missing}; skipping 2x2 grid")
+        print(f"[warn] no 365 nm triplet for chips {missing}; skipping 3x2 grid")
+        return
+    wl_missing = [c for c in chips if c not in WAVELENGTH_TRIPLETS_BY_CHIP]
+    if wl_missing:
+        print(
+            f"[warn] no wavelength triplets configured for chips {wl_missing}; "
+            "skipping 3x2 grid"
+        )
         return
 
-    fig, axes = plt.subplots(2, 2, figsize=(40, 40))
+    fig, axes = plt.subplots(3, 2, figsize=(40, 60))
 
     for col, chip in enumerate(chips):
         t = by_chip[chip]
@@ -547,10 +647,69 @@ def plot_74_72_triplet_photocurrent_2x2(
         _draw_photocurrent_subtractions_on_ax(
             axes[1, col], t, materials, show_legend=True, show_title=False
         )
+        wl_date, wl_triplets = WAVELENGTH_TRIPLETS_BY_CHIP[chip]
+        _draw_wavelength_photocurrent_overlay_on_ax(
+            axes[2, col], chip, wl_date, wl_triplets, show_legend=True
+        )
 
     fig.tight_layout()
 
-    filename = f"Compare_IVg_triplet_photocurrent_2x2_7472_{WAVELENGTH_NM}nm"
+    filename = (
+        f"Compare_IVg_triplet_photocurrent_wavelength_3x2_7472_{WAVELENGTH_NM}nm"
+    )
+    out = config.get_output_path(
+        filename,
+        procedure="IVg",
+        special_type="triplets",
+        create_dirs=True,
+    )
+    fig.savefig(out, dpi=config.dpi)
+    plt.close(fig)
+    print(f"saved {out}")
+
+
+def plot_74_72_triplet_photocurrent_wavelength_2x3(
+    triplets: list[Triplet], materials: dict[int, str], config: PlotConfig
+) -> None:
+    """Transpose of plot_74_72_triplet_photocurrent_wavelength_3x2 — rows are
+    chips (74, 72) and columns are panel types:
+      col 1 — 365 nm OFF→ON→OFF triplet (with the two zoom insets),
+      col 2 — 365 nm photocurrent subtractions (2)-(1), (3)-(2), (3)-(1),
+      col 3 — multi-wavelength photocurrent overlay (365/385/405/455 nm)."""
+    by_chip = {t.chip_number: t for t in triplets}
+    chips = [74, 72]
+    missing = [c for c in chips if c not in by_chip]
+    if missing:
+        print(f"[warn] no 365 nm triplet for chips {missing}; skipping 2x3 grid")
+        return
+    wl_missing = [c for c in chips if c not in WAVELENGTH_TRIPLETS_BY_CHIP]
+    if wl_missing:
+        print(
+            f"[warn] no wavelength triplets configured for chips {wl_missing}; "
+            "skipping 2x3 grid"
+        )
+        return
+
+    fig, axes = plt.subplots(2, 3, figsize=(60, 40))
+
+    for row, chip in enumerate(chips):
+        t = by_chip[chip]
+        _draw_triplet_on_ax(
+            axes[row, 0], t, materials, show_legend=True, show_title=False
+        )
+        _draw_photocurrent_subtractions_on_ax(
+            axes[row, 1], t, materials, show_legend=True, show_title=False
+        )
+        wl_date, wl_triplets = WAVELENGTH_TRIPLETS_BY_CHIP[chip]
+        _draw_wavelength_photocurrent_overlay_on_ax(
+            axes[row, 2], chip, wl_date, wl_triplets, show_legend=True
+        )
+
+    fig.tight_layout()
+
+    filename = (
+        f"Compare_IVg_triplet_photocurrent_wavelength_2x3_7472_{WAVELENGTH_NM}nm"
+    )
     out = config.get_output_path(
         filename,
         procedure="IVg",
@@ -579,7 +738,8 @@ def main() -> None:
 
     plot_photocurrent_overlay(triplets, materials, config)
     plot_triplets_grid_1x3(triplets, materials, config)
-    plot_74_72_triplet_photocurrent_2x2(triplets, materials, config)
+    plot_74_72_triplet_photocurrent_wavelength_3x2(triplets, materials, config)
+    plot_74_72_triplet_photocurrent_wavelength_2x3(triplets, materials, config)
 
 
 if __name__ == "__main__":

@@ -60,7 +60,7 @@ from src.plotting.vvg import plot_vvg_sequence
 from src.plotting.vt import plot_vt_overlay, plot_vt_sequential
 from src.plotting import its_photoresponse
 from src.plotting.photoresponse import plot_photoresponse
-from src.plotting.config import PlotConfig
+from src.plotting.shared.config import PlotConfig
 
 # Import CLI utilities
 from src.cli.helpers import parse_seq_list

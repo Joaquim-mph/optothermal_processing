@@ -34,7 +34,7 @@ from src.derived.algorithms.mobility import (
     peak_gm_signed,
     saturation_fraction,
 )
-from src.plotting.styles import set_plot_style
+from src.plotting.shared.styles import set_plot_style
 
 ENRICHED_HISTORY_DIR = Path("data/03_derived/chip_histories_enriched")
 STAGE_HISTORY_DIR = Path("data/02_stage/chip_histories")

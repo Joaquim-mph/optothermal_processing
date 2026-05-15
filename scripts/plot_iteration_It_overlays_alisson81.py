@@ -45,8 +45,8 @@ from scripts.compare_corrected_It_67_72_74_75_80_81_pairs import (  # noqa: E402
     light_window,
 )
 from src.core.utils import read_measurement_parquet  # noqa: E402
-from src.plotting.config import PlotConfig  # noqa: E402
-from src.plotting.styles import PRISM_RAIN_PALETTE, set_plot_style  # noqa: E402
+from src.plotting.shared.config import PlotConfig  # noqa: E402
+from src.plotting.shared.styles import PRISM_RAIN_PALETTE, set_plot_style  # noqa: E402
 
 CHIP_NUMBER = 81
 HISTORY_PATH = Path(

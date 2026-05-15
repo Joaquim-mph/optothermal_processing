@@ -8,7 +8,7 @@ appearance of wavelengths, voltages, power values, and other metadata.
 
 Usage
 -----
->>> from src.plotting.formatters import format_wavelength, format_voltage
+>>> from src.plotting.shared.formatters import format_wavelength, format_voltage
 >>> wl_label = format_wavelength(365.0)  # "365 nm"
 >>> vg_label = format_voltage(3.0)        # "3 V"
 >>> vg_label = format_voltage(0.25)       # "0.25 V"
@@ -17,7 +17,7 @@ Integration with PlotConfig
 ----------------------------
 Formatters respect PlotConfig settings when provided:
 
->>> from src.plotting.config import PlotConfig
+>>> from src.plotting.shared.config import PlotConfig
 >>> config = PlotConfig(wavelength_format="{:.1f} nm")
 >>> wl_label = format_wavelength(365.0, config)  # "365.0 nm"
 """
@@ -51,7 +51,7 @@ def format_wavelength(wl_nm: float, config: Optional['PlotConfig'] = None) -> st
     >>> format_wavelength(1064.0)
     '1064 nm'
 
-    >>> from src.plotting.config import PlotConfig
+    >>> from src.plotting.shared.config import PlotConfig
     >>> config = PlotConfig(wavelength_format="{:.1f} nm")
     >>> format_wavelength(365.0, config)
     '365.0 nm'
@@ -154,7 +154,7 @@ def format_power(
     5.98e-06 5.98 µW
 
     >>> # Custom decimal places
-    >>> from src.plotting.config import PlotConfig
+    >>> from src.plotting.shared.config import PlotConfig
     >>> config = PlotConfig(power_decimal_places=4)
     >>> format_power(5.98e-6, config)
     '5.9800 µW'
@@ -221,7 +221,7 @@ def format_datetime(dt_str: str, config: Optional['PlotConfig'] = None) -> str:
     '2025-10-14'
 
     >>> # With custom format
-    >>> from src.plotting.config import PlotConfig
+    >>> from src.plotting.shared.config import PlotConfig
     >>> config = PlotConfig(datetime_format="%Y-%m-%d")
     >>> # Note: This uses simple string slicing, not strftime
     >>> format_datetime("2025-10-14 15:03:53")
@@ -302,7 +302,7 @@ def _format_for_wavelength(row: dict, config: Optional['PlotConfig'] = None) -> 
     tuple[str, str]
         (label, legend_title)
     """
-    from src.plotting.plot_utils import get_wavelength_nm
+    from src.plotting.shared.plot_utils import get_wavelength_nm
 
     wl = get_wavelength_nm(row)
     if wl is not None:
@@ -331,7 +331,7 @@ def _format_for_vg(row: dict, config: Optional['PlotConfig'] = None, data=None) 
     tuple[str, str]
         (label, legend_title)
     """
-    from src.plotting.plot_utils import get_gate_voltage
+    from src.plotting.shared.plot_utils import get_gate_voltage
 
     vg = get_gate_voltage(row, data)
     if vg is not None:
@@ -357,7 +357,7 @@ def _format_for_led_voltage(row: dict, config: Optional['PlotConfig'] = None) ->
     tuple[str, str]
         (label, legend_title)
     """
-    from src.plotting.plot_utils import get_led_voltage
+    from src.plotting.shared.plot_utils import get_led_voltage
 
     led_v = get_led_voltage(row)
     if led_v is not None:
@@ -383,7 +383,7 @@ def _format_for_power(row: dict, config: Optional['PlotConfig'] = None) -> tuple
     tuple[str, str]
         (label, legend_title)
     """
-    from src.plotting.plot_utils import get_irradiated_power
+    from src.plotting.shared.plot_utils import get_irradiated_power
 
     power_w, power_str = get_irradiated_power(row, format_display=True)
     if power_str is not None:

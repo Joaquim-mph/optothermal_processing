@@ -8,7 +8,7 @@ import polars as pl
 import numpy as np
 
 from src.core.utils import read_measurement_parquet
-from src.plotting.config import PlotConfig
+from src.plotting.shared.config import PlotConfig
 
 
 def plot_ivg_sequence(
@@ -50,14 +50,14 @@ def plot_ivg_sequence(
     config = config or PlotConfig()
 
     # Apply plot style from config
-    from src.plotting.styles import set_plot_style
-    from src.plotting.plot_utils import extract_cnp_for_plotting, ensure_standard_columns
-    from src.plotting.transforms import calculate_conductance, calculate_inverse_conductance
+    from src.plotting.shared.styles import set_plot_style
+    from src.plotting.shared.plot_utils import extract_cnp_for_plotting, ensure_standard_columns
+    from src.plotting.shared.transforms import calculate_conductance, calculate_inverse_conductance
     set_plot_style(config.theme)
 
     # Disable CNP markers when using conductance mode
     if conductance and show_cnp and not inverse:
-        from src.plotting.plot_utils import print_warning
+        from src.plotting.shared.plot_utils import print_warning
         print_warning("CNP markers disabled in conductance mode")
         show_cnp = False
 
@@ -195,7 +195,7 @@ def plot_ivg_sequence(
         if len(has_light_values) == 1:
             illumination_metadata = {"has_light": has_light_values[0]}
         elif len(has_light_values) > 1:
-            from src.plotting.plot_utils import print_warning
+            from src.plotting.shared.plot_utils import print_warning
             print_warning("Mixed illumination experiments - saving to IVg root folder")
 
     # Add suffix for conductance and inverse conductance plots

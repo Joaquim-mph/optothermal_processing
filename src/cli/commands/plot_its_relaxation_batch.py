@@ -9,7 +9,7 @@ from src.cli.context import get_context
 from src.cli.cache import load_history_cached
 from src.cli.helpers import parse_seq_list
 from src.plotting.its_relaxation_individual import generate_individual_relaxation_plots
-from src.plotting.plot_utils import print_error, print_warning, print_info
+from src.plotting.shared.plot_utils import print_error, print_warning, print_info
 import polars as pl
 
 

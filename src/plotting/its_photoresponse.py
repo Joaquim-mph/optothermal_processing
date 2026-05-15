@@ -9,7 +9,7 @@ import polars as pl
 import numpy as np
 
 from src.core.utils import read_measurement_parquet
-from src.plotting.config import PlotConfig
+from src.plotting.shared.config import PlotConfig
 
 
 def _extract_delta_current_from_its(measurement: pl.DataFrame, metadata: dict) -> float | None:
@@ -34,7 +34,7 @@ def _extract_delta_current_from_its(measurement: pl.DataFrame, metadata: dict) -
         Delta current in Amps, or None if extraction fails
     """
     # Ensure standard column names
-    from src.plotting.plot_utils import ensure_standard_columns
+    from src.plotting.shared.plot_utils import ensure_standard_columns
     measurement = ensure_standard_columns(measurement)
 
     if not {"t", "I"} <= set(measurement.columns):
@@ -150,7 +150,7 @@ def plot_its_photoresponse(
     config = config or PlotConfig()
 
     # Apply plot style from config
-    from src.plotting.styles import set_plot_style
+    from src.plotting.shared.styles import set_plot_style
     set_plot_style(config.theme)
 
     # Filter to only It measurements with light

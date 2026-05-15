@@ -17,7 +17,7 @@ from src.cli.helpers import (
     display_plot_success
 )
 from src.plotting.its_relaxation_fit import plot_its_relaxation_fits
-from src.plotting.plot_utils import print_error, print_warning, print_info
+from src.plotting.shared.plot_utils import print_error, print_warning, print_info
 import polars as pl
 
 

@@ -21,7 +21,7 @@ from rich.console import Console
 from rich.panel import Panel
 
 from src.cli.plugin_system import cli_command
-from src.plotting.batch import (
+from src.plotting.shared.batch import (
     load_batch_config,
     execute_sequential,
     execute_parallel,

@@ -17,7 +17,7 @@ from typing import Optional
 import numpy as np
 import yaml
 
-from src.plotting.plot_utils import (
+from src.plotting.shared.plot_utils import (
     _savgol_derivative_corrected,
     segment_voltage_sweep,
 )

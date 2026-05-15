@@ -964,7 +964,7 @@ def plot_context(
     ...     # ... plotting code ...
     """
     import matplotlib.pyplot as plt
-    from src.plotting.styles import set_plot_style
+    from src.plotting.shared.styles import set_plot_style
 
     # Set defaults
     if theme is None:

@@ -25,8 +25,8 @@ import polars as pl
 
 from src.core.utils import read_measurement_parquet
 from src.derived.extractors.corrected_delta_i_extractor import CorrectedDeltaIExtractor
-from src.plotting.config import PlotConfig
-from src.plotting.styles import set_plot_style
+from src.plotting.shared.config import PlotConfig
+from src.plotting.shared.styles import set_plot_style
 
 FIT_T_START = 20.0
 FIT_T_END = 60.0

@@ -10,7 +10,8 @@ from src.cli.cache import load_history_cached
 from rich.panel import Panel
 import polars as pl
 
-from src.plotting import ivg, plot_utils
+from src.plotting import ivg
+from src.plotting.shared import plot_utils
 from src.cli.helpers import (
     parse_seq_list,
     generate_plot_tag,

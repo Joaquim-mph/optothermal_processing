@@ -12,7 +12,7 @@ from typing import Optional
 
 from src.cli.plugin_system import discover_commands
 from src.cli.config import CLIConfig, load_config_with_precedence
-from src.plotting.config import PlotConfig
+from src.plotting.shared.config import PlotConfig
 
 
 # Global configuration singletons
@@ -87,7 +87,7 @@ def set_plot_config(config: PlotConfig) -> None:
         config: PlotConfig instance to use globally
 
     Example:
-        >>> from src.plotting.config import PlotConfig
+        >>> from src.plotting.shared.config import PlotConfig
         >>> config = PlotConfig(theme="paper", dpi=600)
         >>> set_plot_config(config)
     """

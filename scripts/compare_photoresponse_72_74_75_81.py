@@ -25,8 +25,8 @@ import polars as pl
 import subprocess
 
 from src.core.utils import read_measurement_parquet
-from src.plotting.config import PlotConfig
-from src.plotting.styles import set_plot_style
+from src.plotting.shared.config import PlotConfig
+from src.plotting.shared.styles import set_plot_style
 from src.plotting.its_photoresponse import _extract_delta_current_from_its
 
 ENRICHED_DIR = Path("data/03_derived/chip_histories_enriched")

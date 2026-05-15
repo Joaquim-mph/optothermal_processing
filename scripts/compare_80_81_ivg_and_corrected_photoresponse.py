@@ -29,9 +29,9 @@ from src.derived.algorithms.stretched_exponential import (
     stretched_exponential,
 )
 from src.derived.extractors.corrected_delta_i_extractor import CorrectedDeltaIExtractor
-from src.plotting.config import PlotConfig
-from src.plotting.plot_utils import ensure_standard_columns
-from src.plotting.styles import set_plot_style
+from src.plotting.shared.config import PlotConfig
+from src.plotting.shared.plot_utils import ensure_standard_columns
+from src.plotting.shared.styles import set_plot_style
 
 ENRICHED_DIR = Path("data/03_derived/chip_histories_enriched")
 OUTPUT_DIR = Path("figs/compare")

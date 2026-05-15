@@ -27,8 +27,8 @@ import polars as pl
 
 from src.core.utils import read_measurement_parquet
 from src.derived.extractors.its_rise_fall_extractor import ITSRiseFallExtractor
-from src.plotting.config import PlotConfig
-from src.plotting.styles import set_plot_style
+from src.plotting.shared.config import PlotConfig
+from src.plotting.shared.styles import set_plot_style
 
 CHIP = 74
 WAVELENGTH_NM = 365.0

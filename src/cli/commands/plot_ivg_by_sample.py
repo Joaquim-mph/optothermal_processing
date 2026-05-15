@@ -7,7 +7,7 @@ import typer
 from rich.console import Console
 
 from src.cli.plugin_system import cli_command
-from src.plotting.config import PlotConfig
+from src.plotting.shared.config import PlotConfig
 
 
 @cli_command(

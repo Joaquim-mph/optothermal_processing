@@ -14,9 +14,9 @@ from rich.console import Console
 
 from src.cli.plugin_system import cli_command
 from src.core.utils import read_measurement_parquet
-from src.plotting.config import PlotConfig
-from src.plotting.plot_utils import ensure_standard_columns
-from src.plotting.styles import set_plot_style
+from src.plotting.shared.config import PlotConfig
+from src.plotting.shared.plot_utils import ensure_standard_columns
+from src.plotting.shared.styles import set_plot_style
 
 ENRICHED_HISTORY_DIR = Path("data/03_derived/chip_histories_enriched")
 STAGE_HISTORY_DIR = Path("data/02_stage/chip_histories")

@@ -20,7 +20,7 @@ from matplotlib.patches import Patch
 from rich.console import Console
 from rich.table import Table
 
-from src.plotting.styles import set_plot_style
+from src.plotting.shared.styles import set_plot_style
 
 METRICS_PARQUET = Path("data/03_derived/_metrics/metrics.parquet")
 OUTPUT_DIR = Path("figs/mobility")

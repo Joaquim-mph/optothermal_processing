@@ -7,7 +7,8 @@ from typing import Optional
 from rich.panel import Panel
 from rich.table import Table
 
-from src.plotting import its, plot_utils
+from src.plotting import its
+from src.plotting.shared import plot_utils
 from src.plotting.its_presets import PRESETS, get_preset, preset_summary
 from src.cli.context import get_context
 from src.cli.cache import load_history_cached

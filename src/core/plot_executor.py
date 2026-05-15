@@ -18,7 +18,7 @@ from typing import Callable, List, Optional, Protocol
 
 import polars as pl
 
-from src.plotting.config import PlotConfig
+from src.plotting.shared.config import PlotConfig
 
 logger = logging.getLogger(__name__)
 

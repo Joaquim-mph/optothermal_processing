@@ -24,8 +24,8 @@ import numpy as np
 import polars as pl
 
 from src.core.utils import read_measurement_parquet
-from src.plotting.config import PlotConfig
-from src.plotting.styles import set_plot_style
+from src.plotting.shared.config import PlotConfig
+from src.plotting.shared.styles import set_plot_style
 
 CHIPS = [81, 67]
 VG_TOL = 1e-3  # treat Vg values within this tolerance as equal

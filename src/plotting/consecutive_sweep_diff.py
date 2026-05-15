@@ -13,8 +13,8 @@ from typing import Optional, List, Dict, Any
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 
-from src.plotting.config import PlotConfig
-from src.plotting.styles import set_plot_style
+from src.plotting.shared.config import PlotConfig
+from src.plotting.shared.styles import set_plot_style
 
 
 def plot_consecutive_sweep_differences(

@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import polars as pl
 from typing import Optional
 from src.core.utils import read_measurement_parquet
-from src.plotting.plot_utils import (
+from src.plotting.shared.plot_utils import (
     interpolate_baseline,
     ensure_standard_columns,
     get_wavelength_nm,
@@ -18,8 +18,8 @@ from src.plotting.plot_utils import (
     print_info,
     print_warning
 )
-from src.plotting.config import PlotConfig
-from src.plotting.formatters import get_legend_formatter
+from src.plotting.shared.config import PlotConfig
+from src.plotting.shared.formatters import get_legend_formatter
 
 
 def _calculate_auto_baseline(df: pl.DataFrame, divisor: float = 2.0) -> float:
@@ -291,8 +291,8 @@ def plot_its_overlay(
         padding = config.padding_fraction
 
     # Apply plot style from config
-    from src.plotting.styles import set_plot_style
-    from src.plotting.transforms import calculate_conductance
+    from src.plotting.shared.styles import set_plot_style
+    from src.plotting.shared.transforms import calculate_conductance
     set_plot_style(config.theme)
 
     # Track units for conductance plots (will be set in first iteration)
@@ -701,8 +701,8 @@ def plot_its_dark(
         padding = config.padding_fraction
 
     # Apply plot style from config
-    from src.plotting.styles import set_plot_style
-    from src.plotting.transforms import calculate_conductance
+    from src.plotting.shared.styles import set_plot_style
+    from src.plotting.shared.transforms import calculate_conductance
     set_plot_style(config.theme)
 
     # Track units for conductance plots (will be set in first iteration)
@@ -1029,7 +1029,7 @@ def plot_its_sequential(
         padding = config.padding_fraction
 
     # Apply plot style from config
-    from src.plotting.styles import set_plot_style, PRISM_RAIN_PALETTE
+    from src.plotting.shared.styles import set_plot_style, PRISM_RAIN_PALETTE
     set_plot_style(config.theme)
 
     # --- normalize legend_by to a canonical value ---

@@ -8,7 +8,7 @@ from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
 
 from src.cli.plugin_system import cli_command
-from src.plotting.config import PlotConfig
+from src.plotting.shared.config import PlotConfig
 
 
 @cli_command(

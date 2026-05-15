@@ -8,8 +8,8 @@ import matplotlib.pyplot as plt
 import polars as pl
 
 from src.core.utils import read_measurement_parquet
-from src.plotting.config import PlotConfig
-from src.plotting.plot_utils import (
+from src.plotting.shared.config import PlotConfig
+from src.plotting.shared.plot_utils import (
     get_chip_label,
     segment_voltage_sweep,
     _savgol_derivative_corrected,
@@ -190,7 +190,7 @@ def plot_ivg_transconductance(
     config = config or PlotConfig()
 
     # Apply plot style from config
-    from src.plotting.styles import set_plot_style
+    from src.plotting.shared.styles import set_plot_style
     set_plot_style(config.theme)
 
     ivg = df.filter(pl.col("proc") == "IVg").sort("file_idx")
@@ -297,7 +297,7 @@ def plot_ivg_transconductance(
         if len(has_light_values) == 1:
             illumination_metadata = {"has_light": has_light_values[0]}
         elif len(has_light_values) > 1:
-            from src.plotting.plot_utils import print_warning
+            from src.plotting.shared.plot_utils import print_warning
             print_warning("Mixed illumination experiments - saving to Transconductance root folder")
 
     filename = f"{prefix}_gm_{tag}"
@@ -355,7 +355,7 @@ def plot_ivg_transconductance_savgol(
     config = config or PlotConfig()
 
     # Apply plot style from config
-    from src.plotting.styles import set_plot_style
+    from src.plotting.shared.styles import set_plot_style
     set_plot_style(config.theme)
 
     ivg = df.filter(pl.col("proc") == "IVg").sort("file_idx")
@@ -488,7 +488,7 @@ def plot_ivg_transconductance_savgol(
         if len(has_light_values) == 1:
             illumination_metadata = {"has_light": has_light_values[0]}
         elif len(has_light_values) > 1:
-            from src.plotting.plot_utils import print_warning
+            from src.plotting.shared.plot_utils import print_warning
             print_warning("Mixed illumination experiments - saving to Transconductance root folder")
 
     chip_group = None

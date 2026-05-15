@@ -34,8 +34,8 @@ from src.derived.algorithms.stretched_exponential import (
     fit_stretched_exponential,
     stretched_exponential,
 )
-from src.plotting.config import PlotConfig
-from src.plotting.styles import PRISM_RAIN_PALETTE, set_plot_style
+from src.plotting.shared.config import PlotConfig
+from src.plotting.shared.styles import PRISM_RAIN_PALETTE, set_plot_style
 
 ENRICHED_DIR = Path("data/03_derived/chip_histories_enriched")
 OUTPUT_DIR = Path("figs/drift_unified_67_72_74_75_80_81")

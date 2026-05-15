@@ -13,7 +13,7 @@ import polars as pl
 from typing import Optional
 
 from src.core.utils import read_measurement_parquet
-from src.plotting.config import PlotConfig
+from src.plotting.shared.config import PlotConfig
 
 
 def plot_laser_calibration(
@@ -74,7 +74,7 @@ def plot_laser_calibration(
     config = config or PlotConfig()
 
     # Apply plot style from config
-    from src.plotting.styles import set_plot_style, THEMES
+    from src.plotting.shared.styles import set_plot_style, THEMES
     set_plot_style(config.theme)
 
     # Filter and sort by seq number (chronological order)
@@ -268,7 +268,7 @@ def plot_laser_calibration_comparison(
     config = config or PlotConfig()
 
     # Apply plot style from config
-    from src.plotting.styles import set_plot_style
+    from src.plotting.shared.styles import set_plot_style
     set_plot_style(config.theme)
 
     data = df.filter(pl.col("proc") == "LaserCalibration").sort("seq")

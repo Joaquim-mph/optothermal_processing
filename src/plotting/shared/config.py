@@ -718,7 +718,7 @@ def set_global_config(config: PlotConfig) -> None:
 
     Examples
     --------
-    >>> from src.plotting.config import PlotConfig, set_global_config
+    >>> from src.plotting.shared.config import PlotConfig, set_global_config
     >>> paper_config = PlotConfig(theme="paper", dpi=600)
     >>> set_global_config(paper_config)
     """

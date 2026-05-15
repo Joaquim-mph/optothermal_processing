@@ -27,8 +27,8 @@ import numpy as np
 import polars as pl
 
 from src.core.utils import read_measurement_parquet
-from src.plotting.config import PlotConfig
-from src.plotting.styles import set_plot_style
+from src.plotting.shared.config import PlotConfig
+from src.plotting.shared.styles import set_plot_style
 
 # Each pair: light seq (for photocurrent) + dark seq (relaxation trace).
 TRACES = [

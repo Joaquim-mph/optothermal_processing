@@ -9,7 +9,7 @@ from matplotlib.ticker import MaxNLocator
 import polars as pl
 import numpy as np
 
-from src.plotting.config import PlotConfig
+from src.plotting.shared.config import PlotConfig
 
 
 def plot_photoresponse(
@@ -70,7 +70,7 @@ def plot_photoresponse(
     config = config or PlotConfig()
 
     # Apply plot style from config
-    from src.plotting.styles import set_plot_style
+    from src.plotting.shared.styles import set_plot_style
     set_plot_style(config.theme)
 
     # Select metric column name (metrics use delta_current/delta_voltage)

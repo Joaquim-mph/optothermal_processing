@@ -16,8 +16,8 @@ import matplotlib.pyplot as plt
 import polars as pl
 
 from src.core.utils import read_measurement_parquet
-from src.plotting.config import PlotConfig
-from src.plotting.plot_utils import ensure_standard_columns
+from src.plotting.shared.config import PlotConfig
+from src.plotting.shared.plot_utils import ensure_standard_columns
 
 
 def scan_csvs_for_chip_samples(
@@ -194,8 +194,8 @@ def plot_ivg_by_sample(
     """
     config = config or PlotConfig()
 
-    from src.plotting.styles import set_plot_style
-    from src.plotting.transforms import calculate_conductance
+    from src.plotting.shared.styles import set_plot_style
+    from src.plotting.shared.transforms import calculate_conductance
 
     set_plot_style(config.theme)
 

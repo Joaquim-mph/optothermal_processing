@@ -14,12 +14,12 @@ from typing import Optional, Dict, Any
 
 from src.core.utils import read_measurement_parquet
 from src.derived.algorithms import stretched_exponential
-from src.plotting.plot_utils import (
+from src.plotting.shared.plot_utils import (
     print_info,
     print_warning,
     print_error
 )
-from src.plotting.config import PlotConfig
+from src.plotting.shared.config import PlotConfig
 
 
 def plot_its_relaxation_fits(

@@ -10,9 +10,9 @@ import numpy as np
 import polars as pl
 
 from src.core.utils import read_measurement_parquet
-from src.plotting.config import PlotConfig
-from src.plotting.formatters import get_legend_formatter, normalize_legend_by
-from src.plotting.plot_utils import (
+from src.plotting.shared.config import PlotConfig
+from src.plotting.shared.formatters import get_legend_formatter, normalize_legend_by
+from src.plotting.shared.plot_utils import (
     interpolate_baseline,
     ensure_standard_columns,
     ensure_output_directory,
@@ -187,8 +187,8 @@ def plot_vt_overlay(
         padding = config.padding_fraction
 
     # Apply plot style from config
-    from src.plotting.styles import set_plot_style
-    from src.plotting.transforms import calculate_resistance
+    from src.plotting.shared.styles import set_plot_style
+    from src.plotting.shared.transforms import calculate_resistance
     set_plot_style(config.theme)
 
     # Track units for resistance plots (will be set in first iteration)
@@ -452,7 +452,7 @@ def plot_vt_overlay(
         if len(has_light_values) == 1:
             illumination_metadata = {"has_light": has_light_values[0]}
         elif len(has_light_values) > 1:
-            from src.plotting.plot_utils import print_warning
+            from src.plotting.shared.plot_utils import print_warning
             print_warning("Mixed illumination experiments - saving to Vt root folder")
 
     # Add _raw suffix if baseline_mode is "none"
@@ -517,8 +517,8 @@ def plot_vt_sequential(
     if padding is None:
         padding = config.padding_fraction
 
-    from src.plotting.styles import set_plot_style, PRISM_RAIN_PALETTE
-    from src.plotting.transforms import calculate_resistance
+    from src.plotting.shared.styles import set_plot_style, PRISM_RAIN_PALETTE
+    from src.plotting.shared.transforms import calculate_resistance
     set_plot_style(config.theme)
 
     lb = normalize_legend_by(legend_by)

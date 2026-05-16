@@ -38,7 +38,7 @@ class TestConfigCreation:
         assert config.parallel_workers == 8
         assert config.cache_enabled is True
         assert config.cache_ttl == 300
-        assert config.default_plot_format == "png"
+        assert config.default_plot_format == "pdf"
         assert config.plot_dpi == 300
 
     def test_config_with_overrides(self):
@@ -54,7 +54,7 @@ class TestConfigCreation:
         assert config.output_dir == Path("/tmp/test_output")
         # Other fields should have defaults
         assert config.dry_run is False
-        assert config.default_plot_format == "png"
+        assert config.default_plot_format == "pdf"
 
     def test_config_creates_directories(self, tmp_path):
         """Test that config auto-creates missing directories."""

@@ -1,5 +1,32 @@
+import logging
+from pathlib import Path
+
 import matplotlib.pyplot as plt
 import scienceplots  # Register scienceplots styles with matplotlib
+from matplotlib import font_manager
+
+logger = logging.getLogger(__name__)
+
+# Fonts bundled under assets/ are auto-registered with matplotlib so plots
+# render the same on any machine, no system install required. Drop any .ttf
+# in assets/ and it gets picked up.
+_ASSETS_DIR = Path(__file__).resolve().parents[3] / "assets"
+_fonts_registered = False
+
+
+def _register_bundled_fonts() -> None:
+    """Register every .ttf in assets/ with matplotlib (idempotent)."""
+    global _fonts_registered
+    if _fonts_registered:
+        return
+    if not _ASSETS_DIR.exists():
+        logger.warning("Fonts assets directory not found: %s", _ASSETS_DIR)
+        _fonts_registered = True
+        return
+    for ttf in sorted(_ASSETS_DIR.rglob("*.ttf")):
+        font_manager.fontManager.addfont(str(ttf))
+    _fonts_registered = True
+
 
 # ============================================================================
 # Common settings across all themes
@@ -9,6 +36,16 @@ COMMON_RC = {
     "lines.markersize": 6,
     "legend.fontsize": 12,
     "axes.grid": False,
+    # Project-wide font: Open Sans (bundled in assets/Open_Sans/static/).
+    "font.family": "sans-serif",
+    "font.sans-serif": [
+        "Open Sans",
+        "Source Sans Pro",
+        "Source Sans 3",
+        "DejaVu Sans",
+        "sans-serif",
+    ],
+    "font.weight": "normal",
 }
 
 # ============================================================================
@@ -88,6 +125,22 @@ SCIENTIFIC_PALETTE = [
     "#762a83",
 ]
 
+# Keys match PlotConfig.palette's Literal values in src/plotting/shared/config.py.
+PALETTES: dict[str, list[str]] = {
+    "prism_rain": PRISM_RAIN_PALETTE,
+    "deep_rain": DEEP_RAIN_PALETTE,
+    "scientific": SCIENTIFIC_PALETTE,
+    "minimal": MINIMAL_PALETTE,
+    "vivid": PRISM_RAIN_PALETTE_VIVID,
+}
+
+# Maps PlotConfig.font_family Literal values → matplotlib font.sans-serif names.
+_FONT_FAMILY_NAMES: dict[str, str] = {
+    "source_sans_pro": "Source Sans Pro",
+    "open_sans": "Open Sans",
+    "source_sans_3": "Source Sans 3",
+}
+
 # ============================================================================
 # Theme Definitions
 # ============================================================================
@@ -100,39 +153,32 @@ THEMES = {
             "figure.facecolor": "#ffffff",
             "axes.facecolor": "#ffffff",
             "savefig.facecolor": "#ffffff",
-            # Typography - FIXED SIZES FOR BETTER BALANCE
-            "font.family": "serif",  # ← FIXED (was "serif")
-            "font.sans-serif": ["Source Sans Pro Black", "Source Sans 3"],
-            "font.size": 35,  # ← REDUCED from 35
-            "axes.labelsize": 55,  # ← REDUCED from 55 (axis labels)
-            "axes.titlesize": 55,  # ← REDUCED from 55 (title)
+            # Typography (font is set globally in COMMON_RC)
+            "font.size": 35,
+            "axes.labelsize": 55,
+            "axes.titlesize": 55,
             "axes.labelweight": "normal",
             # Axes and ticks
             "axes.edgecolor": "#222222",
             "axes.labelcolor": "#222222",
-            "axes.linewidth": 3.5,  # ← REDUCED from 3.5
+            "axes.linewidth": 3.5,
             "xtick.color": "#333333",
             "ytick.color": "#333333",
-            "xtick.major.size": 10.0,  # ← REDUCED from 10.0
-            "ytick.major.size": 10.0,  # ← REDUCED from 10.0
+            "xtick.major.size": 10.0,
+            "ytick.major.size": 10.0,
             "xtick.major.width": 2,
             "ytick.major.width": 2,
-            "xtick.labelsize": 55,  # ← REDUCED from 55 (tick numbers!)
-            "ytick.labelsize": 55,  # ← REDUCED from 55 (tick numbers!)
-            "xtick.major.pad": 20,  # ← REDUCED from 20
-            "ytick.major.pad": 20,  # ← REDUCED from 20
-            # Grid
-            "grid.color": "#cccccc",
-            "grid.linestyle": "--",
-            "grid.linewidth": 0.4,
-            "grid.alpha": 0.6,
+            "xtick.labelsize": 55,
+            "ytick.labelsize": 55,
+            "xtick.major.pad": 20,
+            "ytick.major.pad": 20,
             # Lines and markers
-            "lines.linewidth": 4,  # ← REDUCED from 6
-            "lines.markersize": 22,  # ← REDUCED from 22
+            "lines.linewidth": 4,
+            "lines.markersize": 22,
             "lines.antialiased": True,
             # Legend
             "legend.frameon": False,
-            "legend.fontsize": 30,  # ← REDUCED from 35
+            "legend.fontsize": 30,
             "legend.loc": "best",
             "legend.fancybox": True,
             # Figure size (optimized for papers)
@@ -156,9 +202,7 @@ THEMES = {
             "figure.facecolor": "#ffffff",
             "axes.facecolor": "#ffffff",
             "savefig.facecolor": "#ffffff",
-            # Typography - SMALL for publications
-            "font.family": "serif",
-            "font.serif": ["Times New Roman", "DejaVu Serif", "serif"],
+            # Typography - SMALL for publications (font is set globally in COMMON_RC)
             "font.size": 10,
             "axes.labelsize": 11,
             "axes.titlesize": 12,
@@ -177,11 +221,6 @@ THEMES = {
             "ytick.labelsize": 10,
             "xtick.major.pad": 4,
             "ytick.major.pad": 4,
-            # Grid - SUBTLE for publications
-            "grid.color": "#cccccc",
-            "grid.linestyle": "--",
-            "grid.linewidth": 0.3,
-            "grid.alpha": 0.4,
             # Lines and markers - THIN for publications
             "lines.linewidth": 1.5,
             "lines.markersize": 4,
@@ -214,9 +253,7 @@ THEMES = {
             "figure.facecolor": "#ffffff",
             "axes.facecolor": "#ffffff",
             "savefig.facecolor": "#ffffff",
-            # Typography - EXTRA LARGE for presentations
-            "font.family": "sans-serif",
-            "font.sans-serif": ["Arial", "Helvetica", "DejaVu Sans", "sans-serif"],
+            # Typography - EXTRA LARGE for presentations (font is set globally in COMMON_RC)
             "font.size": 18,
             "axes.labelsize": 24,
             "axes.titlesize": 28,
@@ -235,11 +272,6 @@ THEMES = {
             "ytick.labelsize": 20,
             "xtick.major.pad": 8,
             "ytick.major.pad": 8,
-            # Grid - VISIBLE for presentations
-            "grid.color": "#cccccc",
-            "grid.linestyle": "-",
-            "grid.linewidth": 0.8,
-            "grid.alpha": 0.3,
             # Lines and markers - THICK for visibility
             "lines.linewidth": 3.5,
             "lines.markersize": 10,
@@ -271,9 +303,7 @@ THEMES = {
             "figure.facecolor": "#ffffff",
             "axes.facecolor": "#ffffff",
             "savefig.facecolor": "#ffffff",
-            # Typography - CLEAN sans-serif
-            "font.family": "sans-serif",
-            "font.sans-serif": ["Source Sans Pro", "Arial", "Helvetica", "sans-serif"],
+            # Typography - CLEAN sans-serif (font is set globally in COMMON_RC)
             "font.size": 12,
             "axes.labelsize": 13,
             "axes.titlesize": 14,
@@ -292,11 +322,6 @@ THEMES = {
             "ytick.labelsize": 11,
             "xtick.major.pad": 6,
             "ytick.major.pad": 6,
-            # Grid - LIGHT
-            "grid.color": "#dddddd",
-            "grid.linestyle": "-",
-            "grid.linewidth": 0.5,
-            "grid.alpha": 0.5,
             # Lines and markers - MEDIUM
             "lines.linewidth": 2.0,
             "lines.markersize": 6,
@@ -322,35 +347,86 @@ THEMES = {
 # ============================================================================
 # Helper function to apply theme
 # ============================================================================
-def set_plot_style(theme_name="prism_rain"):
+def set_plot_style(theme_or_config="prism_rain"):
     """Apply a publication-ready matplotlib theme.
+
+    Accepts either a theme name (str) or a ``PlotConfig``. When given a
+    ``PlotConfig``, the theme is applied first and then config-derived rc
+    overrides (palette, grid, legend) are layered on top.
+
+    Precedence (lowest → highest):
+        scienceplots base style(s) → THEMES[name]["rc"] → PlotConfig overrides
 
     Parameters
     ----------
-    theme_name : str, default="prism_rain"
-        Name of the theme to apply
+    theme_or_config : str | PlotConfig, default="prism_rain"
+        Theme name, or a ``PlotConfig`` whose ``theme`` field selects the theme.
 
-    Example
-    -------
+    Examples
+    --------
     >>> set_plot_style("prism_rain")
-    >>> plt.plot([1, 2, 3], [1, 4, 9])
-    >>> plt.show()
+    >>> from src.plotting.shared.config import PlotConfig
+    >>> set_plot_style(PlotConfig(theme="paper", palette="scientific"))
     """
+    # Lazy import: config.py doesn't currently import styles, but the lazy
+    # form is cheap insurance against future circularity.
+    from src.plotting.shared.config import PlotConfig
+
+    if isinstance(theme_or_config, PlotConfig):
+        config = theme_or_config
+        theme_name = config.theme
+    else:
+        config = None
+        theme_name = theme_or_config
+
     if theme_name not in THEMES:
         raise ValueError(
             f"Theme '{theme_name}' not found. Available: {list(THEMES.keys())}"
         )
 
+    _register_bundled_fonts()
+
     theme = THEMES[theme_name]
 
     # Apply base styles if specified
-    if "base" in theme:
-        for base_style in theme["base"]:
-            try:
-                plt.style.use(base_style)
-            except OSError:
-                print(f"Warning: Base style '{base_style}' not found, skipping...")
+    for base_style in theme.get("base", []):
+        try:
+            plt.style.use(base_style)
+        except OSError:
+            logger.warning("Base style '%s' not found, skipping", base_style)
 
     # Apply custom rc parameters
     plt.rcParams.update(theme["rc"])
-    print(f"✓ Applied '{theme_name}' theme")
+
+    if config is not None:
+        _apply_plot_config_overrides(config)
+
+    logger.debug("Applied '%s' theme", theme_name)
+
+
+def _apply_plot_config_overrides(config) -> None:
+    """Layer ``PlotConfig`` fields on top of the active theme's rcParams.
+
+    Wires the following ``PlotConfig`` fields into matplotlib:
+        - ``palette``               → ``axes.prop_cycle``
+        - ``show_grid``             → ``axes.grid``
+        - ``legend_default_position``→ ``legend.loc``
+        - ``legend_framealpha``     → ``legend.framealpha``
+        - ``legend_font_scale``     → multiplies the theme's ``legend.fontsize``
+
+    Note: ``show_titles`` is caller-enforced (it gates whether
+    ``ax.set_title()`` is called) and is not applied here.
+    """
+    overrides: dict = {}
+    if config.palette in PALETTES:
+        overrides["axes.prop_cycle"] = plt.cycler(color=PALETTES[config.palette])
+    overrides["axes.grid"] = bool(config.show_grid)
+    overrides["legend.loc"] = config.legend_default_position
+    overrides["legend.framealpha"] = config.legend_framealpha
+    overrides["legend.fontsize"] = (
+        plt.rcParams["legend.fontsize"] * config.legend_font_scale
+    )
+    family_name = _FONT_FAMILY_NAMES[config.font_family]
+    overrides["font.sans-serif"] = [family_name, "DejaVu Sans", "sans-serif"]
+    overrides["font.weight"] = "bold" if config.font_weight == "bold" else "normal"
+    plt.rcParams.update(overrides)

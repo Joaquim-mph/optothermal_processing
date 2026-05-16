@@ -90,7 +90,7 @@ class CLIConfig(BaseModel):
 
     # Plot defaults
     default_plot_format: Literal["png", "pdf", "svg", "jpg"] = Field(
-        default="png",
+        default="pdf",
         description="Default output format for plots"
     )
     plot_dpi: int = Field(

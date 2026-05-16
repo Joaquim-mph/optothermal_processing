@@ -128,7 +128,7 @@ class PlotConfig(BaseModel):
     )
 
     format: Literal["png", "pdf", "svg", "jpg"] = Field(
-        default="png",
+        default="pdf",
         description="Default output format for plots"
     )
 
@@ -193,6 +193,23 @@ class PlotConfig(BaseModel):
             "- minimal: Understated professional colors\n"
             "- vivid: High-contrast neon-like colors"
         )
+    )
+
+    font_family: Literal["source_sans_pro", "open_sans", "source_sans_3"] = Field(
+        default="open_sans",
+        description=(
+            "Sans-serif font family (resolved via matplotlib font.sans-serif):\n"
+            "- source_sans_pro: Adobe Source Sans Pro (bundled in assets/)\n"
+            "- open_sans: Open Sans\n"
+            "- source_sans_3: Adobe Source Sans 3\n"
+            "Drop the matching .ttf into assets/ to bundle; otherwise matplotlib "
+            "looks them up from the OS font cache and falls back to DejaVu Sans."
+        ),
+    )
+
+    font_weight: Literal["regular", "bold"] = Field(
+        default="regular",
+        description="Font weight: 'regular' (normal/400) or 'bold' (700).",
     )
 
     # ============================================================================
@@ -329,7 +346,11 @@ class PlotConfig(BaseModel):
 
     show_titles: bool = Field(
         default=False,
-        description="Show plot titles (recommended: False for publications)"
+        description=(
+            "Whether plotting modules should call ax.set_title(). "
+            "Caller-enforced: set_plot_style() cannot apply this (it is not an "
+            "rc key). Read this flag in plot code before calling ax.set_title()."
+        ),
     )
 
     # ============================================================================

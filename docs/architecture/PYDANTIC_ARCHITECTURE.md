@@ -26,7 +26,6 @@ Pydantic is used throughout the optothermal processing pipeline as the **data va
 | `ManifestRow` | `src/models/manifest.py` | Schema for manifest.parquet rows | **Strict** - 50+ fields |
 | `StagingConfig` | `src/models/config.py` | Staging pipeline configuration | **Strict** - path validation |
 | `StagingParameters` | `src/models/parameters.py` | Legacy staging params (deprecated) | **Moderate** |
-| `PlotSession` | `src/tui/session.py` | TUI wizard state management | **Moderate** - enum validation |
 | `IntermediateParameters` | `src/models/parameters.py` | Intermediate preprocessing config | **Moderate** |
 | `IVAnalysisParameters` | `src/models/parameters.py` | IV curve analysis config | **Strict** - polynomial validation |
 | `PlottingParameters` | `src/models/parameters.py` | Visualization config | **Moderate** |
@@ -588,133 +587,6 @@ def validate_manifest_command(manifest: Path, show_details: bool):
 
 ---
 
-### `src/tui/session.py`
-
-**Purpose:** Type-safe TUI wizard session state management.
-
-#### Why Pydantic for GUI State?
-
-**Before (dict-based):**
-```python
-# Untyped, error-prone
-plot_config = {
-    "chip_number": 67,
-    "baseline": "60.0",  # ❌ Should be float, not str
-    "legend_by": "Vg",   # ❌ Lowercase "vg" expected
-    "seq_numebrs": [],   # ❌ Typo, silent failure
-}
-
-# Runtime errors when plotting
-baseline = float(plot_config["baseline"])  # Manual coercion everywhere
-```
-
-**After (Pydantic-based):**
-```python
-class PlotSession(BaseModel):
-    chip_number: Optional[int] = Field(default=None)
-    baseline: Optional[float] = Field(default=60.0)
-    legend_by: str = Field(default="vg")
-    seq_numbers: List[int] = Field(default_factory=list)  # Correct spelling enforced
-
-    @field_validator("legend_by")
-    @classmethod
-    def validate_legend_by(cls, v: str) -> str:
-        if v not in ["vg", "led_voltage", "wavelength"]:
-            raise ValueError(f"Invalid legend_by: {v}")
-        return v
-
-# Type-safe, auto-validated
-session = PlotSession()
-session.chip_number = 67
-session.baseline = 60.0  # Auto-validated as float
-session.legend_by = "Vg"  # ❌ ValidationError: invalid value (catches bug immediately)
-```
-
-#### Key Features
-
-**1. Required vs Optional Fields**
-
-```python
-class PlotSession(BaseModel):
-    # Required (set at app initialization)
-    stage_dir: Path = Field(..., description="Staged Parquet data directory")
-    history_dir: Path = Field(..., description="Chip history directory")
-    output_dir: Path = Field(..., description="Output directory for plots")
-    chip_group: str = Field(..., description="Default chip group")
-
-    # Optional (filled during wizard flow)
-    chip_number: Optional[int] = Field(default=None)
-    plot_type: Optional[str] = Field(default=None)  # ITS, IVg, Transconductance
-```
-
-**2. Enum-Style Validation**
-
-```python
-@field_validator("plot_type")
-@classmethod
-def validate_plot_type(cls, v: Optional[str]) -> Optional[str]:
-    if v is not None and v not in ["ITS", "IVg", "Transconductance"]:
-        raise ValueError(f"Invalid plot_type: {v}")
-    return v
-
-@field_validator("legend_by")
-@classmethod
-def validate_legend_by(cls, v: str) -> str:
-    if v not in ["vg", "led_voltage", "wavelength"]:
-        raise ValueError(f"Invalid legend_by: {v}")
-    return v
-```
-
-**Why Not Use Literal or Enum?**
-GUI state is dynamic and may need to accept None initially. Validators provide more flexibility for optional fields.
-
-**3. Helper Methods**
-
-```python
-def reset_wizard_state(self) -> None:
-    """Reset wizard state to start fresh, keeping application paths."""
-    self.chip_number = None
-    self.plot_type = None
-    self.seq_numbers = []
-
-def chip_name(self) -> str:
-    """Get formatted chip name (e.g., 'Alisson67')."""
-    if self.chip_number is None:
-        raise ValueError("chip_number is not set")
-    return f"{self.chip_group}{self.chip_number}"
-
-def to_config_dict(self) -> dict:
-    """Convert to dict for backward compatibility with plotting functions."""
-    return self.model_dump()
-```
-
-#### Usage in TUI
-
-```python
-# In src/tui/app.py
-from src.tui.session import PlotSession
-
-class PlotterApp(App):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
-        # Initialize session with validated parameters
-        self.session = PlotSession(
-            stage_dir=Path("data/02_stage/raw_measurements"),
-            history_dir=Path("data/02_stage/chip_histories"),
-            output_dir=Path("figs"),
-            chip_group="Alisson"
-        )
-
-    def on_chip_selected(self, chip_number: int):
-        self.session.chip_number = chip_number  # Type-checked, validated
-        self.router.go_to_plot_type_selector()
-
-    def on_plot_type_selected(self, plot_type: str):
-        self.session.plot_type = plot_type  # Validated against allowed types
-        self.router.go_to_config_mode_selector()
-```
-
 ---
 
 ## Data Flow & Validation Points
@@ -774,20 +646,6 @@ class PlotterApp(App):
 │  └── ...             │
 └──────────┬───────────┘
            │
-           │ GUI: PlotSession validation
-           │ - chip_number set
-           │ - plot_type in ["ITS", "IVg", "Transconductance"]
-           │ - legend_by in ["vg", "led_voltage", "wavelength"]
-           │
-           ▼
-┌──────────────────────┐
-│  TUI Wizard          │  ← PlotSession (src/tui/session.py)
-│  1. Chip Selector    │
-│  2. Plot Type        │
-│  3. Configuration    │
-│  4. Preview          │
-└──────────┬───────────┘
-           │
            ▼
 ┌──────────────────────┐
 │  Generated Plots     │
@@ -804,7 +662,6 @@ class PlotterApp(App):
 |-------|-------|-------------------|--------------|
 | **CLI Parsing** | `StagingConfig` | `__init__` call | ValidationError → Exit 1 |
 | **Staging** | `ManifestRow` | TypeAdapter during `validate-manifest` | ValidationError → Warning/Error report |
-| **TUI Input** | `PlotSession` | Field assignment | ValidationError → Red error notification |
 | **Pipeline Orchestration** | `PipelineParameters` | `__init__` + `model_validator` | ValidationError → Detailed error message |
 
 ---
@@ -895,20 +752,6 @@ with open("config.json", "w") as f:
 with open("config.json") as f:
     data = json.load(f)
 config = StagingConfig(**data)  # Auto-validated
-```
-
-#### 5. **Backward Compatibility**
-
-```python
-# Convert Pydantic model to dict for legacy code
-session = PlotSession(...)
-plot_config_dict = session.to_config_dict()
-
-# Legacy plotting function still works
-generate_its_plot(
-    chip_name=session.chip_name(),
-    **plot_config_dict
-)
 ```
 
 ### Trade-offs
@@ -1058,13 +901,6 @@ class ManifestRow(BaseModel):
         extra="forbid",  # Reject unknown fields
         validate_assignment=True,  # Validate on mutation
         arbitrary_types_allowed=True  # Allow Path objects
-    )
-
-# ✅ Lenient validation for user input
-class PlotSession(BaseModel):
-    model_config = ConfigDict(
-        extra="ignore",  # Silently drop unknown fields from old configs
-        validate_assignment=True
     )
 ```
 

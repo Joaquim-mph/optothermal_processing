@@ -1,8 +1,8 @@
 """
 Shared helpers for chip history inspection.
 
-Provides reusable filtering and summarization logic for both the CLI
-(`show-history`) and the TUI history browser to ensure consistent behaviour.
+Provides reusable filtering and summarization logic for the CLI
+(`show-history`) to ensure consistent behaviour.
 """
 
 from __future__ import annotations

@@ -2,18 +2,18 @@
 
 ## Role in the Pipeline
 - Provides the visualization layer for staged optothermal experiments by reading Parquet measurements and chip histories produced in `src/core`.
-- Supplies CLI and Textual UI commands with ready-to-save Matplotlib figures and GIF animations so analysts can inspect device behavior after each processing run.
+- Supplies CLI commands with ready-to-save Matplotlib figures and GIF animations so analysts can inspect device behavior after each processing run.
 
 ## Data Flow at a Glance
 - Plotters expect `polars.DataFrame` metadata subsets (usually chip histories) plus a base directory containing staged Parquet measurements.
 - Each function calls `src.core.utils.read_measurement_parquet` to load the numeric traces it needs (current, voltage, power, etc.).
-- Styling is applied lazily via `set_plot_style("prism_rain")` to keep Textual threads safe while ensuring plots share a consistent publication theme (`scienceplots`, custom color cycles, DPI).
+- Styling is applied lazily via `set_plot_style("prism_rain")` so plots share a consistent publication theme (`scienceplots`, custom color cycles, DPI).
 - Finished assets are written under `figs/` (sometimes inside chip-specific subfolders) using descriptive filenames such as `encap{chip}_ITS_{tag}.png`.
 
 ## Shared Infrastructure
 - `plot_utils.py` centralizes reusable helpers: light-window detection (`detect_light_on_window` / `calculate_light_window`), baseline interpolation, transconductance calculation, Savitzky–Golay derivatives, sweep segmentation, and cross-day metadata assembly (`combine_metadata_by_seq` + `load_and_prepare_metadata`).
-- `styles.py` defines the `prism_rain` Matplotlib theme and several color palettes; plotters call `set_plot_style` rather than importing it globally so TUI sessions can instantiate plots concurrently.
-- `its_presets.py` encapsulates common ITS overlay configurations (dark, power sweep, spectral, custom) so the CLI/TUI can present guardrailed defaults for baseline handling, legends, and validation checks.
+- `styles.py` defines the `prism_rain` Matplotlib theme and several color palettes; plotters call `set_plot_style` rather than importing it globally.
+- `its_presets.py` encapsulates common ITS overlay configurations (dark, power sweep, spectral, custom) so the CLI can present guardrailed defaults for baseline handling, legends, and validation checks.
 
 ## Plotters and Their Outputs
 
@@ -34,4 +34,4 @@
 - Laser calibration plots create chip-scoped subfolders (`figs/{chip_group}/`) and honor CLI-configured export formats/DPI.
 - Animated assets extend GIF coverage for IVg sequences; if GIF writing fails, individual PNG frames are dropped alongside a warning.
 
-Together, these components let the CLI (`process_and_analyze.py` commands) and Textual UI (`PlotterApp`) render consistent, metadata-rich visual summaries of staged measurements without duplicating plotting logic.
+Together, these components let the CLI (`process_and_analyze.py` commands) render consistent, metadata-rich visual summaries of staged measurements without duplicating plotting logic.

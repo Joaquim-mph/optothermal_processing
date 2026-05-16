@@ -137,14 +137,6 @@ python3 process_and_analyze.py show-history 67 --format json | jq '.data[] | sel
 
 ---
 
-## 🖥️ Terminal UI
-
-User-friendly terminal interface for lab users:
-
-- **[TUI_OVERVIEW.md](TUI_OVERVIEW.md)** - Terminal UI overview, screens, and configuration manager
-
----
-
 ## 🔧 Upstream Systems
 
 External system documentation:
@@ -177,8 +169,7 @@ External system documentation:
 **Use these:**
 
 1. [../README.md](../README.md) - Basic usage
-2. [TUI_OVERVIEW.md](TUI_OVERVIEW.md) - Terminal UI guide
-3. [CONFIGURATION.md](CONFIGURATION.md) - Customize paths and settings
+2. [CONFIGURATION.md](CONFIGURATION.md) - Customize paths and settings
 
 ### For System Architects
 

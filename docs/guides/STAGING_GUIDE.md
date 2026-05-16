@@ -1,6 +1,6 @@
 # Staging Pipeline Guide
 
-This document explains the staging phase implemented in `src/core/stage_raw_measurements.py` and its helpers. The staging pipeline converts raw laboratory CSVs into a validated, partitioned Parquet lake with an authoritative manifest. It is the backbone for chip histories, plotting commands, and the TUI.
+This document explains the staging phase implemented in `src/core/stage_raw_measurements.py` and its helpers. The staging pipeline converts raw laboratory CSVs into a validated, partitioned Parquet lake with an authoritative manifest. It is the backbone for chip histories and plotting commands.
 
 ---
 
@@ -115,7 +115,7 @@ After all workers complete, `merge_events_to_manifest(events_dir, manifest_path)
 * **Deduplication:** When a manifest already exists, the new DataFrame is concatenated (`vertical_relaxed`) and deduplicated on `(run_id, ts, status, path)` keeping the latest occurrence.
 * **Output:** The manifest lives at `<stage_root>/_manifest/manifest.parquet`. Event files are left intact to aid debugging.
 
-Manifest rows map almost one-to-one with staged Parquet runs. They feed history building (`src/core/history_builder.py`) and the CLI/TUI selectors.
+Manifest rows map almost one-to-one with staged Parquet runs. They feed history building (`src/core/history_builder.py`) and the CLI selectors.
 
 ### Manifest Columns
 
@@ -196,13 +196,12 @@ Understanding these helpers is essential when extending staging behavior (e.g., 
 * **Diagnostics:** 
   * Inspect `_manifest/events/event-<run_id>.json` to debug individual runs.
   * Use `process_and_analyze.py inspect-manifest` to explore the manifest interactively.
-  * `tui_plot_generation.log` records CLI activity during plotting but can also expose staging paths used later.
 
 ---
 
 ## Summary
 
-The staging phase guarantees that heterogeneous CSV dumps turn into strongly typed, partitioned Parquet datasets with rich metadata. The manifest sits at the core of every downstream consumer: chip history builders, CLI plotting commands, and the TUI wizard. When modifying staging, verify that:
+The staging phase guarantees that heterogeneous CSV dumps turn into strongly typed, partitioned Parquet datasets with rich metadata. The manifest sits at the core of every downstream consumer: chip history builders and CLI plotting commands. When modifying staging, verify that:
 
 * The YAML schema represents all expected headers.
 * The derived metadata stays in sync with downstream expectations.

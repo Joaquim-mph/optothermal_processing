@@ -216,11 +216,6 @@ Procedures include intentional stabilization periods that should be excluded fro
 
 ### Planned Enhancements (Upstream)
 
-**TUI Monitoring** (referenced in `TUI_PLAN.md`):
-- Textual/plotext-based terminal UI for live experiment monitoring
-- May produce new metadata about user interactions or mid-run annotations
-- No schema impact expected (logs separate from CSV data)
-
 **Potential Multi-Dimensional Sweeps**:
 - Example: Vg × wavelength × temperature
 - Current architecture supports via nested procedures

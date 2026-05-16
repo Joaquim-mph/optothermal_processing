@@ -47,12 +47,6 @@ def plot_ivg_command(
         "--auto",
         help="Automatically select all IVg experiments"
     ),
-    interactive: bool = typer.Option(
-        False,
-        "--interactive",
-        "-i",
-        help="Launch interactive experiment selector (TUI)"
-    ),
     tag: Optional[str] = typer.Option(
         None,
         "--tag",
@@ -160,9 +154,6 @@ def plot_ivg_command(
         # Auto-select all IVg experiments with inverse conductance
         python process_and_analyze.py plot-ivg 67 --auto --conductance --inverse
 
-        # Interactive selection (TUI)
-        python process_and_analyze.py plot-ivg 67 --interactive
-
         # Filter by date
         python process_and_analyze.py plot-ivg 67 --auto --date 2025-10-15
 
@@ -203,15 +194,15 @@ def plot_ivg_command(
         if ctx.verbose:
             ctx.print(f"[dim]Using history directory from config: {history_dir}[/dim]")
 
-    # Step 1: Get seq numbers (manual, auto, or interactive)
-    mode_count = sum([bool(seq), auto, interactive])
+    # Step 1: Get seq numbers (manual or auto)
+    mode_count = sum([bool(seq), auto])
     if mode_count > 1:
-        ctx.print("[red]Error:[/red] Can only use one of: --seq, --auto, or --interactive")
+        ctx.print("[red]Error:[/red] Can only use one of: --seq or --auto")
         raise typer.Exit(1)
 
     if mode_count == 0:
-        ctx.print("[red]Error:[/red] Must specify one of: --seq, --auto, or --interactive")
-        ctx.print("[yellow]Hint:[/yellow] Use --seq 2,8,14, --auto, or --interactive")
+        ctx.print("[red]Error:[/red] Must specify one of: --seq or --auto")
+        ctx.print("[yellow]Hint:[/yellow] Use --seq 2,8,14 or --auto")
         raise typer.Exit(1)
 
     try:
@@ -231,13 +222,6 @@ def plot_ivg_command(
                 filters
             )
             ctx.print(f"[green]✓[/green] Auto-selected {len(seq_numbers)} IVg experiment(s)")
-        elif interactive:
-            ctx.print("[red]Error:[/red] Interactive mode not yet updated for Parquet-based pipeline")
-            ctx.print("[yellow]Hint:[/yellow] Use --seq or --auto instead:")
-            ctx.print("  [cyan]--seq 2,8,14[/cyan]   # Specify seq numbers")
-            ctx.print("  [cyan]--auto[/cyan]         # Auto-select all IVg")
-            ctx.print("  [cyan]--auto --vds 0.1[/cyan] # Auto-select with filter")
-            raise typer.Exit(1)
         else:
             seq_numbers = parse_seq_list(seq)
             ctx.print(f"[cyan]Using specified seq numbers:[/cyan] {seq_numbers}")

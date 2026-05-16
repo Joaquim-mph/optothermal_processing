@@ -35,7 +35,7 @@ Raw CSV Files → parser.py → Metadata Files → utils.py → Cleaned DataFram
 3. **Build** chronological timelines for experiment tracking
 
 **Why separate this as `core`?**
-- **Reusability:** Used by plotting, TUI, CLI, and notebooks
+- **Reusability:** Used by plotting, CLI, and notebooks
 - **Robustness:** Handles variable CSV formats from different instruments
 - **Independence:** No matplotlib/plotting dependencies (pure data operations)
 - **Testing:** Easy to unit test without UI/plotting complexity
@@ -124,7 +124,6 @@ VG (V),I (A),t (s)
 **Why this matters:**
 - Dark vs light experiments need different analysis
 - Dark plots use different presets (`plot_start_time=1s` vs `20s`)
-- User selection in TUI relies on accurate detection
 
 **Example:**
 ```python
@@ -546,7 +545,6 @@ plot_its_overlay(
 - ✅ Column name standardization
 - ✅ Timeline construction
 - ❌ Plotting (that's `src/plotting`)
-- ❌ User interface (that's `src/tui`)
 - ❌ Batch processing (that's `src/process_*.py`)
 
 ### 2. Robustness First
@@ -814,7 +812,6 @@ def test_full_pipeline():
 
 ## See Also
 
-- **`TUI_GUIDE.md`** - How timeline is used in terminal UI
 - **`CHIP_HISTORY_GUIDE.md`** - Complete chip history documentation
 - **`ITS_BASELINE_GUIDE.md`** - How core data feeds plotting
 - **`CLAUDE.md`** - Overall system architecture

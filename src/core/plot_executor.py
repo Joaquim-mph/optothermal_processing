@@ -1,10 +1,6 @@
 """
 Plot Executor -- standalone plot generation logic.
 
-Extracted from src/tui/screens/processing/plot_generation.py so that both
-the Textual TUI and the PyQt6 GUI (and any future frontend) can generate
-plots without duplicating the dispatch logic.
-
 The key function is `execute_plot()`, which takes a callback interface
 for progress updates and returns a `PlotResult` on success.
 """

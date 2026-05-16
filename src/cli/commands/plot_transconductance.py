@@ -47,12 +47,6 @@ def plot_transconductance_command(
         "--auto",
         help="Automatically select all IVg experiments"
     ),
-    interactive: bool = typer.Option(
-        False,
-        "--interactive",
-        "-i",
-        help="Launch interactive experiment selector (TUI)"
-    ),
     method: str = typer.Option(
         "gradient",
         "--method",
@@ -188,15 +182,15 @@ def plot_transconductance_command(
         ctx.print(f"[red]Error:[/red] Invalid method '{method}'. Must be 'gradient' or 'savgol'")
         raise typer.Exit(1)
 
-    # Step 1: Get seq numbers (manual, auto, or interactive)
-    mode_count = sum([bool(seq), auto, interactive])
+    # Step 1: Get seq numbers (manual or auto)
+    mode_count = sum([bool(seq), auto])
     if mode_count > 1:
-        ctx.print("[red]Error:[/red] Can only use one of: --seq, --auto, or --interactive")
+        ctx.print("[red]Error:[/red] Can only use one of: --seq or --auto")
         raise typer.Exit(1)
 
     if mode_count == 0:
-        ctx.print("[red]Error:[/red] Must specify one of: --seq, --auto, or --interactive")
-        ctx.print("[yellow]Hint:[/yellow] Use --seq 2,8,14, --auto, or --interactive")
+        ctx.print("[red]Error:[/red] Must specify one of: --seq or --auto")
+        ctx.print("[yellow]Hint:[/yellow] Use --seq 2,8,14 or --auto")
         ctx.print("[yellow]Note:[/yellow] Only IVg experiments can be used for transconductance")
         ctx.print("[dim]      Run: python process_and_analyze.py show-history {chip_number} --proc IVg[/dim]")
         raise typer.Exit(1)
@@ -218,13 +212,6 @@ def plot_transconductance_command(
                 filters
             )
             ctx.print(f"[green]✓[/green] Auto-selected {len(seq_numbers)} IVg experiment(s)")
-        elif interactive:
-            ctx.print("[red]Error:[/red] Interactive mode not yet updated for Parquet-based pipeline")
-            ctx.print("[yellow]Hint:[/yellow] Use --seq or --auto instead:")
-            ctx.print("  [cyan]--seq 2,8,14[/cyan]   # Specify seq numbers")
-            ctx.print("  [cyan]--auto[/cyan]         # Auto-select all IVg")
-            ctx.print("  [cyan]--auto --vds 0.1[/cyan] # Auto-select with filter")
-            raise typer.Exit(1)
         else:
             seq_numbers = parse_seq_list(seq)
             ctx.print(f"[cyan]Using specified seq numbers:[/cyan] {seq_numbers}")

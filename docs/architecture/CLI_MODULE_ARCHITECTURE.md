@@ -66,7 +66,7 @@ src/cli/
 - **`plugin_system.py`**: Auto-discovery and registration system (`@cli_command` decorator)
 - **`config.py`**: Configuration loading with precedence (env vars, files, CLI overrides)
 - **`helpers.py`**: Reusable plotting utilities (seq parsing, output dir setup, Rich displays)
-- **`history_utils.py`**: History filtering logic shared by CLI and TUI
+- **`history_utils.py`**: History filtering logic
 - **`commands/*.py`**: Individual command implementations (decorated with `@cli_command`)
 
 ---
@@ -155,7 +155,7 @@ def command_name(
 Common operations are extracted into reusable helpers to ensure consistency:
 
 - **`helpers.py`**: Plotting-specific utilities (seq parsing, file naming, Rich displays)
-- **`history_utils.py`**: History filtering logic (shared by CLI and TUI)
+- **`history_utils.py`**: History filtering logic
 
 This **DRY principle** ensures:
 - Consistent behavior across commands
@@ -707,7 +707,7 @@ Beautiful terminal output using Rich library:
 
 ### history_utils.py - History Filtering
 
-**Purpose**: Shared history filtering and summarization logic for CLI and TUI.
+**Purpose**: History filtering and summarization logic for the CLI.
 
 #### Key Components
 
@@ -1028,7 +1028,7 @@ python process_and_analyze.py staging-stats
 
 All plotting commands follow a **consistent workflow pattern**:
 
-1. **Input Mode Selection**: `--seq`, `--auto`, or `--interactive`
+1. **Input Mode Selection**: `--seq` or `--auto`
 2. **Validation**: Verify seq numbers exist in history
 3. **History Loading**: Load chip history with parquet_path column
 4. **Filtering**: Apply optional filters (vg, wavelength, date, vds)
@@ -1326,7 +1326,6 @@ elif "source_file" not in history.columns:
 **Multiple input modes:**
 - `--seq`: Explicit list with range support (`"52,57,58"` or `"89-117"`)
 - `--auto`: Auto-select all experiments of type
-- `--interactive`: TUI selector (deprecated, to be updated)
 
 **Filters stack with auto-select:**
 ```bash
@@ -1577,4 +1576,4 @@ The `src/cli` module provides a **production-quality CLI** with:
 5. Extract reusable helpers (DRY)
 6. Support flexible input modes
 
-The CLI is the primary interface for **power users and scripting**, while the TUI (`src/tui/`) provides a **guided experience for lab users**.
+The CLI is the primary interface for **power users and scripting**.

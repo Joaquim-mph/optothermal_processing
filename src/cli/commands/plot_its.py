@@ -140,12 +140,6 @@ def plot_its_command(
         "--auto",
         help="Automatically select all ITS experiments"
     ),
-    interactive: bool = typer.Option(
-        False,
-        "--interactive",
-        "-i",
-        help="Launch interactive experiment selector (TUI)"
-    ),
     legend_by: str = typer.Option(
         "led_voltage",
         "--legend",
@@ -265,9 +259,6 @@ def plot_its_command(
         # Auto-select all ITS with conductance
         python process_and_analyze.py plot-its 67 --auto --conductance
 
-        # Interactive selection (TUI)
-        python process_and_analyze.py plot-its 67 --interactive
-
         # Auto-select all ITS with wavelength legend
         python process_and_analyze.py plot-its 67 --auto --legend wavelength
 
@@ -349,15 +340,15 @@ def plot_its_command(
             if ctx.verbose:
                 ctx.print(f"[dim]Using history directory from config: {history_dir}[/dim]")
 
-    # Step 1: Get seq numbers (manual, auto, or interactive)
-    mode_count = sum([bool(seq), auto, interactive])
+    # Step 1: Get seq numbers (manual or auto)
+    mode_count = sum([bool(seq), auto])
     if mode_count > 1:
-        ctx.print("[red]Error:[/red] Can only use one of: --seq, --auto, or --interactive")
+        ctx.print("[red]Error:[/red] Can only use one of: --seq or --auto")
         raise typer.Exit(1)
 
     if mode_count == 0:
-        ctx.print("[red]Error:[/red] Must specify one of: --seq, --auto, or --interactive")
-        ctx.print("[yellow]Hint:[/yellow] Use --seq 52,57,58, --auto, or --interactive")
+        ctx.print("[red]Error:[/red] Must specify one of: --seq or --auto")
+        ctx.print("[yellow]Hint:[/yellow] Use --seq 52,57,58 or --auto")
         raise typer.Exit(1)
 
     try:
@@ -379,13 +370,6 @@ def plot_its_command(
                 filters
             )
             ctx.print(f"[green]✓[/green] Auto-selected {len(seq_numbers)} ITS experiment(s)")
-        elif interactive:
-            ctx.print("[red]Error:[/red] Interactive mode not yet updated for Parquet-based pipeline")
-            ctx.print("[yellow]Hint:[/yellow] Use --seq or --auto instead:")
-            ctx.print("  [cyan]--seq 52,57,58[/cyan]   # Specify seq numbers")
-            ctx.print("  [cyan]--auto[/cyan]           # Auto-select all ITS")
-            ctx.print("  [cyan]--auto --vg -0.4[/cyan] # Auto-select with filter")
-            raise typer.Exit(1)
         else:
             seq_numbers = parse_seq_list(seq)
             ctx.print(f"[cyan]Using specified seq numbers:[/cyan] {seq_numbers}")

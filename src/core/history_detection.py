@@ -2,10 +2,8 @@
 History Detection and Loading.
 
 Automatically detects whether enriched chip histories (with derived metrics)
-are available, and falls back to regular histories if not.
-
-This module enables the TUI to seamlessly support both regular and enriched
-chip histories, providing clear status messages and graceful fallback behavior.
+are available, and falls back to regular histories if not. Provides clear
+status messages and graceful fallback behavior.
 """
 
 from __future__ import annotations

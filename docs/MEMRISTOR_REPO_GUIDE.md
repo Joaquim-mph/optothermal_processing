@@ -260,6 +260,5 @@ These are biotite-specific and have no value in the memristor repo:
 - `src/derived/extractors/cnp_extractor.py`, `photoresponse_extractor.py`, `its_relaxation_extractor.py`, `its_three_phase_fit_extractor.py`, `calibration_matcher.py` -- all FET-specific
 - `src/cli/commands/plot_its.py`, `plot_ivg.py`, `plot_vvg.py`, `plot_vt.py`, etc. -- all FET-specific
 - `src/models/parameters.py` `IntermediateParameters`, `IVAnalysisParameters` -- FET analysis models
-- `src/tui/` -- Rebuild if needed, but the wizard is biotite-specific
 - `config/chip_params.yaml` -- FET chip metadata
 - `config/batch_plots/` -- biotite-specific plot configs

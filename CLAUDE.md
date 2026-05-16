@@ -8,8 +8,6 @@ Python data processing and visualization pipeline for optothermal semiconductor 
 
 **Key Technologies:** Python 3.11+, Polars (NOT pandas), Pydantic v2+, Typer + Rich CLI, Matplotlib + scienceplots, Numba (accelerated fitting)
 
-The GUI (`src/gui/`, PyQt6) and TUI (`src/tui/`, Textual) subsystems were removed from `main`; they are preserved on the `gui-tui-experimental` branch.
-
 ## Environment Setup
 
 ```bash

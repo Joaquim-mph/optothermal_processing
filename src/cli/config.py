@@ -18,7 +18,7 @@ Configuration priority (highest to lowest):
 import json
 import os
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Literal, Optional, Tuple
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -108,6 +108,44 @@ class CLIConfig(BaseModel):
             "  - presentation: Slides/posters (extra large fonts, vivid colors)\n"
             "  - minimal: Web dashboards (clean sans-serif, understated colors)"
         )
+    )
+
+    # Optional PlotConfig overrides (None = let PlotConfig use its own default).
+    # Forwarded into PlotConfig via PlotConfig.from_cli_config().
+    plot_palette: Optional[
+        Literal["prism_rain", "deep_rain", "scientific", "minimal", "vivid"]
+    ] = Field(default=None, description="Override PlotConfig.palette")
+    plot_font_family: Optional[
+        Literal["source_sans_pro", "open_sans", "source_sans_3"]
+    ] = Field(default=None, description="Override PlotConfig.font_family")
+    plot_font_weight: Optional[Literal["regular", "bold"]] = Field(
+        default=None, description="Override PlotConfig.font_weight"
+    )
+    plot_legend_loc: Optional[str] = Field(
+        default=None, description="Override PlotConfig.legend_default_position"
+    )
+    plot_legend_font_scale: Optional[float] = Field(
+        default=None, ge=0.5, le=2.0,
+        description="Override PlotConfig.legend_font_scale",
+    )
+    plot_legend_framealpha: Optional[float] = Field(
+        default=None, ge=0.0, le=1.0,
+        description="Override PlotConfig.legend_framealpha",
+    )
+    plot_figsize_timeseries: Optional[Tuple[float, float]] = Field(
+        default=None, description="Override PlotConfig.figsize_timeseries"
+    )
+    plot_figsize_voltage_sweep: Optional[Tuple[float, float]] = Field(
+        default=None, description="Override PlotConfig.figsize_voltage_sweep"
+    )
+    plot_figsize_derived: Optional[Tuple[float, float]] = Field(
+        default=None, description="Override PlotConfig.figsize_derived"
+    )
+    plot_figsize_transconductance: Optional[Tuple[float, float]] = Field(
+        default=None, description="Override PlotConfig.figsize_transconductance"
+    )
+    plot_figsize_laser_calibration: Optional[Tuple[float, float]] = Field(
+        default=None, description="Override PlotConfig.figsize_laser_calibration"
     )
 
     # Config metadata (not user-configurable)

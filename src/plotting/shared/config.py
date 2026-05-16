@@ -14,7 +14,7 @@ to enable command-line control over plot appearance without code changes.
 """
 
 from pathlib import Path
-from typing import Literal, Tuple, Optional, Dict, Any
+from typing import ClassVar, Literal, Tuple, Optional, Dict, Any
 from pydantic import BaseModel, Field, field_validator
 
 
@@ -372,35 +372,53 @@ class PlotConfig(BaseModel):
     # Class Methods
     # ============================================================================
 
+    # Maps CLIConfig.plot_* override fields → PlotConfig field names.
+    # Only fields whose CLIConfig value is non-None are forwarded; PlotConfig
+    # supplies its own default for the rest. Single source of truth: PlotConfig.
+    _CLI_OVERRIDE_FIELDS: ClassVar[Tuple[Tuple[str, str], ...]] = (
+        ("plot_palette", "palette"),
+        ("plot_font_family", "font_family"),
+        ("plot_font_weight", "font_weight"),
+        ("plot_legend_loc", "legend_default_position"),
+        ("plot_legend_font_scale", "legend_font_scale"),
+        ("plot_legend_framealpha", "legend_framealpha"),
+        ("plot_figsize_timeseries", "figsize_timeseries"),
+        ("plot_figsize_voltage_sweep", "figsize_voltage_sweep"),
+        ("plot_figsize_derived", "figsize_derived"),
+        ("plot_figsize_transconductance", "figsize_transconductance"),
+        ("plot_figsize_laser_calibration", "figsize_laser_calibration"),
+    )
+
     @classmethod
     def from_cli_config(cls, cli_config) -> "PlotConfig":
         """
         Create PlotConfig from CLIConfig, inheriting common fields.
 
-        Parameters
-        ----------
-        cli_config : CLIConfig
-            CLI configuration instance from src.cli.config
-
-        Returns
-        -------
-        PlotConfig
-            Plotting configuration with values from CLI config
+        Always-forwarded: output_dir, format, dpi, theme.
+        Optionally-forwarded (only when set on CLIConfig): palette, font_family,
+        font_weight, legend_*, figsize_*. None on CLIConfig means "use
+        PlotConfig's own default for that field" — there's no value duplication.
 
         Examples
         --------
         >>> from src.cli.config import CLIConfig
-        >>> cli_config = CLIConfig(plot_theme="paper", plot_dpi=600)
+        >>> cli_config = CLIConfig(plot_theme="paper", plot_dpi=600,
+        ...                        plot_palette="scientific")
         >>> plot_config = PlotConfig.from_cli_config(cli_config)
-        >>> print(plot_config.theme, plot_config.dpi)
-        paper 600
+        >>> print(plot_config.theme, plot_config.dpi, plot_config.palette)
+        paper 600 scientific
         """
-        return cls(
-            output_dir=cli_config.output_dir,
-            format=cli_config.default_plot_format,
-            dpi=cli_config.plot_dpi,
-            theme=cli_config.plot_theme,
-        )
+        kwargs = {
+            "output_dir": cli_config.output_dir,
+            "format": cli_config.default_plot_format,
+            "dpi": cli_config.plot_dpi,
+            "theme": cli_config.plot_theme,
+        }
+        for cli_attr, plot_attr in cls._CLI_OVERRIDE_FIELDS:
+            value = getattr(cli_config, cli_attr, None)
+            if value is not None:
+                kwargs[plot_attr] = value
+        return cls(**kwargs)
 
     def get_figsize(self, plot_type: str) -> Tuple[float, float]:
         """

@@ -115,3 +115,52 @@ class TestPalettesRegistry:
     def test_registry_keys_match_plotconfig_literal(self):
         literal_values = {"prism_rain", "deep_rain", "scientific", "minimal", "vivid"}
         assert set(PALETTES.keys()) == literal_values
+
+
+class TestFromCLIConfig:
+    """PlotConfig.from_cli_config should forward only non-None CLI overrides."""
+
+    def test_defaults_match_plotconfig_defaults(self):
+        """A default CLIConfig should produce a PlotConfig equal to PlotConfig()."""
+        from src.cli.config import CLIConfig
+        cli = CLIConfig()
+        plot = PlotConfig.from_cli_config(cli)
+        # Equivalent on every field that doesn't depend on absolute path resolution.
+        expected = PlotConfig(
+            output_dir=cli.output_dir,
+            format=cli.default_plot_format,
+            dpi=cli.plot_dpi,
+            theme=cli.plot_theme,
+        )
+        assert plot.model_dump() == expected.model_dump()
+
+    def test_optional_overrides_propagate(self):
+        from src.cli.config import CLIConfig
+        cli = CLIConfig(
+            plot_palette="scientific",
+            plot_font_family="open_sans",
+            plot_font_weight="bold",
+            plot_legend_loc="upper right",
+            plot_legend_font_scale=1.5,
+            plot_legend_framealpha=0.5,
+            plot_figsize_timeseries=(12.0, 8.0),
+        )
+        plot = PlotConfig.from_cli_config(cli)
+        assert plot.palette == "scientific"
+        assert plot.font_family == "open_sans"
+        assert plot.font_weight == "bold"
+        assert plot.legend_default_position == "upper right"
+        assert plot.legend_font_scale == 1.5
+        assert plot.legend_framealpha == 0.5
+        assert plot.figsize_timeseries == (12.0, 8.0)
+
+    def test_none_overrides_leave_plotconfig_defaults(self):
+        """None on CLIConfig means: don't forward, let PlotConfig pick its default."""
+        from src.cli.config import CLIConfig
+        cli = CLIConfig()  # all plot_* overrides None
+        plot = PlotConfig.from_cli_config(cli)
+        defaults = PlotConfig()
+        assert plot.palette == defaults.palette
+        assert plot.font_family == defaults.font_family
+        assert plot.figsize_timeseries == defaults.figsize_timeseries
+        assert plot.legend_framealpha == defaults.legend_framealpha

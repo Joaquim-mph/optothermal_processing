@@ -6,6 +6,8 @@ and measured optical power for different wavelengths and optical fibers.
 """
 
 from __future__ import annotations
+import logging
+
 from pathlib import Path
 import numpy as np
 import matplotlib.pyplot as plt
@@ -14,6 +16,9 @@ from typing import Optional
 
 from src.core.utils import read_measurement_parquet
 from src.plotting.shared.config import PlotConfig
+
+logger = logging.getLogger(__name__)
+
 
 
 def plot_laser_calibration(
@@ -80,7 +85,7 @@ def plot_laser_calibration(
     # Filter and sort by seq number (chronological order)
     data = df.filter(pl.col("proc") == "LaserCalibration").sort("seq")
     if data.height == 0:
-        print("[warn] No LaserCalibration experiments to plot")
+        logger.warning("No LaserCalibration experiments to plot")
         return None
 
     # Create figure (figsize from theme's rcParams)
@@ -116,7 +121,7 @@ def plot_laser_calibration(
         # Load measurement data from staged Parquet
         parquet_path = Path(row["parquet_path"])
         if not parquet_path.exists():
-            print(f"[warn] Missing file: {parquet_path}")
+            logger.warning(f"Missing file: {parquet_path}")
             continue
 
         measurement = read_measurement_parquet(parquet_path)
@@ -137,8 +142,10 @@ def plot_laser_calibration(
         required_cols = {"VL", "Power"}
         if not required_cols <= set(measurement.columns):
             missing = required_cols - set(measurement.columns)
-            print(f"[warn] Missing columns in {parquet_path.name}: {missing}")
-            print(f"       Available columns: {measurement.columns}")
+            logger.warning(
+                "missing columns in %s: %s (available: %s)",
+                parquet_path.name, missing, measurement.columns,
+            )
             continue
 
         # Extract data for plotting
@@ -183,7 +190,7 @@ def plot_laser_calibration(
         curves_plotted += 1
 
     if curves_plotted == 0:
-        print("[error] No valid calibration data found to plot")
+        logger.error("No valid calibration data found to plot")
         plt.close(fig)
         return None
 
@@ -222,7 +229,7 @@ def plot_laser_calibration(
     fig.savefig(output_file, dpi=config.dpi, bbox_inches='tight')
     plt.close(fig)
 
-    print(f"[info] Saved {output_file}")
+    logger.info(f"Saved {output_file}")
     return output_file
 
 
@@ -269,11 +276,12 @@ def plot_laser_calibration_comparison(
 
     # Apply plot style from config
     from src.plotting.shared.styles import set_plot_style
+
     set_plot_style(config.theme)
 
     data = df.filter(pl.col("proc") == "LaserCalibration").sort("seq")
     if data.height == 0:
-        print("[warn] No LaserCalibration experiments to plot")
+        logger.warning("No LaserCalibration experiments to plot")
         return None
 
     # Determine grouping
@@ -286,11 +294,11 @@ def plot_laser_calibration_comparison(
         group_label = "Fiber"
         group_unit = ""
     else:
-        print(f"[error] Unknown group_by value: {group_by}")
+        logger.error(f"Unknown group_by value: {group_by}")
         return None
 
     if group_col not in data.columns:
-        print(f"[error] Column '{group_col}' not found in history")
+        logger.error(f"Column '{group_col}' not found in history")
         return None
 
     # Get unique groups
@@ -298,7 +306,7 @@ def plot_laser_calibration_comparison(
     n_groups = len(groups)
 
     if n_groups == 0:
-        print("[warn] No groups found for comparison")
+        logger.warning("No groups found for comparison")
         return None
 
     # Create subplots (let theme control figure size)
@@ -376,5 +384,5 @@ def plot_laser_calibration_comparison(
     fig.savefig(output_file, dpi=config.dpi, bbox_inches='tight')
     plt.close(fig)
 
-    print(f"[info] Saved {output_file}")
+    logger.info(f"Saved {output_file}")
     return output_file

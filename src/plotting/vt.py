@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from pathlib import Path
 from typing import Optional
 
@@ -19,6 +21,9 @@ from src.plotting.shared.plot_utils import (
     print_info,
     print_warning,
 )
+
+logger = logging.getLogger(__name__)
+
 
 
 def _sort_vt_for_datetime(df: pl.DataFrame) -> pl.DataFrame:
@@ -58,7 +63,7 @@ def _calculate_auto_baseline(df: pl.DataFrame, divisor: float = 2.0) -> float:
     elif "Laser ON+OFF period" in df.columns:
         period_col = "Laser ON+OFF period"
     else:
-        print("[warn] Could not auto-detect LED period (column missing), using baseline_t=60.0")
+        logger.warning("Could not auto-detect LED period (column missing), using baseline_t=60.0")
         return 60.0
 
     periods = []
@@ -73,10 +78,10 @@ def _calculate_auto_baseline(df: pl.DataFrame, divisor: float = 2.0) -> float:
     if periods:
         median_period = float(np.median(periods))
         baseline = median_period / divisor
-        print(f"[info] Auto baseline: {baseline:.1f}s (median period {median_period:.1f}s / {divisor})")
+        logger.info(f"Auto baseline: {baseline:.1f}s (median period {median_period:.1f}s / {divisor})")
         return baseline
 
-    print("[warn] Could not auto-detect LED period (no valid values), using baseline_t=60.0")
+    logger.warning("Could not auto-detect LED period (no valid values), using baseline_t=60.0")
     return 60.0
 
 
@@ -203,16 +208,16 @@ def plot_vt_overlay(
         # No baseline correction (raw data mode)
         baseline_t = None
         apply_baseline = False
-        print("[info] Baseline correction disabled (RAW DATA mode)")
+        logger.info("Baseline correction disabled (RAW DATA mode)")
     else:  # baseline_mode == "fixed"
         # Use provided baseline_t value
         if baseline_t is None:
             baseline_t = 60.0
-            print("[warn] baseline_mode='fixed' but baseline_t=None, using 60.0")
+            logger.warning("baseline_mode='fixed' but baseline_t=None, using 60.0")
         # Check if baseline is exactly 0.0 (special case)
         if baseline_t == 0.0:
             apply_baseline = "zero"
-            print("[info] Baseline at t=0: subtracting first point from each trace")
+            logger.info("Baseline at t=0: subtracting first point from each trace")
         else:
             apply_baseline = "interpolate"
 
@@ -222,7 +227,7 @@ def plot_vt_overlay(
     # Filter only Vt rows
     vt = df.filter(pl.col("proc") == "Vt").sort("file_idx")
     if vt.height == 0:
-        print("[warn] no Vt rows in metadata")
+        logger.warning("no Vt rows in metadata")
         return
 
     # Get legend formatter based on legend_by
@@ -242,7 +247,7 @@ def plot_vt_overlay(
     for row in vt.iter_rows(named=True):
         path = base_dir / row["source_file"]
         if not path.exists():
-            print(f"[warn] missing file: {path}")
+            logger.warning(f"missing file: {path}")
             continue
 
         d = read_measurement_parquet(path)
@@ -251,13 +256,13 @@ def plot_vt_overlay(
         d = ensure_standard_columns(d)
 
         if not {"t", "VDS"} <= set(d.columns):
-            print(f"[warn] {path} lacks t/VDS; got {d.columns}")
+            logger.warning(f"{path} lacks t/VDS; got {d.columns}")
             continue
 
         tt = np.asarray(d["t"])
         yy = np.asarray(d["VDS"])
         if tt.size == 0 or yy.size == 0:
-            print(f"[warn] empty/invalid series in {path}")
+            logger.warning(f"empty/invalid series in {path}")
             continue
         if not np.all(np.diff(tt) >= 0):
             idx = np.argsort(tt)
@@ -285,7 +290,7 @@ def plot_vt_overlay(
             ids = row.get("ids_a") or row.get("Drain-Source current")
 
             if ids is None or ids == 0 or not np.isfinite(ids):
-                print(f"[warn] Skipping seq #{int(row.get('file_idx', 0))}: IDS={ids}A (cannot calculate resistance)")
+                logger.warning(f"Skipping seq #{int(row.get('file_idx', 0))}: IDS={ids}A (cannot calculate resistance)")
                 continue
 
             # Calculate resistance R = V/I for each point in the time series
@@ -344,7 +349,7 @@ def plot_vt_overlay(
                 pass
 
     if curves_plotted == 0:
-        print("[warn] no Vt traces plotted; skipping light-window shading")
+        logger.warning("no Vt traces plotted; skipping light-window shading")
         return
 
     # Set x-axis limits
@@ -468,7 +473,7 @@ def plot_vt_overlay(
         create_dirs=True
     )
     plt.savefig(out, dpi=config.dpi)
-    print(f"saved {out}")
+    logger.info(f"saved {out}")
 
 
 def plot_vt_sequential(
@@ -519,6 +524,7 @@ def plot_vt_sequential(
 
     from src.plotting.shared.styles import set_plot_style, PRISM_RAIN_PALETTE
     from src.plotting.shared.transforms import calculate_resistance
+
     set_plot_style(config.theme)
 
     lb = normalize_legend_by(legend_by)
@@ -526,7 +532,7 @@ def plot_vt_sequential(
 
     vt = df.filter(pl.col("proc") == "Vt")
     if vt.height == 0:
-        print("[warn] no Vt rows in metadata")
+        logger.warning("no Vt rows in metadata")
         return
 
     if lb == "datetime":
@@ -544,12 +550,12 @@ def plot_vt_sequential(
     legend_title = "Experiment"
     units = None
 
-    print(f"[info] Plotting {len(vt)} Vt experiments sequentially (raw data, no baseline)")
+    logger.info(f"Plotting {len(vt)} Vt experiments sequentially (raw data, no baseline)")
 
     for i, row in enumerate(vt.iter_rows(named=True)):
         source_file = row.get("source_file")
         if not source_file:
-            print(f"[warn] Skipping row {i}: no source_file")
+            logger.warning(f"Skipping row {i}: no source_file")
             continue
 
         fp = Path(source_file)
@@ -557,19 +563,19 @@ def plot_vt_sequential(
             fp = base_dir / fp
 
         if not fp.exists():
-            print(f"[warn] File not found: {fp}")
+            logger.warning(f"File not found: {fp}")
             continue
 
         try:
             d = read_measurement_parquet(fp)
         except Exception as e:
-            print(f"[warn] Could not read {fp}: {e}")
+            logger.warning(f"Could not read {fp}: {e}")
             continue
 
         d = ensure_standard_columns(d)
 
         if not {"t", "VDS"} <= set(d.columns):
-            print(f"[warn] {fp} lacks t/VDS; got {d.columns}")
+            logger.warning(f"{fp} lacks t/VDS; got {d.columns}")
             continue
 
         tt = np.asarray(d["t"])
@@ -580,7 +586,7 @@ def plot_vt_sequential(
         yy_trimmed = yy[mask]
 
         if len(tt_trimmed) == 0:
-            print(f"[warn] No data after trimming to t>={plot_start_time}s for experiment {i}")
+            logger.warning(f"No data after trimming to t>={plot_start_time}s for experiment {i}")
             continue
 
         tt_trimmed = tt_trimmed - tt_trimmed[0]
@@ -591,7 +597,7 @@ def plot_vt_sequential(
         if resistance:
             ids = row.get("ids_a") or row.get("Drain-Source current")
             if ids is None or ids == 0 or not np.isfinite(ids):
-                print(f"[warn] Skipping seq #{int(row.get('file_idx', 0))}: IDS={ids}A (cannot calculate resistance)")
+                logger.warning(f"Skipping seq #{int(row.get('file_idx', 0))}: IDS={ids}A (cannot calculate resistance)")
                 continue
 
             R, _ylabel_text, units_temp = calculate_resistance(yy_trimmed, ids, absolute=absolute)
@@ -614,7 +620,7 @@ def plot_vt_sequential(
         time_offset += tt_trimmed[-1]
 
     if not experiment_segments:
-        print("[error] No data to plot")
+        logger.error("No data to plot")
         return
 
     plt.figure(figsize=config.figsize_timeseries)
@@ -680,4 +686,4 @@ def plot_vt_sequential(
         create_dirs=True
     )
     plt.savefig(out, dpi=config.dpi)
-    print(f"saved {out}")
+    logger.info(f"saved {out}")

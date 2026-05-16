@@ -5,6 +5,8 @@ useful for tracking device evolution after treatments (e.g., illumination).
 """
 
 from __future__ import annotations
+import logging
+
 import polars as pl
 import numpy as np
 import json
@@ -15,6 +17,8 @@ from matplotlib.gridspec import GridSpec
 
 from src.plotting.shared.config import PlotConfig
 from src.plotting.shared.styles import set_plot_style
+
+logger = logging.getLogger(__name__)
 
 
 def plot_consecutive_sweep_differences(
@@ -101,21 +105,21 @@ def plot_consecutive_sweep_differences(
             + (f" ({procedure})" if procedure else "")
         )
 
-    print(f"Found {pairwise.height} consecutive sweep differences for {chip_group}{chip_number}")
+    logger.info(f"Found {pairwise.height} consecutive sweep differences for {chip_group}{chip_number}")
 
     # Setup PlotConfig
     config = PlotConfig(base_dir=output_dir or Path("."))
 
     # Group by procedure
     procedures_found = pairwise["procedure"].unique().to_list()
-    print(f"Procedures: {', '.join(procedures_found)}")
+    logger.info(f"Procedures: {', '.join(procedures_found)}")
 
     generated_plots = []
 
     for proc in procedures_found:
         proc_metrics = pairwise.filter(pl.col("procedure") == proc)
 
-        print(f"\n{proc}: {proc_metrics.height} pairs")
+        logger.info("%s: %d pairs", proc, proc_metrics.height)
 
         # Generate individual plots
         if plot_individual:
@@ -132,7 +136,7 @@ def plot_consecutive_sweep_differences(
             if summary_plot:
                 generated_plots.append(summary_plot)
 
-    print(f"\n✓ Generated {len(generated_plots)} plots")
+    logger.info(f"\n✓ Generated {len(generated_plots)} plots")
     return generated_plots
 
 
@@ -252,7 +256,7 @@ def _plot_individual_differences(
         plt.close(fig)
 
         plots.append(output_path)
-        print(f"  ✓ Seq {seq_1}→{seq_2}: {output_path.name}")
+        logger.info("seq %s→%s: %s", seq_1, seq_2, output_path.name)
 
     return plots
 
@@ -372,6 +376,6 @@ def _plot_summary_differences(
     fig.savefig(output_path, dpi=300, bbox_inches='tight')
     plt.close(fig)
 
-    print(f"  ✓ Summary: {output_path.name}")
+    logger.info("summary: %s", output_path.name)
 
     return output_path

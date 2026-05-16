@@ -1,6 +1,8 @@
 """Transconductance (gm = dI/dVg) plotting functions."""
 
 from __future__ import annotations
+import logging
+
 from pathlib import Path
 from typing import Optional
 import numpy as np
@@ -16,6 +18,9 @@ from src.plotting.shared.plot_utils import (
     _raw_derivative,
     ensure_standard_columns
 )
+
+logger = logging.getLogger(__name__)
+
 
 
 def auto_select_savgol_params(
@@ -73,7 +78,7 @@ def auto_select_savgol_params(
 
     # Handle edge cases
     if n_points < 5:
-        print(f"[warn] Only {n_points} data points, using minimum window=5")
+        logger.warning(f"Only {n_points} data points, using minimum window=5")
         return 5, 2
 
     # Preset quality levels (fixed combinations)
@@ -195,7 +200,7 @@ def plot_ivg_transconductance(
 
     ivg = df.filter(pl.col("proc") == "IVg").sort("file_idx")
     if ivg.height == 0:
-        print("[info] no IVg measurements to plot")
+        logger.info("no IVg measurements to plot")
         return
 
     fig, ax = plt.subplots(figsize=config.figsize_voltage_sweep)
@@ -204,7 +209,7 @@ def plot_ivg_transconductance(
     for meas_idx, row in enumerate(ivg.iter_rows(named=True)):
         path = base_dir / row["source_file"]
         if not path.exists():
-            print(f"[warn] missing file: {path}")
+            logger.warning(f"missing file: {path}")
             continue
 
         d = read_measurement_parquet(path)
@@ -213,7 +218,7 @@ def plot_ivg_transconductance(
         d = ensure_standard_columns(d)
 
         if not {"VG", "I"} <= set(d.columns):
-            print(f"[warn] {path} lacks VG/I; got {d.columns}")
+            logger.warning(f"{path} lacks VG/I; got {d.columns}")
             continue
 
         vg = d["VG"].to_numpy()
@@ -222,7 +227,7 @@ def plot_ivg_transconductance(
         # Segment to avoid derivative artifacts at reversals
         segments = segment_voltage_sweep(vg, i, min_segment_length)
         if len(segments) == 0:
-            print(f"[warn] {path.name}: no valid segments found")
+            logger.warning(f"{path.name}: no valid segments found")
             continue
 
         # Legend label per measurement
@@ -267,7 +272,7 @@ def plot_ivg_transconductance(
         curves_plotted += 1
 
     if curves_plotted == 0:
-        print("[warn] no transconductance curves plotted")
+        logger.warning("no transconductance curves plotted")
         plt.close(fig)
         return
 
@@ -309,7 +314,7 @@ def plot_ivg_transconductance(
         create_dirs=True
     )
     plt.savefig(out, dpi=config.dpi)
-    print(f"saved {out}")
+    logger.info(f"saved {out}")
     plt.close(fig)
 
 
@@ -360,7 +365,7 @@ def plot_ivg_transconductance_savgol(
 
     ivg = df.filter(pl.col("proc") == "IVg").sort("file_idx")
     if ivg.height == 0:
-        print("[info] no IVg measurements to plot")
+        logger.info("no IVg measurements to plot")
         return
 
     fig, ax = plt.subplots(figsize=config.figsize_voltage_sweep)
@@ -373,7 +378,7 @@ def plot_ivg_transconductance_savgol(
     for meas_idx, row in enumerate(ivg.iter_rows(named=True)):
         path = base_dir / row["source_file"]
         if not path.exists():
-            print(f"[warn] missing file: {path}")
+            logger.warning(f"missing file: {path}")
             continue
 
         d = read_measurement_parquet(path)
@@ -382,7 +387,7 @@ def plot_ivg_transconductance_savgol(
         d = ensure_standard_columns(d)
 
         if not {"VG", "I"} <= set(d.columns):
-            print(f"[warn] {path} lacks VG/I; got {d.columns}")
+            logger.warning(f"{path} lacks VG/I; got {d.columns}")
             continue
 
         vg = d["VG"].to_numpy()
@@ -390,7 +395,7 @@ def plot_ivg_transconductance_savgol(
 
         segments = segment_voltage_sweep(vg, i, min_segment_length)
         if len(segments) == 0:
-            print(f"[warn] {path.name}: no valid segments found")
+            logger.warning(f"{path.name}: no valid segments found")
             continue
 
         # Build label
@@ -466,7 +471,7 @@ def plot_ivg_transconductance_savgol(
         curves_plotted += 1
 
     if curves_plotted == 0:
-        print("[warn] no transconductance curves plotted")
+        logger.warning("no transconductance curves plotted")
         plt.close(fig)
         return
 
@@ -489,6 +494,7 @@ def plot_ivg_transconductance_savgol(
             illumination_metadata = {"has_light": has_light_values[0]}
         elif len(has_light_values) > 1:
             from src.plotting.shared.plot_utils import print_warning
+
             print_warning("Mixed illumination experiments - saving to Transconductance root folder")
 
     chip_group = None
@@ -505,5 +511,5 @@ def plot_ivg_transconductance_savgol(
         create_dirs=True
     )
     plt.savefig(out, dpi=config.dpi)
-    print(f"saved {out}")
+    logger.info(f"saved {out}")
     plt.close(fig)

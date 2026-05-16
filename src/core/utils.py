@@ -1,8 +1,11 @@
 from __future__ import annotations
+import logging
 import re
 from pathlib import Path
 from typing import Dict
 import polars as pl
+
+logger = logging.getLogger(__name__)
 
 # -------------------------------
 # Small helpers
@@ -222,7 +225,7 @@ def read_measurement_parquet(path: Path) -> pl.DataFrame:
     except FileNotFoundError:
         return pl.DataFrame()
     except Exception as e:
-        print(f"Warning: Failed to read Parquet file {path}: {e}")
+        logger.warning("failed to read Parquet file %s: %s", path, e)
         return pl.DataFrame()
 
 

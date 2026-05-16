@@ -3,9 +3,9 @@ import argparse
 import datetime as dt
 import hashlib
 import json
+import logging
 import os
 import re
-import sys
 import tempfile
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
@@ -30,18 +30,12 @@ DATA_LINE_RE = re.compile(r"^#\s*Data\s*:\s*$", re.I)
 KV_PAT = re.compile(r"^#\s*([^:]+):\s*(.*)\s*$")
 
 
+logger = logging.getLogger(__name__)
+
+
 def warn(msg: str) -> None:
-    """
-    Output a warning message to standard error.
-    
-    Args:
-        msg: The warning message to display
-        
-    Example:
-        >>> warn("Configuration file not found")
-        [warn] Configuration file not found
-    """
-    print(f"[warn] {msg}", file=sys.stderr)
+    """Emit a warning via the module logger."""
+    logger.warning(msg)
 
 
 def sha1_short(s: str, n: int = 16) -> str:

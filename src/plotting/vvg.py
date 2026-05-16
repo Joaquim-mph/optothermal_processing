@@ -1,6 +1,8 @@
 """VVg (voltage vs gate voltage) plotting functions."""
 
 from __future__ import annotations
+import logging
+
 from pathlib import Path
 from typing import Optional
 import matplotlib.pyplot as plt
@@ -9,6 +11,9 @@ import numpy as np
 
 from src.core.utils import read_measurement_parquet
 from src.plotting.shared.config import PlotConfig
+
+logger = logging.getLogger(__name__)
+
 
 
 def plot_vvg_sequence(
@@ -75,7 +80,7 @@ def plot_vvg_sequence(
     for row in vvg.iter_rows(named=True):
         path = base_dir / row["source_file"]
         if not path.exists():
-            print(f"[warn] missing file: {path}")
+            logger.warning(f"missing file: {path}")
             continue
         d = read_measurement_parquet(path)
 
@@ -84,7 +89,7 @@ def plot_vvg_sequence(
 
         # Expect columns: VG, VDS (standardized)
         if not {"VG", "VDS"} <= set(d.columns):
-            print(f"[warn] {path} lacks VG/VDS; got {d.columns}")
+            logger.warning(f"{path} lacks VG/VDS; got {d.columns}")
             continue
 
         lbl = f"#{int(row['file_idx'])}  {'light' if row['has_light'] else 'dark'}"
@@ -96,7 +101,7 @@ def plot_vvg_sequence(
 
             if ids is None or ids == 0 or not np.isfinite(ids):
                 mode_str = "inverse resistance" if inverse else "resistance"
-                print(f"[warn] Skipping seq #{int(row['file_idx'])}: IDS={ids}A (cannot calculate {mode_str})")
+                logger.warning(f"Skipping seq #{int(row['file_idx'])}: IDS={ids}A (cannot calculate {mode_str})")
                 continue
 
             if inverse:
@@ -196,6 +201,7 @@ def plot_vvg_sequence(
             illumination_metadata = {"has_light": has_light_values[0]}
         elif len(has_light_values) > 1:
             from src.plotting.shared.plot_utils import print_warning
+
             print_warning("Mixed illumination experiments - saving to VVg root folder")
 
     # Add suffix for resistance and inverse resistance plots
@@ -214,4 +220,4 @@ def plot_vvg_sequence(
         create_dirs=True
     )
     plt.savefig(out, dpi=config.dpi)
-    print(f"saved {out}")
+    logger.info(f"saved {out}")

@@ -4,6 +4,7 @@ import argparse
 import datetime as dt
 import hashlib
 import json
+import logging
 import os
 import re
 import sys
@@ -39,6 +40,8 @@ PARAMS_LINE_RE = re.compile(r"^#\s*Parameters\s*:\s*$", re.I)
 META_LINE_RE   = re.compile(r"^#\s*Metadata\s*:\s*$", re.I)
 DATA_LINE_RE   = re.compile(r"^#\s*Data\s*:\s*$", re.I)
 KV_PAT         = re.compile(r"^#\s*([^:]+):\s*(.*)\s*$")
+
+logger = logging.getLogger(__name__)
 
 # ----------------------------- YAML ------------------------------
 
@@ -1225,10 +1228,10 @@ def run_staging_pipeline(params: StagingParameters, progress_callback=None) -> N
     # Discover CSV files
     csvs = discover_csvs(raw_root)
     if not progress_callback:
-        print(f"[info] discovered {len(csvs)} CSV files under {raw_root}")
+        logger.info("discovered %d CSV files under %s", len(csvs), raw_root)
     if not csvs:
         if not progress_callback:
-            print("[done] nothing to do.")
+            logger.info("nothing to do")
         return
 
     # Process files in parallel
@@ -1266,7 +1269,7 @@ def run_staging_pipeline(params: StagingParameters, progress_callback=None) -> N
             except Exception as e:
                 reject += 1
                 if not progress_callback:
-                    print(f"[{completed:04d}]  REJECT {src} :: {e}")
+                    logger.warning("[%04d] REJECT %s :: %s", completed, src, e)
                 if progress_callback:
                     progress_callback(completed, len(csvs), "unknown", "reject")
                 continue
@@ -1281,12 +1284,15 @@ def run_staging_pipeline(params: StagingParameters, progress_callback=None) -> N
             elif st == "reject":
                 reject += 1
 
-            # Only print if no callback (verbose mode)
             if not progress_callback:
                 if st in {"ok", "skipped"}:
-                    print(f"[{completed:04d}] {st.upper():>7} {out['proc']:<8} rows={out['rows']:<7} → {out['path']}  ({out.get('date_origin','meta')})")
+                    logger.info(
+                        "[%04d] %7s %-8s rows=%-7s → %s  (%s)",
+                        completed, st.upper(), out["proc"], out["rows"],
+                        out["path"], out.get("date_origin", "meta"),
+                    )
                 else:
-                    print(f"[{completed:04d}]  REJECT {src} :: {out.get('error')}")
+                    logger.warning("[%04d] REJECT %s :: %s", completed, src, out.get("error"))
 
             # Call progress callback if provided
             if progress_callback:
@@ -1295,9 +1301,11 @@ def run_staging_pipeline(params: StagingParameters, progress_callback=None) -> N
     # Merge events into manifest
     merge_events_to_manifest(events_dir, manifest_path)
 
-    # Only print summary if no callback (verbose mode)
     if not progress_callback:
-        print(f"[done] staging complete  |  ok={ok}  skipped={skipped}  rejects={reject}  submitted={submitted}")
+        logger.info(
+            "staging complete  |  ok=%d  skipped=%d  rejects=%d  submitted=%d",
+            ok, skipped, reject, submitted,
+        )
 
 
 def run_staging_pipeline_tui(params: StagingParameters, progress_callback=None) -> None:
@@ -1368,10 +1376,10 @@ def run_staging_pipeline_tui(params: StagingParameters, progress_callback=None) 
     # Discover CSV files
     csvs = discover_csvs(raw_root)
     if not progress_callback:
-        print(f"[info] discovered {len(csvs)} CSV files under {raw_root}")
+        logger.info("discovered %d CSV files under %s", len(csvs), raw_root)
     if not csvs:
         if not progress_callback:
-            print("[done] nothing to do.")
+            logger.info("nothing to do")
         return
 
     # Process files in parallel using ThreadPoolExecutor
@@ -1409,7 +1417,7 @@ def run_staging_pipeline_tui(params: StagingParameters, progress_callback=None) 
             except Exception as e:
                 reject += 1
                 if not progress_callback:
-                    print(f"[{completed:04d}]  REJECT {src} :: {e}")
+                    logger.warning("[%04d] REJECT %s :: %s", completed, src, e)
                 if progress_callback:
                     progress_callback(completed, len(csvs), "unknown", "reject")
                 continue
@@ -1424,12 +1432,15 @@ def run_staging_pipeline_tui(params: StagingParameters, progress_callback=None) 
             elif st == "reject":
                 reject += 1
 
-            # Only print if no callback (verbose mode)
             if not progress_callback:
                 if st in {"ok", "skipped"}:
-                    print(f"[{completed:04d}] {st.upper():>7} {out['proc']:<8} rows={out['rows']:<7} → {out['path']}  ({out.get('date_origin','meta')})")
+                    logger.info(
+                        "[%04d] %7s %-8s rows=%-7s → %s  (%s)",
+                        completed, st.upper(), out["proc"], out["rows"],
+                        out["path"], out.get("date_origin", "meta"),
+                    )
                 else:
-                    print(f"[{completed:04d}]  REJECT {src} :: {out.get('error')}")
+                    logger.warning("[%04d] REJECT %s :: %s", completed, src, out.get("error"))
 
             # Call progress callback if provided
             if progress_callback:
@@ -1438,9 +1449,11 @@ def run_staging_pipeline_tui(params: StagingParameters, progress_callback=None) 
     # Merge events into manifest
     merge_events_to_manifest(events_dir, manifest_path)
 
-    # Only print summary if no callback (verbose mode)
     if not progress_callback:
-        print(f"[done] staging complete (TUI mode: ThreadPoolExecutor)  |  ok={ok}  skipped={skipped}  rejects={reject}  submitted={submitted}")
+        logger.info(
+            "staging complete (TUI mode: ThreadPoolExecutor)  |  ok=%d  skipped=%d  rejects=%d  submitted=%d",
+            ok, skipped, reject, submitted,
+        )
 
 
 def main() -> None:
@@ -1506,13 +1519,13 @@ Examples:
     try:
         # Mode 1: JSON config file (Pydantic)
         if args.config:
-            print(f"[info] Loading configuration from {args.config}")
+            logger.info("loading configuration from %s", args.config)
             params = StagingParameters.model_validate_json(args.config.read_text())
-            print("[info] Configuration validated successfully")
+            logger.info("configuration validated successfully")
 
         # Mode 2: Legacy argparse
         elif args.raw_root and args.stage_root and args.procedures_yaml:
-            print("[info] Using command-line arguments (creating Pydantic parameters)")
+            logger.info("using command-line arguments (creating Pydantic parameters)")
             params = StagingParameters(
                 raw_root=args.raw_root,
                 stage_root=args.stage_root,
@@ -1530,18 +1543,17 @@ Examples:
 
         else:
             ap.print_help()
-            print("\n[error] Must provide either --config or (--raw-root, --stage-root, --procedures-yaml)")
+            logger.error("must provide either --config or (--raw-root, --stage-root, --procedures-yaml)")
             sys.exit(1)
 
         # Run pipeline with validated parameters
         run_staging_pipeline(params)
 
     except ValidationError as e:
-        print(f"\n[error] Parameter validation failed:")
-        print(e)
+        logger.error("parameter validation failed:\n%s", e)
         sys.exit(1)
     except Exception as e:
-        print(f"\n[error] {e}")
+        logger.error("%s", e)
         sys.exit(1)
 
 

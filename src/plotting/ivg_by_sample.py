@@ -7,6 +7,8 @@ allowing comparison across different samples on the same chip substrate.
 
 from __future__ import annotations
 
+import logging
+
 import re
 from collections import defaultdict
 from pathlib import Path
@@ -18,6 +20,9 @@ import polars as pl
 from src.core.utils import read_measurement_parquet
 from src.plotting.shared.config import PlotConfig
 from src.plotting.shared.plot_utils import ensure_standard_columns
+
+logger = logging.getLogger(__name__)
+
 
 
 def scan_csvs_for_chip_samples(
@@ -207,28 +212,29 @@ def plot_ivg_by_sample(
         try:
             sample_files = load_sample_data_from_manifest(chip_group, chip_number, manifest_path)
             use_manifest = True
-            print(f"✓ Loaded {len(sample_files)} samples from manifest")
+            logger.info(f"Loaded {len(sample_files)} samples from manifest")
         except Exception as e:
-            print(f"⚠ Could not load from manifest: {e}")
-            print(f"  Falling back to raw CSV scan...")
+            logger.warning("could not load from manifest: %s; falling back to raw CSV scan", e)
 
     # Fallback to scanning raw CSVs
     if not sample_files and raw_root:
-        print(f"Scanning raw CSVs for {chip_group} {chip_number}...")
+        logger.info(f"Scanning raw CSVs for {chip_group} {chip_number}...")
         sample_data = scan_csvs_for_chip_samples(raw_root, chip_group, chip_number)
 
         if not sample_data:
-            print(f"✗ No IVg measurements found for {chip_group} {chip_number}")
+            logger.error(f"No IVg measurements found for {chip_group} {chip_number}")
             return None
 
         # Convert to simple dict (we'll load CSVs directly)
         sample_files = {sample: path for sample, (path, _) in sample_data.items()}
         use_manifest = False
-        print(f"✓ Found {len(sample_files)} samples in raw data")
+        logger.info(f"Found {len(sample_files)} samples in raw data")
 
     if not sample_files:
-        print(f"✗ No IVg measurements found for {chip_group} {chip_number}")
-        print(f"  Hint: Ensure manifest exists or provide --raw-root path")
+        logger.error(
+            "no IVg measurements found for %s %s (ensure manifest exists or provide --raw-root path)",
+            chip_group, chip_number,
+        )
         return None
 
     # Create figure
@@ -253,7 +259,7 @@ def plot_ivg_by_sample(
             d = load_csv_measurement(file_path)
 
         if d is None or d.height == 0:
-            print(f"⚠ Skipping sample {sample}: could not load data")
+            logger.warning(f"Skipping sample {sample}: could not load data")
             continue
 
         # Ensure standard column names
@@ -261,7 +267,7 @@ def plot_ivg_by_sample(
 
         # Validate required columns
         if not {"VG", "I"} <= set(d.columns):
-            print(f"⚠ Skipping sample {sample}: missing VG/I columns")
+            logger.warning(f"Skipping sample {sample}: missing VG/I columns")
             continue
 
         # Plot based on mode
@@ -271,7 +277,7 @@ def plot_ivg_by_sample(
             vds = extract_vds_from_data(d, file_path)
 
             if vds is None or vds == 0:
-                print(f"⚠ Skipping sample {sample}: VDS not found (required for conductance)")
+                logger.warning(f"Skipping sample {sample}: VDS not found (required for conductance)")
                 continue
 
             G, units = calculate_conductance(d["I"], vds)
@@ -286,9 +292,9 @@ def plot_ivg_by_sample(
     # Check if any data was plotted
     if plotted_count == 0:
         plt.close()
-        print(f"✗ No plottable data found for {chip_group} {chip_number}")
+        logger.error(f"No plottable data found for {chip_group} {chip_number}")
         if conductance:
-            print(f"  Hint: Conductance mode requires VDS metadata in measurements")
+            logger.error("conductance mode requires VDS metadata in measurements")
         return None
 
     # Formatting
@@ -321,7 +327,7 @@ def plot_ivg_by_sample(
     plt.savefig(output_path, dpi=config.dpi, bbox_inches='tight')
     plt.close()
 
-    print(f"✓ Saved: {output_path}")
+    logger.info(f"Saved: {output_path}")
     return output_path
 
 
@@ -353,6 +359,7 @@ def load_csv_measurement(csv_path: Path) -> Optional[pl.DataFrame]:
 
         # Write to temp file and load with Polars
         import tempfile
+
         with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as tmp:
             tmp.write(''.join(lines))
             tmp_path = tmp.name
@@ -365,7 +372,7 @@ def load_csv_measurement(csv_path: Path) -> Optional[pl.DataFrame]:
         return df
 
     except Exception as e:
-        print(f"⚠ Error loading {csv_path}: {e}")
+        logger.warning(f"Error loading {csv_path}: {e}")
         return None
 
 

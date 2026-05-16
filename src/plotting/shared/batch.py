@@ -40,30 +40,14 @@ from rich.progress import (
 )
 from rich.table import Table
 
-# Import caching module and enable immediately if available
-try:
-    from src.core.data_cache import enable_parquet_caching, cache_stats
-    CACHE_AVAILABLE = True
-    # Enable caching at import time (before plotting modules import)
-    enable_parquet_caching()
-except ImportError:
-    CACHE_AVAILABLE = False
-
-# Import plotting modules after caching is enabled
-from src.plotting.its import plot_its_overlay, plot_its_sequential
-from src.plotting.ivg import plot_ivg_sequence
-from src.plotting.transconductance import (
-    plot_ivg_transconductance,
-    plot_ivg_transconductance_savgol,
-)
-from src.plotting.vvg import plot_vvg_sequence
-from src.plotting.vt import plot_vt_overlay, plot_vt_sequential
-from src.plotting import its_photoresponse
-from src.plotting.photoresponse import plot_photoresponse
 from src.plotting.shared.config import PlotConfig
-
-# Import CLI utilities
 from src.cli.helpers import parse_seq_list
+
+# Plotting modules are imported lazily inside execute_plot() so that the
+# caller (CLI batch-plot command) has a chance to call
+# enable_parquet_caching() first — the cache patches read_measurement_parquet
+# via attribute rebind, which only catches calls bound AFTER the patch.
+CACHE_AVAILABLE = True
 
 
 # ============================================================================
@@ -348,6 +332,19 @@ def execute_plot(spec: PlotSpec, chip_group: str, quiet: bool = True) -> PlotRes
     PlotResult
         Execution result with timing and error information
     """
+    # Lazy plotting imports: enable_parquet_caching() must run before
+    # plotting modules bind read_measurement_parquet by name.
+    from src.plotting.its import plot_its_overlay, plot_its_sequential
+    from src.plotting.ivg import plot_ivg_sequence
+    from src.plotting.transconductance import (
+        plot_ivg_transconductance,
+        plot_ivg_transconductance_savgol,
+    )
+    from src.plotting.vvg import plot_vvg_sequence
+    from src.plotting.vt import plot_vt_overlay, plot_vt_sequential
+    from src.plotting import its_photoresponse
+    from src.plotting.photoresponse import plot_photoresponse
+
     start = time.time()
     plots_generated = 0
     warnings = []
@@ -815,6 +812,7 @@ def print_cache_stats():
     if not CACHE_AVAILABLE:
         return
 
+    from src.core.data_cache import cache_stats
     stats = cache_stats()
     console.print("\n" + "=" * 60)
     console.print("Data Cache Statistics")

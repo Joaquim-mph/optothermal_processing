@@ -20,9 +20,13 @@ from dataclasses import dataclass
 from functools import wraps
 from pathlib import Path
 from typing import Any, Callable
+import logging
 import polars as pl
 import hashlib
 import pickle
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -262,12 +266,12 @@ def enable_parquet_caching():
             return df
 
         utils.read_measurement_parquet = cached_read_measurement_wrapper
-        print("[cache] Enabled caching for measurement parquet reads")
+        logger.info("enabled caching for measurement parquet reads")
         return True
 
     except ImportError as e:
-        print(f"[cache] Warning: Could not patch read_measurement_parquet: {e}")
-        print("[cache] Falling back to pl.read_parquet caching only")
+        logger.warning("could not patch read_measurement_parquet: %s", e)
+        logger.warning("falling back to pl.read_parquet caching only")
         return True
 
 

@@ -368,22 +368,6 @@ class PlotConfig(BaseModel):
             path = Path.cwd() / path
         return path.resolve()
 
-    @field_validator("theme", mode="after")
-    @classmethod
-    def adjust_figsize_for_theme(cls, v, info):
-        """
-        Auto-adjust figure sizes based on theme (if not explicitly overridden).
-
-        This validator modifies figure sizes to match the intended use case:
-        - paper: Small sizes for journal single/double column
-        - presentation: Large sizes for projectors
-        - prism_rain/minimal: Keep defaults
-        """
-        # NOTE: This is called after all fields are set, but we can't modify
-        # other fields directly in a field validator. We'll handle this in
-        # a model_validator instead.
-        return v
-
     # ============================================================================
     # Class Methods
     # ============================================================================
@@ -530,10 +514,10 @@ class PlotConfig(BaseModel):
         >>> config.get_output_path("plot.png", procedure="IVg")
         PosixPath('figs/IVg/plot.png')
         """
-        # Ensure filename has correct extension
-        filename_path = Path(filename)
-        if filename_path.suffix != f".{self.format}":
-            filename = f"{filename_path.stem}.{self.format}"
+        # Fill in the default extension only when the caller didn't supply one.
+        # Pass "foo.png" or "foo.pdf" explicitly to override self.format.
+        if not Path(filename).suffix:
+            filename = f"{filename}.{self.format}"
 
         # Start with base output directory
         path = self.output_dir
@@ -682,22 +666,8 @@ class PlotConfigProfiles:
 
     @staticmethod
     def lab() -> PlotConfig:
-        """
-        Profile for lab notebooks and internal reports (current default).
-
-        This matches the current plotting behavior before refactoring.
-        """
-        return PlotConfig(
-            theme="prism_rain",
-            palette="prism_rain",
-            dpi=300,
-            format="png",
-            figsize_timeseries=(24.0, 17.0),
-            figsize_voltage_sweep=(20.0, 20.0),
-            figsize_derived=(36.0, 20.0),
-            show_grid=False,
-            show_titles=False,
-        )
+        """Profile for lab notebooks and internal reports — equivalent to PlotConfig()."""
+        return PlotConfig()
 
 
 # ============================================================================

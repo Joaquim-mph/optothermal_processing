@@ -14,7 +14,7 @@ The GUI (`src/gui/`, PyQt6) and TUI (`src/tui/`, Textual) subsystems were remove
 
 ```bash
 source .venv/bin/activate
-pip install -e .              # Editable install, registers `biotite` and `biotite-tui` commands
+pip install -e .              # Editable install, registers `biotite` command
 pip install -e ".[dev]"       # Include pytest
 pip install -e ".[jupyter]"   # Include Jupyter/IPython
 ```
@@ -26,8 +26,6 @@ The package provides one console entry point via `pyproject.toml`:
 | Command | Entry point | Description |
 |---|---|---|
 | `biotite` | `src.cli.main:main` | Typer CLI (data processing, plotting, validation) |
-
-The legacy `python3 process_and_analyze.py` script still works.
 
 ## Essential Commands
 
@@ -97,7 +95,6 @@ data/03_derived/
 - **`src/cli/`** - Typer CLI with plugin auto-discovery (`@cli_command` decorator). Commands in `commands/` are auto-registered
 - **`scripts/`** - Ad-hoc per-paper analysis scripts (cross-chip overlays, photoresponse comparisons). See `scripts/CATALOG.md`. When writing new ones, use the `photoresponse-analysis` skill.
 - **`pyproject.toml`** - Package config with the `biotite` entry point
-- **`process_and_analyze.py`** - Legacy CLI entry point (use `biotite` command instead)
 
 ### Configuration Files
 
@@ -121,6 +118,10 @@ Never read CSV files directly in new code. Use `read_measurement_parquet()` from
 - Use data procedure names (`procedure="It"`), not plotting aliases (`procedure="ITS"`)
 - Only create output directories during save (`create_dirs=True` on `config.get_output_path()`)
 - Auto-detect illumination subcategories from metadata (`has_light` -> subfolder)
+- **Default output format is PDF** (`PlotConfig.format = "pdf"`). `get_output_path` only appends an extension when the caller's filename has no suffix -- pass `"foo.png"` to force PNG.
+- `set_plot_style(theme_or_config)` is polymorphic: accepts a theme name string OR a `PlotConfig`. Pass the config to get `palette`, `font_family`, `font_weight`, `legend_*`, and `show_grid` wired into rcParams.
+- Add a new palette -> register it in `src/plotting/shared/styles.py::PALETTES` and add to `PlotConfig.palette` Literal. Add a new font family -> register the matplotlib name in `styles.py::_FONT_FAMILY_NAMES` and add to `PlotConfig.font_family` Literal. Bundled fonts: drop any `.ttf` under `assets/` (recursive); auto-registered via `_register_bundled_fonts`.
+- Forward a new field CLIConfig->PlotConfig: add an `Optional[T] = None` field on `CLIConfig` (prefix `plot_`) and one row in `PlotConfig._CLI_OVERRIDE_FIELDS`. None means "use PlotConfig default" -- avoids drift.
 
 ### Resistance/Conductance Transforms
 - `--resistance` flag on VVg/Vt plots (R = V/I, requires `ids_v` in metadata)
@@ -150,6 +151,7 @@ def my_command(chip_number: int = typer.Argument(..., help="Chip number")):
 2. Create `src/cli/commands/plot_my_proc.py` with `@cli_command`
 3. Reference implementations: `src/plotting/its.py` (time-series), `src/plotting/ivg.py` (sweeps)
 4. See `docs/guides/PLOTTING_IMPLEMENTATION_GUIDE.md` for templates
+5. Tests that call `set_plot_style` should use the `_restore_rcparams` autouse fixture pattern from `tests/test_set_plot_style_config.py` -- snapshots/restores `mpl.rcParams` per test (theme application leaks otherwise).
 
 ### Adding a Derived Metric Extractor
 
@@ -177,6 +179,7 @@ def my_command(chip_number: int = typer.Argument(..., help="Chip number")):
 - **Timezone**: Raw timestamps are Unix epoch, localized to `America/Santiago`, stored as UTC
 - **Config priority**: CLI flags > config file > env vars (`CLI_*` prefix) > defaults
 - **Sequential > parallel** for metric extraction (Parquet I/O is fast; parallel overhead dominates)
+- **Measurement column names**: IVg/Vt sweeps use `Vg (V)` (lowercase g), not `VG (V)`. Time-series It uses `I (A)`, `t (s)`, `VL (V)`.
 
 ## Legacy (Do Not Use)
 

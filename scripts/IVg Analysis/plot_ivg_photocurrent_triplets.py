@@ -87,7 +87,9 @@ def _first_half_sweep(vg: np.ndarray) -> slice:
     return slice(0, end + 1)
 
 
-def plot_photocurrent_overlay(ds: Dataset, hist: pl.DataFrame, config: PlotConfig) -> None:
+def plot_photocurrent_overlay(
+    ds: Dataset, hist: pl.DataFrame, config: PlotConfig
+) -> None:
     plt.figure(figsize=config.figsize_voltage_sweep)
 
     for off_seq, on_seq, _ in ds.triplets:

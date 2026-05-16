@@ -27,7 +27,9 @@ from scipy.signal import savgol_filter
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from scripts.plot_ivg_photocurrent_triplets import DATASETS as _WL_DATASETS  # noqa: E402
+from scripts.plot_ivg_photocurrent_triplets import (
+    DATASETS as _WL_DATASETS,  # noqa: E402
+)
 from src.core.utils import read_measurement_parquet  # noqa: E402
 from src.plotting.shared.config import PlotConfig  # noqa: E402
 from src.plotting.shared.styles import set_plot_style  # noqa: E402
@@ -618,11 +620,11 @@ def plot_74_72_triplet_photocurrent_wavelength_3x2(
     triplets: list[Triplet], materials: dict[int, str], config: PlotConfig
 ) -> None:
     """3x2 grid for chips 74 and 72:
-      row 1 — 365 nm OFF→ON→OFF triplet plots (with the two zoom insets),
-      row 2 — 365 nm photocurrent subtractions (2)-(1), (3)-(2), (3)-(1),
-      row 3 — multi-wavelength photocurrent overlay (365/385/405/455 nm),
-              using the per-chip wavelength triplet seqs from
-              plot_ivg_photocurrent_triplets.py."""
+    row 1 — 365 nm OFF→ON→OFF triplet plots (with the two zoom insets),
+    row 2 — 365 nm photocurrent subtractions (2)-(1), (3)-(2), (3)-(1),
+    row 3 — multi-wavelength photocurrent overlay (365/385/405/455 nm),
+            using the per-chip wavelength triplet seqs from
+            plot_ivg_photocurrent_triplets.py."""
     by_chip = {t.chip_number: t for t in triplets}
     chips = [74, 72]
     missing = [c for c in chips if c not in by_chip]
@@ -654,9 +656,7 @@ def plot_74_72_triplet_photocurrent_wavelength_3x2(
 
     fig.tight_layout()
 
-    filename = (
-        f"Compare_IVg_triplet_photocurrent_wavelength_3x2_7472_{WAVELENGTH_NM}nm"
-    )
+    filename = f"Compare_IVg_triplet_photocurrent_wavelength_3x2_7472_{WAVELENGTH_NM}nm"
     out = config.get_output_path(
         filename,
         procedure="IVg",
@@ -707,9 +707,7 @@ def plot_74_72_triplet_photocurrent_wavelength_2x3(
 
     fig.tight_layout()
 
-    filename = (
-        f"Compare_IVg_triplet_photocurrent_wavelength_2x3_7472_{WAVELENGTH_NM}nm"
-    )
+    filename = f"Compare_IVg_triplet_photocurrent_wavelength_2x3_7472_{WAVELENGTH_NM}nm"
     out = config.get_output_path(
         filename,
         procedure="IVg",

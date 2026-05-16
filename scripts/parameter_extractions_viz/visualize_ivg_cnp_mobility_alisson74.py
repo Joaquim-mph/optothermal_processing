@@ -37,9 +37,7 @@ from src.derived.extractors.cnp_extractor import CNPExtractor
 from src.derived.extractors.mobility_extractor import MobilityExtractor
 
 CHIP = 74
-HISTORY = Path(
-    f"data/03_derived/chip_histories_enriched/Alisson{CHIP}_history.parquet"
-)
+HISTORY = Path(f"data/03_derived/chip_histories_enriched/Alisson{CHIP}_history.parquet")
 OUTDIR = Path(f"figs/Encap{CHIP}/IVg/CNP_mobility_overlay")
 
 DIR_COLORS = {"forward": "#1f77b4", "backward": "#d62728"}
@@ -66,7 +64,8 @@ def _run_mobility(df, metadata):
     for branch in ("holes", "electrons"):
         for direction in ("forward", "backward", "average"):
             out[(branch, direction)] = MobilityExtractor(
-                branch=branch, direction=direction,
+                branch=branch,
+                direction=direction,
             ).extract(df, metadata)
     return out
 
@@ -98,16 +97,25 @@ def _plot_one(row: dict, out_path: Path) -> None:
     legs = split_full_range_legs(vg, i)
     leg_data = {}
     for vg_leg, i_leg, direction in legs:
-        gm_h, gm_e, vg_h, vg_e, vg_seg, i_seg, gm_seg, cnp = peak_gm_on_leg(vg_leg, i_leg)
+        gm_h, gm_e, vg_h, vg_e, vg_seg, i_seg, gm_seg, cnp = peak_gm_on_leg(
+            vg_leg, i_leg
+        )
         leg_data[direction] = {
-            "vg_seg": vg_seg, "gm_seg": gm_seg,
-            "gm_h": gm_h, "gm_e": gm_e,
-            "vg_h": vg_h, "vg_e": vg_e,
+            "vg_seg": vg_seg,
+            "gm_seg": gm_seg,
+            "gm_h": gm_h,
+            "gm_e": gm_e,
+            "vg_h": vg_h,
+            "vg_e": vg_e,
             "cnp": cnp,
         }
 
     fig, (ax_iv, ax_gm) = plt.subplots(
-        2, 1, figsize=(8.0, 7.4), constrained_layout=True, sharex=True,
+        2,
+        1,
+        figsize=(8.0, 7.4),
+        constrained_layout=True,
+        sharex=True,
     )
 
     # ────────────────── Top panel: I vs Vg + CNPs ──────────────────
@@ -118,18 +126,31 @@ def _plot_one(row: dict, out_path: Path) -> None:
         details = json.loads(carrier.value_json)
         if details.get("parabola_fwd") is not None:
             xs, ys = _parabola_curve(details["parabola_fwd"], vg)
-            ax_iv.plot(xs, ys * 1e6, color=DIR_COLORS["forward"], lw=2.2,
-                       label=f"forward fit (vCNP={details['v_fwd']:.3f} V)")
+            ax_iv.plot(
+                xs,
+                ys * 1e6,
+                color=DIR_COLORS["forward"],
+                lw=2.2,
+                label=f"forward fit (vCNP={details['v_fwd']:.3f} V)",
+            )
         if details.get("parabola_back") is not None:
             xs, ys = _parabola_curve(details["parabola_back"], vg)
-            ax_iv.plot(xs, ys * 1e6, color=DIR_COLORS["backward"], lw=2.2,
-                       label=f"backward fit (vCNP={details['v_back']:.3f} V)")
+            ax_iv.plot(
+                xs,
+                ys * 1e6,
+                color=DIR_COLORS["backward"],
+                lw=2.2,
+                label=f"backward fit (vCNP={details['v_back']:.3f} V)",
+            )
         hyst = details.get("hysteresis_v")
         if hyst is not None:
             ax_iv.text(
-                0.02, 0.97,
+                0.02,
+                0.97,
                 f"Hysteresis (V_back − V_fwd): {hyst:+.3f} V",
-                transform=ax_iv.transAxes, ha="left", va="top",
+                transform=ax_iv.transAxes,
+                ha="left",
+                va="top",
                 fontsize=9,
                 bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="0.7", alpha=0.85),
             )
@@ -138,8 +159,11 @@ def _plot_one(row: dict, out_path: Path) -> None:
         if metric is None:
             continue
         ax_iv.axvline(
-            metric.value_float, color=CNP_COLORS[direction],
-            ls="--", lw=1.4, alpha=0.9,
+            metric.value_float,
+            color=CNP_COLORS[direction],
+            ls="--",
+            lw=1.4,
+            alpha=0.9,
             label=f"CNP {direction}: {metric.value_float:.3f} V",
         )
     ax_iv.set_ylabel("I (µA)")
@@ -148,16 +172,19 @@ def _plot_one(row: dict, out_path: Path) -> None:
     # ────────────────── Bottom panel: gm vs Vg + mobility peaks ──────────────────
     for direction, d in leg_data.items():
         ax_gm.plot(
-            d["vg_seg"], d["gm_seg"] * 1e6,
-            color=DIR_COLORS[direction], lw=1.4, alpha=0.9,
+            d["vg_seg"],
+            d["gm_seg"] * 1e6,
+            color=DIR_COLORS[direction],
+            lw=1.4,
+            alpha=0.9,
             label=f"gm {direction}",
         )
 
     # Mobility-peak markers (signed gm), with µ_FE pulled from MobilityExtractor.
     marker_specs = [
-        ("holes", "forward",  "o"),
+        ("holes", "forward", "o"),
         ("holes", "backward", "o"),
-        ("electrons", "forward",  "s"),
+        ("electrons", "forward", "s"),
         ("electrons", "backward", "s"),
     ]
     for branch, direction, marker in marker_specs:
@@ -171,11 +198,15 @@ def _plot_one(row: dict, out_path: Path) -> None:
         mob = mob_metrics.get((branch, direction))
         mu_str = f"µ={mob.value_float:.0f}" if mob is not None else "µ=—"
         ax_gm.scatter(
-            [vg_at], [gm_signed * 1e6],
+            [vg_at],
+            [gm_signed * 1e6],
             color=DIR_COLORS[direction],
-            edgecolor="black", linewidth=1.0,
-            marker=marker, s=80, zorder=5,
-            label=f"{branch[:-1]} peak, {direction}: gm={gm_signed*1e6:+.2f} µS, {mu_str} cm²/V·s",
+            edgecolor="black",
+            linewidth=1.0,
+            marker=marker,
+            s=80,
+            zorder=5,
+            label=f"{branch[:-1]} peak, {direction}: gm={gm_signed * 1e6:+.2f} µS, {mu_str} cm²/V·s",
         )
 
     ax_gm.axhline(0.0, color="0.6", lw=0.8)
@@ -199,10 +230,15 @@ def _plot_one(row: dict, out_path: Path) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--seq", type=int, default=None,
-                    help="IVg seq to plot. Defaults to the first available.")
-    ap.add_argument("--all", action="store_true",
-                    help="Plot every IVg in the chip history.")
+    ap.add_argument(
+        "--seq",
+        type=int,
+        default=None,
+        help="IVg seq to plot. Defaults to the first available.",
+    )
+    ap.add_argument(
+        "--all", action="store_true", help="Plot every IVg in the chip history."
+    )
     args = ap.parse_args()
 
     if not HISTORY.exists():

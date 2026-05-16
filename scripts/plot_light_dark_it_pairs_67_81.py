@@ -15,6 +15,7 @@ Run from repo root:
 
     python scripts/plot_light_dark_it_pairs_67_81.py
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -36,7 +37,9 @@ DARK_COLOR = "#444444"
 
 
 def history_path(chip: int) -> Path:
-    return Path(f"data/03_derived/chip_histories_enriched/Alisson{chip}_history.parquet")
+    return Path(
+        f"data/03_derived/chip_histories_enriched/Alisson{chip}_history.parquet"
+    )
 
 
 def pair_gap_s(light: dict, dark: dict) -> float:
@@ -66,9 +69,13 @@ def find_pairs(history: pl.DataFrame) -> list[tuple[dict, dict]]:
 
 
 def print_pair_table(chip: int, pairs: list[tuple[dict, dict]]) -> None:
-    print(f"\nEncap{chip}: {len(pairs)} matching-Vg pairs with gap <= {MAX_GAP_S:.0f} s\n")
-    print(f"{'seq_L':>5} {'t_L (s)':>9} {'seq_D':>5} {'t_D (s)':>9} "
-          f"{'Vg (V)':>7} {'gap (s)':>8} {'wl (nm)':>7} {'date':>10}")
+    print(
+        f"\nEncap{chip}: {len(pairs)} matching-Vg pairs with gap <= {MAX_GAP_S:.0f} s\n"
+    )
+    print(
+        f"{'seq_L':>5} {'t_L (s)':>9} {'seq_D':>5} {'t_D (s)':>9} "
+        f"{'Vg (V)':>7} {'gap (s)':>8} {'wl (nm)':>7} {'date':>10}"
+    )
     print("-" * 76)
     for L, D in pairs:
         print(
@@ -98,18 +105,30 @@ def plot_pair(chip: int, L: dict, D: dict, config: PlotConfig) -> Path:
 
     fig, ax = plt.subplots(figsize=config.figsize_timeseries)
     vg = L["vg_fixed_v"] or 0.0
-    ax.plot(t_L, i_L, color=LIGHT_COLOR, linewidth=1.0,
-            label=f"seq {L['seq']} light, {L['laser_period_s']:.0f} s")
-    ax.plot(t_D, i_D, color=DARK_COLOR, linewidth=1.0,
-            label=f"seq {D['seq']} dark, {D['laser_period_s']:.0f} s")
+    ax.plot(
+        t_L,
+        i_L,
+        color=LIGHT_COLOR,
+        linewidth=1.0,
+        label=f"seq {L['seq']} light, {L['laser_period_s']:.0f} s",
+    )
+    ax.plot(
+        t_D,
+        i_D,
+        color=DARK_COLOR,
+        linewidth=1.0,
+        label=f"seq {D['seq']} dark, {D['laser_period_s']:.0f} s",
+    )
 
     if "VL (V)" in light.columns:
         vl = light["VL (V)"].to_numpy()
         on = np.where(vl > 0.1)[0]
         if on.size:
             ax.axvspan(
-                float(t_L[on[0]]), float(t_L[on[-1]]),
-                color="gold", alpha=config.light_window_alpha,
+                float(t_L[on[0]]),
+                float(t_L[on[-1]]),
+                color="gold",
+                alpha=config.light_window_alpha,
             )
 
     ax.axvline(offset, color="k", linewidth=0.5, linestyle=":", alpha=0.6)

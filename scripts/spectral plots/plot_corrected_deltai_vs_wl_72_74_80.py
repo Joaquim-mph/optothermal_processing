@@ -34,13 +34,19 @@ EVAL_T_PRE = 60.0
 EVAL_T_POST = 120.0
 
 CHIPS = {
-    72: {"label": "72 (hBN)",
-         "seqs": [103, 105, 107, 112, 114, 116, 118, 120, 122, 124]},
-    74: {"label": "74 (biotite)",
-         "seqs": [5, 7, 9, 11, 13, 17, 20, 22, 24, 28],
-         "fit_t_start": 30.0},
-    80: {"label": "80 (biotite)",
-         "seqs": [95, 97, 99, 101, 103, 105, 107, 109, 111, 113]},
+    72: {
+        "label": "72 (hBN)",
+        "seqs": [103, 105, 107, 112, 114, 116, 118, 120, 122, 124],
+    },
+    74: {
+        "label": "74 (biotite)",
+        "seqs": [5, 7, 9, 11, 13, 17, 20, 22, 24, 28],
+        "fit_t_start": 30.0,
+    },
+    80: {
+        "label": "80 (biotite)",
+        "seqs": [95, 97, 99, 101, 103, 105, 107, 109, 111, 113],
+    },
 }
 
 CHIP_COLORS = {72: "C4", 74: "C3", 80: "C2"}
@@ -58,8 +64,7 @@ def load_history(chip_number: int) -> pl.DataFrame:
 
 def select_its_rows(history: pl.DataFrame, seqs: list[int]) -> pl.DataFrame:
     rows = (
-        history
-        .filter(pl.col("seq").is_in(seqs))
+        history.filter(pl.col("seq").is_in(seqs))
         .filter(pl.col("proc") == "It")
         .filter(pl.col("has_light") == True)  # noqa: E712
     )
@@ -82,7 +87,9 @@ def corrected_deltai_uA(t: np.ndarray, i: np.ndarray, fit_t_start: float) -> flo
     except Exception as exc:
         print(f"  stretched-exp fit failed: {exc}")
         return float("nan")
-    drift = stretched_exponential(t, se["baseline"], se["amplitude"], se["tau"], se["beta"])
+    drift = stretched_exponential(
+        t, se["baseline"], se["amplitude"], se["tau"], se["beta"]
+    )
     i_corr = i - drift
     idx_pre = int(np.argmin(np.abs(t - EVAL_T_PRE)))
     i_corr = i_corr - i_corr[idx_pre]
@@ -133,7 +140,8 @@ def main() -> None:
         wls = np.array([p[0] for p in pts])
         dis = np.abs(np.array([p[1] for p in pts]))
         ax.plot(
-            wls, dis,
+            wls,
+            dis,
             color=CHIP_COLORS.get(chip_num, "k"),
             marker=CHIP_MARKERS.get(chip_num, "o"),
             linestyle="-",

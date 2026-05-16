@@ -80,8 +80,10 @@ def main() -> None:
     histories = sorted(HISTORY_DIR.glob("*_history.parquet"))
     for branch in ("holes", "electrons"):
         print(f"\n=== branch = {branch} ===")
-        print(f"{'chip':>5} {'n':>4} {'med_fwd':>10} {'med_back':>10} "
-              f"{'med_b/f':>9} {'frac_b<f':>9} {'mean_log10_ratio':>17}")
+        print(
+            f"{'chip':>5} {'n':>4} {'med_fwd':>10} {'med_back':>10} "
+            f"{'med_b/f':>9} {'frac_b<f':>9} {'mean_log10_ratio':>17}"
+        )
         rows = []
         for path in histories:
             try:
@@ -92,20 +94,24 @@ def main() -> None:
             if r is None:
                 continue
             rows.append(r)
-            print(f"{r['chip']:>5} {r['n']:>4} "
-                  f"{r['median_fwd']:>10.1f} {r['median_back']:>10.1f} "
-                  f"{r['median_ratio_back_over_fwd']:>9.3f} "
-                  f"{r['frac_back_slower']:>9.2%} "
-                  f"{r['mean_log10_ratio']:>17.4f}")
+            print(
+                f"{r['chip']:>5} {r['n']:>4} "
+                f"{r['median_fwd']:>10.1f} {r['median_back']:>10.1f} "
+                f"{r['median_ratio_back_over_fwd']:>9.3f} "
+                f"{r['frac_back_slower']:>9.2%} "
+                f"{r['mean_log10_ratio']:>17.4f}"
+            )
 
         if rows:
             all_ratio = np.array([r["median_ratio_back_over_fwd"] for r in rows])
             all_frac = np.array([r["frac_back_slower"] for r in rows])
             n_total = sum(r["n"] for r in rows)
-            print(f"  ── pooled across {len(rows)} chips, "
-                  f"{n_total} sweeps: "
-                  f"median(med_b/f)={np.median(all_ratio):.3f}  "
-                  f"mean(frac_b<f)={np.mean(all_frac):.2%}")
+            print(
+                f"  ── pooled across {len(rows)} chips, "
+                f"{n_total} sweeps: "
+                f"median(med_b/f)={np.median(all_ratio):.3f}  "
+                f"mean(frac_b<f)={np.mean(all_frac):.2%}"
+            )
 
 
 if __name__ == "__main__":

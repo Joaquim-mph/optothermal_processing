@@ -44,6 +44,7 @@ from scripts.compare_corrected_It_67_72_74_75_80_81_pairs import (  # noqa: E402
     fit_both_models,
     light_window,
 )
+
 from src.core.utils import read_measurement_parquet  # noqa: E402
 from src.plotting.shared.config import PlotConfig  # noqa: E402
 from src.plotting.shared.styles import PRISM_RAIN_PALETTE, set_plot_style  # noqa: E402
@@ -214,7 +215,10 @@ def plot_sequential_with_overlay_inset(
         boundaries.append(time_offset)
 
         ax.plot(
-            t_seg + time_offset, y_seg, color=line_color, linewidth=2.0,
+            t_seg + time_offset,
+            y_seg,
+            color=line_color,
+            linewidth=2.0,
             label=vg_label if not label_used else None,
         )
         label_used = True

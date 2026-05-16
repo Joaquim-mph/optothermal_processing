@@ -1,18 +1,23 @@
 """
-Overlay same-power wavelength-sweep photoresponse for Alisson72 (hBN)
-and Alisson81 (biotite).
+Overlay same-power wavelength-sweep photoresponse for four chips:
+  * Alisson72 (hBN)
+  * Alisson74 (biotite)
+  * Alisson75 (biotite, sparse: 365/455/565 nm only)
+  * Alisson81 (biotite)
 
 Produces two PNGs under figs/compare/:
-  * alisson72_vs_81_ITS_photoresponse_vs_wavelength.png          (linear)
-  * alisson72_vs_81_ITS_photoresponse_vs_wavelength_semilogy.png (log y)
+  * alisson72_74_75_81_ITS_photoresponse_vs_wavelength.png          (linear)
+  * alisson72_74_75_81_ITS_photoresponse_vs_wavelength_semilogy.png (log y)
 
 Run from the repo root:
-    python scripts/compare_photoresponse_72_81.py
+    python scripts/compare_photoresponse_72_74_75_81.py
 
-Prereq: biotite enrich-history 72 and biotite enrich-history 81.
+Prereq: biotite full-pipeline (or enrich-history for each chip).
 """
+
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -20,9 +25,9 @@ import numpy as np
 import polars as pl
 
 from src.core.utils import read_measurement_parquet
+from src.plotting.its_photoresponse import _extract_delta_current_from_its
 from src.plotting.shared.config import PlotConfig
 from src.plotting.shared.styles import set_plot_style
-from src.plotting.its_photoresponse import _extract_delta_current_from_its
 
 ENRICHED_DIR = Path("data/03_derived/chip_histories_enriched")
 OUTPUT_DIR = Path("figs/compare")
@@ -34,11 +39,42 @@ CHIPS = [
         "seqs": [11, 16, 20, 24, 26, 28, 30, 32, 34, 36],
     },
     {
+        "chip_number": 74,
+        "label": "74 (biotite)",
+        "seqs": [5, 7, 9, 11, 13, 17, 20, 22, 24, 28],
+    },
+    {
+        "chip_number": 75,
+        "label": "75 (biotite)",
+        "seqs": [62, 64, 69, 71, 73, 75, 77, 81, 83, 85],
+    },
+    {
         "chip_number": 81,
         "label": "81 (biotite)",
         "seqs": [4, 6, 8, 10, 12, 14, 16, 18, 33, 35],
     },
 ]
+
+
+def run_its_suite(chip_number: int, seqs: list[int]) -> None:
+    """Invoke `biotite plot-its-suite` for one chip's wavelength sweep."""
+    seq_arg = ",".join(str(s) for s in seqs)
+    tag = f"alisson{chip_number}_same_pwr_wl_sweep"
+    cmd = [
+        "biotite",
+        "plot-its-suite",
+        str(chip_number),
+        "--seq",
+        seq_arg,
+        "--tag",
+        tag,
+        "--legend",
+        "wavelength",
+        "--photoresponse-x",
+        "wavelength",
+    ]
+    print(f"[chip {chip_number}] $ {' '.join(cmd)}")
+    subprocess.run(cmd, check=True)
 
 
 def load_chip_curve(
@@ -86,9 +122,7 @@ def load_chip_curve(
                 delta_values.append(None)
                 continue
             measurement = read_measurement_parquet(parquet_path)
-            delta_values.append(
-                _extract_delta_current_from_its(measurement, row)
-            )
+            delta_values.append(_extract_delta_current_from_its(measurement, row))
         rows = base_rows.with_columns(pl.Series("delta_current", delta_values))
         rows = rows.filter(pl.col("delta_current").is_not_null())
 
@@ -151,7 +185,10 @@ def main() -> None:
         wl, di = load_chip_curve(chip["chip_number"], chip["seqs"], chip["label"])
         curves.append((chip["label"], wl, di))
 
-    base = OUTPUT_DIR / "alisson72_vs_81_ITS_photoresponse_vs_wavelength"
+    for chip in CHIPS:
+        run_its_suite(chip["chip_number"], chip["seqs"])
+
+    base = OUTPUT_DIR / "alisson72_74_75_81_ITS_photoresponse_vs_wavelength"
     make_figure(curves, "linear", base.with_suffix(".png"), config)
     make_figure(
         curves,

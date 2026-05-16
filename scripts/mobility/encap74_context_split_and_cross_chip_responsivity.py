@@ -36,13 +36,17 @@ HIST_DIR = Path("data/03_derived/chip_histories_enriched")
 OUTDIR = Path("figs/cross_chip/mobility_deficit_vs_hysteresis")
 
 NEEDED_METRICS = [
-    "cnp_forward", "cnp_backward",
-    "mobility_fe_holes_forward", "mobility_fe_holes_backward",
-    "mobility_fe_electrons_forward", "mobility_fe_electrons_backward",
+    "cnp_forward",
+    "cnp_backward",
+    "mobility_fe_holes_forward",
+    "mobility_fe_holes_backward",
+    "mobility_fe_electrons_forward",
+    "mobility_fe_electrons_backward",
 ]
 
 
 # ── data ────────────────────────────────────────────────────────────────
+
 
 def load_wide_with_context() -> pl.DataFrame:
     """Wide metrics joined with per-IVg history context (date, has_light, etc.)."""
@@ -58,40 +62,56 @@ def load_wide_with_context() -> pl.DataFrame:
             wide = wide.with_columns(pl.lit(None).cast(pl.Float64).alias(col))
     wide = wide.with_columns(
         (pl.col("cnp_backward") - pl.col("cnp_forward")).alias("hysteresis_v"),
-        (pl.col("mobility_fe_holes_backward")
-         / pl.col("mobility_fe_holes_forward")).alias("mu_ratio_h"),
-        (pl.col("mobility_fe_electrons_backward")
-         / pl.col("mobility_fe_electrons_forward")).alias("mu_ratio_e"),
+        (
+            pl.col("mobility_fe_holes_backward") / pl.col("mobility_fe_holes_forward")
+        ).alias("mu_ratio_h"),
+        (
+            pl.col("mobility_fe_electrons_backward")
+            / pl.col("mobility_fe_electrons_forward")
+        ).alias("mu_ratio_e"),
     )
 
     # Join in history context per chip.
     hist_pieces = []
     for path in sorted(HIST_DIR.glob("Alisson*_history.parquet")):
-        h = pl.read_parquet(path).filter(pl.col("proc") == "IVg").select([
-            "run_id", "date", "has_light", "wavelength_nm",
-            "laser_voltage_v", "vds_v", "vg_step_v",
-            "vg_start_v", "vg_end_v",
-        ])
+        h = (
+            pl.read_parquet(path)
+            .filter(pl.col("proc") == "IVg")
+            .select(
+                [
+                    "run_id",
+                    "date",
+                    "has_light",
+                    "wavelength_nm",
+                    "laser_voltage_v",
+                    "vds_v",
+                    "vg_step_v",
+                    "vg_start_v",
+                    "vg_end_v",
+                ]
+            )
+        )
         hist_pieces.append(h)
     history = pl.concat(hist_pieces, how="vertical_relaxed")
     return wide.join(history, on="run_id", how="left")
 
 
 def chip_responsivity() -> dict[int, float]:
-    raw = pl.read_parquet(METRICS).filter(
-        pl.col("metric_name") == "delta_i_corrected"
-    )
+    raw = pl.read_parquet(METRICS).filter(pl.col("metric_name") == "delta_i_corrected")
     if raw.height == 0:
         return {}
     agg = raw.group_by("chip_number").agg(
         pl.col("value_float").abs().median().alias("med_abs_delta_i")
     )
-    return {int(r["chip_number"]): float(r["med_abs_delta_i"])
-            for r in agg.iter_rows(named=True)
-            if r["med_abs_delta_i"] is not None}
+    return {
+        int(r["chip_number"]): float(r["med_abs_delta_i"])
+        for r in agg.iter_rows(named=True)
+        if r["med_abs_delta_i"] is not None
+    }
 
 
 # ── stats ───────────────────────────────────────────────────────────────
+
 
 def linfit(x, y):
     mask = np.isfinite(x) & np.isfinite(y) & (y > 0) & (y < 10)
@@ -111,27 +131,33 @@ def linfit(x, y):
 
 # ── (1) Encap 74 context split ──────────────────────────────────────────
 
+
 def plot_encap74_context_split(wide: pl.DataFrame) -> None:
     df = wide.filter(pl.col("chip_number") == 74)
     df = df.filter(
-        pl.col("cnp_forward").is_not_null()
-        & pl.col("cnp_backward").is_not_null()
+        pl.col("cnp_forward").is_not_null() & pl.col("cnp_backward").is_not_null()
     )
     print(f"Encap 74 looped IVgs: {df.height}")
     dates = sorted(df["date"].unique().drop_nulls().to_list())
     print(f"  dates: {dates}")
-    print(f"  has_light counts: {dict(df.group_by('has_light').agg(pl.len()).iter_rows())}")
+    print(
+        f"  has_light counts: {dict(df.group_by('has_light').agg(pl.len()).iter_rows())}"
+    )
 
-    fig, axes = plt.subplots(1, 2, figsize=(11.5, 4.8),
-                             constrained_layout=True, sharey=False)
+    fig, axes = plt.subplots(
+        1, 2, figsize=(11.5, 4.8), constrained_layout=True, sharey=False
+    )
 
     date_colors = {d: cm.tab10(i) for i, d in enumerate(dates)}
     light_marker = {True: "o", False: "s"}  # circle = light, square = dark
 
-    for ax, (branch, col, title) in zip(axes, [
-        ("holes", "mu_ratio_h", "Hole branch"),
-        ("electrons", "mu_ratio_e", "Electron branch"),
-    ]):
+    for ax, (branch, col, title) in zip(
+        axes,
+        [
+            ("holes", "mu_ratio_h", "Hole branch"),
+            ("electrons", "mu_ratio_e", "Electron branch"),
+        ],
+    ):
         # Per-date scatter + per-date regression
         per_date_fits = {}
         for d in dates:
@@ -146,30 +172,45 @@ def plot_encap74_context_split(wide: pl.DataFrame) -> None:
                 if not mask.any():
                     continue
                 ax.scatter(
-                    x[mask], y[mask],
-                    color=date_colors[d], marker=light_marker[state],
-                    s=36, alpha=0.85,
-                    edgecolor="black", linewidth=0.5,
-                    label=(f"{d} {'light' if state else 'dark'}"
-                           if state or sub.height >= 3 else None),
+                    x[mask],
+                    y[mask],
+                    color=date_colors[d],
+                    marker=light_marker[state],
+                    s=36,
+                    alpha=0.85,
+                    edgecolor="black",
+                    linewidth=0.5,
+                    label=(
+                        f"{d} {'light' if state else 'dark'}"
+                        if state or sub.height >= 3
+                        else None
+                    ),
                 )
             fit = linfit(x, y)
             per_date_fits[d] = fit
             if fit is not None and fit["n"] >= 3:
                 xs = np.linspace(fit["x_min"], fit["x_max"], 100)
                 ax.plot(
-                    xs, fit["intercept"] + fit["slope"] * xs,
-                    color=date_colors[d], lw=1.4, alpha=0.9, ls="-",
+                    xs,
+                    fit["intercept"] + fit["slope"] * xs,
+                    color=date_colors[d],
+                    lw=1.4,
+                    alpha=0.9,
+                    ls="-",
                 )
 
         # Overall fit (gray dashed, for reference)
         overall = linfit(df["hysteresis_v"].to_numpy(), df[col].to_numpy())
         if overall is not None:
             xs = np.linspace(overall["x_min"], overall["x_max"], 100)
-            ax.plot(xs, overall["intercept"] + overall["slope"] * xs,
-                    color="0.4", lw=1.0, ls="--",
-                    label=f"all (slope {overall['slope']:+.2f}, "
-                          f"r={overall['r']:+.2f})")
+            ax.plot(
+                xs,
+                overall["intercept"] + overall["slope"] * xs,
+                color="0.4",
+                lw=1.0,
+                ls="--",
+                label=f"all (slope {overall['slope']:+.2f}, r={overall['r']:+.2f})",
+            )
 
         # Annotate per-date slopes
         txt_lines = []
@@ -178,12 +219,16 @@ def plot_encap74_context_split(wide: pl.DataFrame) -> None:
                 txt_lines.append(f"{d}: n={(fit['n'] if fit else 0)}")
             else:
                 txt_lines.append(
-                    f"{d}: n={fit['n']}, slope={fit['slope']:+.2f}, "
-                    f"r={fit['r']:+.2f}"
+                    f"{d}: n={fit['n']}, slope={fit['slope']:+.2f}, r={fit['r']:+.2f}"
                 )
         ax.text(
-            0.02, 0.05, "\n".join(txt_lines),
-            transform=ax.transAxes, ha="left", va="bottom", fontsize=8,
+            0.02,
+            0.05,
+            "\n".join(txt_lines),
+            transform=ax.transAxes,
+            ha="left",
+            va="bottom",
+            fontsize=8,
             bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="0.7", alpha=0.9),
         )
 
@@ -198,7 +243,8 @@ def plot_encap74_context_split(wide: pl.DataFrame) -> None:
         "Encap 74 — µ_back/µ_fwd vs hysteresis, split by date (color) "
         "and illumination-during-sweep (marker)\n"
         "(circles = light on, squares = dark; constant V$_{ds}$, "
-        "ΔV$_g$ step, range across all)", fontsize=10,
+        "ΔV$_g$ step, range across all)",
+        fontsize=10,
     )
 
     out = OUTDIR / "Encap74_context_split.png"
@@ -210,12 +256,14 @@ def plot_encap74_context_split(wide: pl.DataFrame) -> None:
 
 # ── (2) Cross-chip deficit vs responsivity ──────────────────────────────
 
+
 def plot_cross_chip_deficit_vs_responsivity(
-    wide: pl.DataFrame, responsivity: dict[int, float], n_min: int = 5,
+    wide: pl.DataFrame,
+    responsivity: dict[int, float],
+    n_min: int = 5,
 ) -> None:
     looped = wide.filter(
-        pl.col("cnp_forward").is_not_null()
-        & pl.col("cnp_backward").is_not_null()
+        pl.col("cnp_forward").is_not_null() & pl.col("cnp_backward").is_not_null()
     )
 
     per_chip = []
@@ -229,25 +277,55 @@ def plot_cross_chip_deficit_vs_responsivity(
         ratio_e = ratio_e[np.isfinite(ratio_e) & (ratio_e > 0) & (ratio_e < 10)]
         if ratio_h.size == 0 and ratio_e.size == 0:
             continue
-        per_chip.append({
-            "chip": int(chip),
-            "n": int(sub.height),
-            "responsivity": responsivity.get(int(chip)),
-            "deficit_h_med": float(1.0 - np.median(ratio_h)) if ratio_h.size else None,
-            "deficit_h_iqr_lo": float(1.0 - np.quantile(ratio_h, 0.75)) if ratio_h.size else None,
-            "deficit_h_iqr_hi": float(1.0 - np.quantile(ratio_h, 0.25)) if ratio_h.size else None,
-            "deficit_e_med": float(1.0 - np.median(ratio_e)) if ratio_e.size else None,
-            "deficit_e_iqr_lo": float(1.0 - np.quantile(ratio_e, 0.75)) if ratio_e.size else None,
-            "deficit_e_iqr_hi": float(1.0 - np.quantile(ratio_e, 0.25)) if ratio_e.size else None,
-        })
+        per_chip.append(
+            {
+                "chip": int(chip),
+                "n": int(sub.height),
+                "responsivity": responsivity.get(int(chip)),
+                "deficit_h_med": float(1.0 - np.median(ratio_h))
+                if ratio_h.size
+                else None,
+                "deficit_h_iqr_lo": float(1.0 - np.quantile(ratio_h, 0.75))
+                if ratio_h.size
+                else None,
+                "deficit_h_iqr_hi": float(1.0 - np.quantile(ratio_h, 0.25))
+                if ratio_h.size
+                else None,
+                "deficit_e_med": float(1.0 - np.median(ratio_e))
+                if ratio_e.size
+                else None,
+                "deficit_e_iqr_lo": float(1.0 - np.quantile(ratio_e, 0.75))
+                if ratio_e.size
+                else None,
+                "deficit_e_iqr_hi": float(1.0 - np.quantile(ratio_e, 0.25))
+                if ratio_e.size
+                else None,
+            }
+        )
 
-    fig, axes = plt.subplots(1, 2, figsize=(11, 4.6),
-                             constrained_layout=True, sharey=True)
+    fig, axes = plt.subplots(
+        1, 2, figsize=(11, 4.6), constrained_layout=True, sharey=True
+    )
 
-    for ax, (branch, key_med, lo, hi, title) in zip(axes, [
-        ("holes",     "deficit_h_med", "deficit_h_iqr_lo", "deficit_h_iqr_hi", "Hole branch"),
-        ("electrons", "deficit_e_med", "deficit_e_iqr_lo", "deficit_e_iqr_hi", "Electron branch"),
-    ]):
+    for ax, (branch, key_med, lo, hi, title) in zip(
+        axes,
+        [
+            (
+                "holes",
+                "deficit_h_med",
+                "deficit_h_iqr_lo",
+                "deficit_h_iqr_hi",
+                "Hole branch",
+            ),
+            (
+                "electrons",
+                "deficit_e_med",
+                "deficit_e_iqr_lo",
+                "deficit_e_iqr_hi",
+                "Electron branch",
+            ),
+        ],
+    ):
         xs, ys, los, his, labels = [], [], [], [], []
         for r in per_chip:
             if r["responsivity"] is None or r[key_med] is None:
@@ -257,19 +335,31 @@ def plot_cross_chip_deficit_vs_responsivity(
             los.append(r[lo])
             his.append(r[hi])
             labels.append((r["chip"], r["n"]))
-        xs = np.array(xs); ys = np.array(ys)
-        los = np.array(los); his = np.array(his)
+        xs = np.array(xs)
+        ys = np.array(ys)
+        los = np.array(los)
+        his = np.array(his)
 
         ax.errorbar(
-            xs, ys, yerr=[ys - los, his - ys], fmt="none",
-            ecolor="0.6", elinewidth=0.8, capsize=2,
+            xs,
+            ys,
+            yerr=[ys - los, his - ys],
+            fmt="none",
+            ecolor="0.6",
+            elinewidth=0.8,
+            capsize=2,
         )
-        ax.scatter(xs, ys, s=70, c="#1f77b4", edgecolor="black",
-                   linewidth=0.6, zorder=5)
+        ax.scatter(
+            xs, ys, s=70, c="#1f77b4", edgecolor="black", linewidth=0.6, zorder=5
+        )
         for (chip, n), x, y in zip(labels, xs, ys):
             ax.annotate(
-                f" {chip}", (x, y), fontsize=9, color="0.2",
-                xytext=(4, 0), textcoords="offset points",
+                f" {chip}",
+                (x, y),
+                fontsize=9,
+                color="0.2",
+                xytext=(4, 0),
+                textcoords="offset points",
             )
 
         # Linear fit on log10(responsivity) vs deficit
@@ -277,11 +367,15 @@ def plot_cross_chip_deficit_vs_responsivity(
         fit = linfit(log_x, ys)
         if fit is not None:
             xfit = np.linspace(log_x.min(), log_x.max(), 100)
-            ax.plot(10 ** xfit, fit["intercept"] + fit["slope"] * xfit,
-                    color="#d62728", lw=1.6,
-                    label=f"linear fit on log₁₀(resp)\n"
-                          f"slope={fit['slope']:+.2f}, "
-                          f"r={fit['r']:+.2f}, p={fit['p']:.2g}")
+            ax.plot(
+                10**xfit,
+                fit["intercept"] + fit["slope"] * xfit,
+                color="#d62728",
+                lw=1.6,
+                label=f"linear fit on log₁₀(resp)\n"
+                f"slope={fit['slope']:+.2f}, "
+                f"r={fit['r']:+.2f}, p={fit['p']:.2g}",
+            )
             ax.legend(loc="upper left", fontsize=8)
 
         ax.axhline(0.0, color="0.6", lw=0.8, ls="--")
@@ -292,7 +386,8 @@ def plot_cross_chip_deficit_vs_responsivity(
 
     fig.suptitle(
         "Cross-chip: mobility deficit vs photoresponsivity "
-        f"(chips with ≥ {n_min} looped IVgs)", fontsize=11,
+        f"(chips with ≥ {n_min} looped IVgs)",
+        fontsize=11,
     )
 
     out = OUTDIR / "deficit_vs_responsivity_cross_chip.png"
@@ -312,6 +407,7 @@ def plot_cross_chip_deficit_vs_responsivity(
 
 
 # ── main ────────────────────────────────────────────────────────────────
+
 
 def main() -> None:
     OUTDIR.mkdir(parents=True, exist_ok=True)

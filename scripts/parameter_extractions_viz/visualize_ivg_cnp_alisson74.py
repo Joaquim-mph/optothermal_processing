@@ -26,9 +26,7 @@ from src.core.utils import read_measurement_parquet
 from src.derived.extractors.cnp_extractor import CNPExtractor
 
 CHIP = 74
-HISTORY = Path(
-    f"data/03_derived/chip_histories_enriched/Alisson{CHIP}_history.parquet"
-)
+HISTORY = Path(f"data/03_derived/chip_histories_enriched/Alisson{CHIP}_history.parquet")
 OUTDIR = Path(f"figs/Encap{CHIP}/IVg/CNP_overlay")
 
 
@@ -75,21 +73,29 @@ def _plot_one(row: dict, out_path: Path) -> None:
     ax.plot(vg, i_uA, lw=1.0, color="black", alpha=0.85, label="IVg")
 
     # Pull fit details from whichever row exists (they all share the same JSON).
-    details_carrier = next(
-        (m for m in metrics.values() if m is not None), None
-    )
+    details_carrier = next((m for m in metrics.values() if m is not None), None)
     if details_carrier is not None:
         details = json.loads(details_carrier.value_json)
 
         # Draw fitted parabolas — convert vertex-equation back to µA for the axis.
         if details.get("parabola_fwd") is not None:
             xs, ys = _parabola_curve(details["parabola_fwd"], vg)
-            ax.plot(xs, ys * 1e6, color="#1f77b4", lw=2.2,
-                    label=f"forward fit (vCNP={details['v_fwd']:.3f} V)")
+            ax.plot(
+                xs,
+                ys * 1e6,
+                color="#1f77b4",
+                lw=2.2,
+                label=f"forward fit (vCNP={details['v_fwd']:.3f} V)",
+            )
         if details.get("parabola_back") is not None:
             xs, ys = _parabola_curve(details["parabola_back"], vg)
-            ax.plot(xs, ys * 1e6, color="#d62728", lw=2.2,
-                    label=f"backward fit (vCNP={details['v_back']:.3f} V)")
+            ax.plot(
+                xs,
+                ys * 1e6,
+                color="#d62728",
+                lw=2.2,
+                label=f"backward fit (vCNP={details['v_back']:.3f} V)",
+            )
 
     # Vertical lines for the three CNPs.
     colors = {"forward": "#1f77b4", "backward": "#d62728", "average": "#2ca02c"}
@@ -110,9 +116,12 @@ def _plot_one(row: dict, out_path: Path) -> None:
         hyst = json.loads(details_carrier.value_json).get("hysteresis_v")
         if hyst is not None:
             ax.text(
-                0.02, 0.97,
+                0.02,
+                0.97,
                 f"Hysteresis (V_back − V_fwd): {hyst:+.3f} V",
-                transform=ax.transAxes, ha="left", va="top",
+                transform=ax.transAxes,
+                ha="left",
+                va="top",
                 fontsize=9,
                 bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="0.7", alpha=0.85),
             )
@@ -136,10 +145,15 @@ def _plot_one(row: dict, out_path: Path) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--seq", type=int, default=None,
-                    help="IVg seq to plot. Defaults to the first available.")
-    ap.add_argument("--all", action="store_true",
-                    help="Plot every IVg in the chip history.")
+    ap.add_argument(
+        "--seq",
+        type=int,
+        default=None,
+        help="IVg seq to plot. Defaults to the first available.",
+    )
+    ap.add_argument(
+        "--all", action="store_true", help="Plot every IVg in the chip history."
+    )
     args = ap.parse_args()
 
     if not HISTORY.exists():

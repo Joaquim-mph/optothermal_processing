@@ -47,11 +47,36 @@ WAVELENGTH_NM = 365.0
 DATE = "2026-05-14"
 
 CHIPS: list[dict] = [
-    {"chip": 68, "label": r"Encap 68 ($V_g=-0.7$ V)", "color": "#377eb8", "marker": "o"},
-    {"chip": 74, "label": r"Encap 74 ($V_g=-0.5$ V)", "color": "#e41a1c", "marker": "s"},
-    {"chip": 75, "label": r"Encap 75 ($V_g=-0.5$ V)", "color": "#4daf4a", "marker": "^"},
-    {"chip": 76, "label": r"Encap 76 ($V_g=-0.7$ V)", "color": "#984ea3", "marker": "D"},
-    {"chip": 72, "label": r"Encap 72 ($V_g=-0.35$ V)", "color": "#a65628", "marker": "P"},
+    {
+        "chip": 68,
+        "label": r"Encap 68 ($V_g=-0.7$ V)",
+        "color": "#377eb8",
+        "marker": "o",
+    },
+    {
+        "chip": 74,
+        "label": r"Encap 74 ($V_g=-0.5$ V)",
+        "color": "#e41a1c",
+        "marker": "s",
+    },
+    {
+        "chip": 75,
+        "label": r"Encap 75 ($V_g=-0.5$ V)",
+        "color": "#4daf4a",
+        "marker": "^",
+    },
+    {
+        "chip": 76,
+        "label": r"Encap 76 ($V_g=-0.7$ V)",
+        "color": "#984ea3",
+        "marker": "D",
+    },
+    {
+        "chip": 72,
+        "label": r"Encap 72 ($V_g=-0.35$ V)",
+        "color": "#a65628",
+        "marker": "P",
+    },
 ]
 
 _EXTRACTOR = CorrectedDeltaIExtractor(
@@ -104,7 +129,9 @@ def curve_for_chip(hist: pl.DataFrame) -> tuple[np.ndarray, np.ndarray]:
     return np.asarray(powers_uW), np.asarray(di_uA)
 
 
-def power_law_fit(p: np.ndarray, di: np.ndarray) -> tuple[float, np.ndarray, np.ndarray]:
+def power_law_fit(
+    p: np.ndarray, di: np.ndarray
+) -> tuple[float, np.ndarray, np.ndarray]:
     """Return (gamma, p_fit, di_fit) from a log-log linear fit."""
     mask = (p > 0) & (di > 0) & np.isfinite(p) & np.isfinite(di)
     gamma, log_a = np.polyfit(np.log10(p[mask]), np.log10(di[mask]), 1)
@@ -266,7 +293,9 @@ def plot_it_overlay(config: PlotConfig, hist: pl.DataFrame, chip: dict) -> None:
     print(f"saved {out}")
 
 
-def plot_corrected_overlay_full(config: PlotConfig, hist: pl.DataFrame, chip: dict) -> None:
+def plot_corrected_overlay_full(
+    config: PlotConfig, hist: pl.DataFrame, chip: dict
+) -> None:
     """Full-size drift-corrected I_corr overlay (the inset, but as its own figure)
     so the stretched-exponential correction can be inspected per power."""
     rows = rows_for_chip(hist)
@@ -349,7 +378,9 @@ def plot_corrected_overlay_full(config: PlotConfig, hist: pl.DataFrame, chip: di
     print(f"saved {out}")
 
 
-def plot_photoresponse_vs_power(config: PlotConfig, hist: pl.DataFrame, chip: dict) -> None:
+def plot_photoresponse_vs_power(
+    config: PlotConfig, hist: pl.DataFrame, chip: dict
+) -> None:
     p, di = curve_for_chip(hist)
     if p.size == 0:
         print(f"[warn] no photoresponse data for {chip['label']}")

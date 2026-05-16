@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import itertools
 from pathlib import Path
 from typing import Optional
 
@@ -14,9 +15,25 @@ from rich.console import Console
 
 from src.cli.plugin_system import cli_command
 from src.core.utils import read_measurement_parquet
+from src.plotting.shared import styles as _styles
 from src.plotting.shared.config import PlotConfig
-from src.plotting.shared.plot_utils import ensure_standard_columns
+from src.plotting.shared.plot_utils import (
+    ensure_standard_columns,
+    segment_voltage_sweep,
+)
 from src.plotting.shared.styles import set_plot_style
+
+PALETTES = {
+    "prism_rain": _styles.PRISM_RAIN_PALETTE,
+    "deep_rain": _styles.DEEP_RAIN_PALETTE,
+    "prism_rain_vivid": _styles.PRISM_RAIN_PALETTE_VIVID,
+    "minimal": _styles.MINIMAL_PALETTE,
+    "scientific": _styles.SCIENTIFIC_PALETTE,
+}
+
+LINESTYLE_SETS = {
+    "mixed": ["-", "--", "-.", ":"],
+}
 
 ENRICHED_HISTORY_DIR = Path("data/03_derived/chip_histories_enriched")
 STAGE_HISTORY_DIR = Path("data/02_stage/chip_histories")
@@ -48,7 +65,38 @@ def _resolve_history_path(chip_group: str, chip_number: int) -> Path:
     )
 
 
-def _load_first_ivg(chip_group: str, chip_number: int) -> tuple[np.ndarray, np.ndarray, int]:
+def _trim_to_full_sweeps(
+    vg: np.ndarray, i_uA: np.ndarray, range_fraction: float = 0.9
+) -> tuple[np.ndarray, np.ndarray]:
+    """Drop leading/trailing half-sweeps, keep only extremum-to-extremum segments.
+
+    Adjacent full sweeps share their turn-point sample; the duplicate is removed
+    so the concatenated trace is a clean hysteresis loop.
+    """
+    segments = segment_voltage_sweep(vg, i_uA)
+    if not segments:
+        return vg, i_uA
+
+    total_range = float(vg.max() - vg.min())
+    if total_range <= 0:
+        return vg, i_uA
+
+    threshold = range_fraction * total_range
+    kept = [(v, c) for v, c, _ in segments if (v.max() - v.min()) >= threshold]
+    if not kept:
+        return vg, i_uA
+
+    vg_parts: list[np.ndarray] = [kept[0][0]]
+    i_parts: list[np.ndarray] = [kept[0][1]]
+    for v, c in kept[1:]:
+        vg_parts.append(v[1:])
+        i_parts.append(c[1:])
+    return np.concatenate(vg_parts), np.concatenate(i_parts)
+
+
+def _load_first_ivg(
+    chip_group: str, chip_number: int
+) -> tuple[np.ndarray, np.ndarray, int, int]:
     history = pl.read_parquet(_resolve_history_path(chip_group, chip_number))
     ivg = history.filter(pl.col("proc") == "IVg").sort("seq")
     if ivg.height == 0:
@@ -78,7 +126,9 @@ def _load_first_ivg(chip_group: str, chip_number: int) -> tuple[np.ndarray, np.n
 
     vg = measurement["VG"].to_numpy()
     i_uA = measurement["I"].to_numpy() * 1e6
-    return vg, i_uA, int(first["seq"])
+    n_raw = len(vg)
+    vg, i_uA = _trim_to_full_sweeps(vg, i_uA)
+    return vg, i_uA, int(first["seq"]), n_raw
 
 
 def _parse_chip_list(chips: str) -> list[int]:
@@ -129,6 +179,22 @@ def compare_first_ivg(
         "--theme",
         help="Matplotlib theme override (default: from PlotConfig).",
     ),
+    palette: Optional[str] = typer.Option(
+        None,
+        "--palette",
+        help=f"Color palette override (one of: {', '.join(PALETTES)}). Keeps the theme's format.",
+    ),
+    linestyle: Optional[str] = typer.Option(
+        None,
+        "--linestyle",
+        help=f"Linestyle cycle preset (one of: {', '.join(LINESTYLE_SETS)}). Each curve gets the next style.",
+    ),
+    fmt: Optional[str] = typer.Option(
+        None,
+        "--format",
+        "-f",
+        help="Output format: png, pdf, svg, jpg (default: from PlotConfig — png).",
+    ),
 ):
     """
     Overlay the first IVg sweep of multiple chips.
@@ -146,10 +212,34 @@ def compare_first_ivg(
     plot_config = PlotConfig()
     set_plot_style(theme or plot_config.theme)
 
+    if palette is not None:
+        key = palette.lower()
+        if key not in PALETTES:
+            raise typer.BadParameter(
+                f"Unknown palette {palette!r}. Choose from: {', '.join(PALETTES)}"
+            )
+        plt.rcParams["axes.prop_cycle"] = plt.cycler(color=PALETTES[key])
+
+    style_iter = None
+    if linestyle is not None:
+        ls_key = linestyle.lower()
+        if ls_key not in LINESTYLE_SETS:
+            raise typer.BadParameter(
+                f"Unknown linestyle preset {linestyle!r}. Choose from: {', '.join(LINESTYLE_SETS)}"
+            )
+        style_iter = itertools.cycle(LINESTYLE_SETS[ls_key])
+
+    allowed_formats = {"png", "pdf", "svg", "jpg"}
+    resolved_fmt = (fmt or plot_config.format).lower()
+    if resolved_fmt not in allowed_formats:
+        raise typer.BadParameter(
+            f"Unknown format {fmt!r}. Choose from: {', '.join(sorted(allowed_formats))}"
+        )
+
     curves: list[tuple[str, np.ndarray, np.ndarray]] = []
     for n in chip_numbers:
         try:
-            vg, i_uA, seq = _load_first_ivg(chip_group, n)
+            vg, i_uA, seq, n_raw = _load_first_ivg(chip_group, n)
         except (FileNotFoundError, ValueError) as e:
             console.print(f"[red]error:[/red] {e}")
             raise typer.Exit(1)
@@ -167,7 +257,7 @@ def compare_first_ivg(
             label = str(n)
 
         console.print(
-            f"[green]✓[/green] {chip_group}{n} seq={seq} n={len(vg)} "
+            f"[green]✓[/green] {chip_group}{n} seq={seq} n={len(vg)}/{n_raw} "
             f"Vg=[{vg.min():.2f}, {vg.max():.2f}] V "
             f"I=[{i_uA.min():.3g}, {i_uA.max():.3g}] µA"
         )
@@ -175,15 +265,19 @@ def compare_first_ivg(
 
     fig, ax = plt.subplots()
     for label, vg, i_uA in curves:
-        ax.plot(vg, i_uA, label=label)
-    ax.set_xlabel("Gate Voltage $V_g$ (V)")
-    ax.set_ylabel("Drain Current $I_d$ (µA)")
+        kwargs = {"linestyle": next(style_iter)} if style_iter is not None else {}
+        ax.plot(vg, i_uA, label=label, **kwargs)
+    ax.set_xlabel("$V_g$ (V)")
+    ax.set_ylabel(r"$I_{ds}$ (µA)")
     ax.legend(loc="best", framealpha=0.9)
     plt.tight_layout()
 
     if output is None:
         chip_part = tag or "_".join(str(n) for n in chip_numbers)
-        output = DEFAULT_OUTPUT_DIR / f"{chip_group.lower()}_{chip_part}_IVg_first.png"
+        output = (
+            DEFAULT_OUTPUT_DIR
+            / f"{chip_group.lower()}_{chip_part}_IVg_first.{resolved_fmt}"
+        )
     output.parent.mkdir(parents=True, exist_ok=True)
 
     fig.savefig(output, dpi=plot_config.dpi, bbox_inches="tight")

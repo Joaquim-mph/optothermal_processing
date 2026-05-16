@@ -18,6 +18,7 @@ Run from repo root:
 
     python scripts/compare_dark_relaxation_67_81.py
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -32,16 +33,30 @@ from src.plotting.shared.styles import set_plot_style
 
 # Each pair: light seq (for photocurrent) + dark seq (relaxation trace).
 TRACES = [
-    {"chip": 81, "light_seq": 81, "dark_seq": 82, "color": "#e41a1c", "label": "Encap81"},
-    {"chip": 67, "light_seq": 85, "dark_seq": 86, "color": "#377eb8", "label": "Encap67"},
+    {
+        "chip": 81,
+        "light_seq": 81,
+        "dark_seq": 82,
+        "color": "#e41a1c",
+        "label": "Encap81",
+    },
+    {
+        "chip": 67,
+        "light_seq": 85,
+        "dark_seq": 86,
+        "color": "#377eb8",
+        "label": "Encap67",
+    },
 ]
 
 PRE_BASELINE_S = 20.0  # window before light-on used for the dark baseline
-END_LIGHT_S = 5.0      # window at end of illumination used for I_on
+END_LIGHT_S = 5.0  # window at end of illumination used for I_on
 
 
 def history_path(chip: int) -> Path:
-    return Path(f"data/03_derived/chip_histories_enriched/Alisson{chip}_history.parquet")
+    return Path(
+        f"data/03_derived/chip_histories_enriched/Alisson{chip}_history.parquet"
+    )
 
 
 def get_row(history: pl.DataFrame, seq: int, chip: int) -> dict:
@@ -91,8 +106,13 @@ def plot_dark_only(config: PlotConfig) -> None:
         t, i = t[1:], i[1:]  # drop first sample
         rel_pct = (i - i[0]) / pc * 100.0  # anchored at new first point
 
-        ax.plot(t, rel_pct, color=spec["color"], linewidth=1.0,
-                label=f"{spec['label']} seq {spec['dark_seq']}")
+        ax.plot(
+            t,
+            rel_pct,
+            color=spec["color"],
+            linewidth=1.0,
+            label=f"{spec['label']} seq {spec['dark_seq']}",
+        )
         print(
             f"[dark-only] Encap{spec['chip']} seq {spec['dark_seq']} "
             f"(pc={pc:.4f} µA): recovery(end)={rel_pct[-1]:+.1f}%"
@@ -107,8 +127,11 @@ def plot_dark_only(config: PlotConfig) -> None:
 
     out = config.get_output_path(
         "Encap67_81_dark_relaxation_compare_seq86_seq82_pct",
-        chip_number=67, procedure="It", metadata={"has_light": False},
-        special_type="light_dark_concat", create_dirs=True,
+        chip_number=67,
+        procedure="It",
+        metadata={"has_light": False},
+        special_type="light_dark_concat",
+        create_dirs=True,
     )
     fig.savefig(out, dpi=config.dpi, bbox_inches="tight")
     plt.close(fig)
@@ -135,13 +158,22 @@ def plot_light_dark_concat(config: PlotConfig) -> None:
 
         # Light segment "before" the relaxation: faded, thin.
         ax.plot(t_l, y_l, color=spec["color"], linewidth=1.0, alpha=0.45)
-        ax.plot(t_d + offset, y_d, color=spec["color"], linewidth=1.0,
-                label=f"{spec['label']} seq {spec['light_seq']}→{spec['dark_seq']}")
+        ax.plot(
+            t_d + offset,
+            y_d,
+            color=spec["color"],
+            linewidth=1.0,
+            label=f"{spec['label']} seq {spec['light_seq']}→{spec['dark_seq']}",
+        )
 
         on = np.where(vl_l > 0.1)[0]
         if on.size:
-            ax.axvspan(float(t_l[on[0]]), float(t_l[on[-1]]),
-                       color="gold", alpha=config.light_window_alpha)
+            ax.axvspan(
+                float(t_l[on[0]]),
+                float(t_l[on[-1]]),
+                color="gold",
+                alpha=config.light_window_alpha,
+            )
         print(
             f"[concat]    Encap{spec['chip']} seq {spec['light_seq']}→{spec['dark_seq']} "
             f"(pc={pc:.4f} µA): light min={y_l.min():+.1f}%  "
@@ -158,8 +190,11 @@ def plot_light_dark_concat(config: PlotConfig) -> None:
 
     out = config.get_output_path(
         "Encap67_81_light_dark_concat_seq85_86_seq81_82_pct",
-        chip_number=67, procedure="It", metadata={"has_light": True},
-        special_type="light_dark_concat", create_dirs=True,
+        chip_number=67,
+        procedure="It",
+        metadata={"has_light": True},
+        special_type="light_dark_concat",
+        create_dirs=True,
     )
     fig.savefig(out, dpi=config.dpi, bbox_inches="tight")
     plt.close(fig)

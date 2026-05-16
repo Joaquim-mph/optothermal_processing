@@ -16,6 +16,7 @@ its own response time.
 Run from repo root:
     python scripts/plot_rise_fall_1090_alisson74_365nm.py
 """
+
 from __future__ import annotations
 
 import json
@@ -76,7 +77,10 @@ def _draw_metric(ax, t, i, metric, color, name):
         ax.plot(
             [t10, t90],
             [i[idx10] * 1e6, i[idx90] * 1e6],
-            "o", color=color, markersize=6, zorder=5,
+            "o",
+            color=color,
+            markersize=6,
+            zorder=5,
         )
 
     secs = details["sections"]
@@ -90,25 +94,24 @@ def main() -> None:
     set_plot_style(config.theme)
     # The project theme sizes fonts for its 35-inch publication figures;
     # rescale for this compact 3-panel diagnostic.
-    plt.rcParams.update({
-        "font.size": 9,
-        "axes.titlesize": 10,
-        "axes.labelsize": 10,
-        "legend.fontsize": 8,
-        "xtick.labelsize": 8,
-        "ytick.labelsize": 8,
-        "lines.linewidth": 1.0,
-    })
+    plt.rcParams.update(
+        {
+            "font.size": 9,
+            "axes.titlesize": 10,
+            "axes.labelsize": 10,
+            "legend.fontsize": 8,
+            "xtick.labelsize": 8,
+            "ytick.labelsize": 8,
+            "lines.linewidth": 1.0,
+        }
+    )
 
     history = pl.read_parquet(HISTORY_PATH)
-    rows = (
-        history.filter(
-            (pl.col("proc") == "It")
-            & (pl.col("wavelength_nm") == WAVELENGTH_NM)
-            & (pl.col("seq").is_in(SEQS))
-        )
-        .sort("seq")
-    )
+    rows = history.filter(
+        (pl.col("proc") == "It")
+        & (pl.col("wavelength_nm") == WAVELENGTH_NM)
+        & (pl.col("seq").is_in(SEQS))
+    ).sort("seq")
     if rows.height != len(SEQS):
         raise ValueError(
             f"expected {len(SEQS)} It rows at {WAVELENGTH_NM:.0f} nm, "
@@ -116,8 +119,20 @@ def main() -> None:
         )
 
     print("Selected It measurements (Alisson74, 365 nm):")
-    print(rows.select(["seq", "date", "has_light", "wavelength_nm",
-                       "vg_fixed_v", "vds_v", "laser_period_s", "rows"]))
+    print(
+        rows.select(
+            [
+                "seq",
+                "date",
+                "has_light",
+                "wavelength_nm",
+                "vg_fixed_v",
+                "vds_v",
+                "laser_period_s",
+                "rows",
+            ]
+        )
+    )
 
     fig, axes = plt.subplots(
         len(SEQS), 1, figsize=(11, 3.0 * len(SEQS)), constrained_layout=True
@@ -142,8 +157,11 @@ def main() -> None:
         on_idx = np.where(vl > 0.1)[0]
         if on_idx.size:
             ax.axvspan(
-                float(t[on_idx[0]]), float(t[on_idx[-1]]),
-                color="0.85", alpha=config.light_window_alpha, zorder=0,
+                float(t[on_idx[0]]),
+                float(t[on_idx[-1]]),
+                color="0.85",
+                alpha=config.light_window_alpha,
+                zorder=0,
             )
 
         _draw_metric(ax, t, i, rise, RISE_COLOR, "rise")
@@ -156,8 +174,10 @@ def main() -> None:
             else:
                 d = json.loads(metric.value_json)
                 ts = [f"{s['response_time']:.2f}" for s in d["sections"]]
-                print(f"  {nm}: value_float={metric.value_float:.2f} s  "
-                      f"sections={ts}  flags={metric.flags}")
+                print(
+                    f"  {nm}: value_float={metric.value_float:.2f} s  "
+                    f"sections={ts}  flags={metric.flags}"
+                )
 
         ax.set_title(
             f"seq {row['seq']}  ({row['date']}, "

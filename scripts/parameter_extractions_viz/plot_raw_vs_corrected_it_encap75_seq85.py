@@ -9,6 +9,7 @@ t = EVAL_T_PRE to match the `delta_i_corrected` convention.
 Run from repo root:
     python scripts/plot_raw_vs_corrected_it_encap75_seq85.py
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -91,11 +92,13 @@ def main() -> None:
         plt.xlim(PLOT_START_TIME, T_total)
 
     visible = t >= PLOT_START_TIME
-    all_y = np.concatenate([
-        (i_raw_shifted * 1e6)[visible],
-        (drift_shifted * 1e6)[visible],
-        (i_corr * 1e6)[visible],
-    ])
+    all_y = np.concatenate(
+        [
+            (i_raw_shifted * 1e6)[visible],
+            (drift_shifted * 1e6)[visible],
+            (i_corr * 1e6)[visible],
+        ]
+    )
     all_y = all_y[np.isfinite(all_y)]
     if all_y.size:
         y_min, y_max = float(all_y.min()), float(all_y.max())

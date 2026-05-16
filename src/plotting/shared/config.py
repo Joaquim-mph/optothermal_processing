@@ -382,11 +382,6 @@ class PlotConfig(BaseModel):
         ("plot_legend_loc", "legend_default_position"),
         ("plot_legend_font_scale", "legend_font_scale"),
         ("plot_legend_framealpha", "legend_framealpha"),
-        ("plot_figsize_timeseries", "figsize_timeseries"),
-        ("plot_figsize_voltage_sweep", "figsize_voltage_sweep"),
-        ("plot_figsize_derived", "figsize_derived"),
-        ("plot_figsize_transconductance", "figsize_transconductance"),
-        ("plot_figsize_laser_calibration", "figsize_laser_calibration"),
     )
 
     @classmethod

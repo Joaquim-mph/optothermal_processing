@@ -143,7 +143,6 @@ class TestFromCLIConfig:
             plot_legend_loc="upper right",
             plot_legend_font_scale=1.5,
             plot_legend_framealpha=0.5,
-            plot_figsize_timeseries=(12.0, 8.0),
         )
         plot = PlotConfig.from_cli_config(cli)
         assert plot.palette == "scientific"
@@ -152,7 +151,6 @@ class TestFromCLIConfig:
         assert plot.legend_default_position == "upper right"
         assert plot.legend_font_scale == 1.5
         assert plot.legend_framealpha == 0.5
-        assert plot.figsize_timeseries == (12.0, 8.0)
 
     def test_none_overrides_leave_plotconfig_defaults(self):
         """None on CLIConfig means: don't forward, let PlotConfig pick its default."""
@@ -162,5 +160,4 @@ class TestFromCLIConfig:
         defaults = PlotConfig()
         assert plot.palette == defaults.palette
         assert plot.font_family == defaults.font_family
-        assert plot.figsize_timeseries == defaults.figsize_timeseries
         assert plot.legend_framealpha == defaults.legend_framealpha

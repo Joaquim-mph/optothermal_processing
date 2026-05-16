@@ -18,7 +18,7 @@ Configuration priority (highest to lowest):
 import json
 import os
 from pathlib import Path
-from typing import Literal, Optional, Tuple
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -131,21 +131,6 @@ class CLIConfig(BaseModel):
     plot_legend_framealpha: Optional[float] = Field(
         default=None, ge=0.0, le=1.0,
         description="Override PlotConfig.legend_framealpha",
-    )
-    plot_figsize_timeseries: Optional[Tuple[float, float]] = Field(
-        default=None, description="Override PlotConfig.figsize_timeseries"
-    )
-    plot_figsize_voltage_sweep: Optional[Tuple[float, float]] = Field(
-        default=None, description="Override PlotConfig.figsize_voltage_sweep"
-    )
-    plot_figsize_derived: Optional[Tuple[float, float]] = Field(
-        default=None, description="Override PlotConfig.figsize_derived"
-    )
-    plot_figsize_transconductance: Optional[Tuple[float, float]] = Field(
-        default=None, description="Override PlotConfig.figsize_transconductance"
-    )
-    plot_figsize_laser_calibration: Optional[Tuple[float, float]] = Field(
-        default=None, description="Override PlotConfig.figsize_laser_calibration"
     )
 
     # Config metadata (not user-configurable)

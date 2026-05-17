@@ -4,14 +4,8 @@ import shutil
 from pathlib import Path
 
 import typer
-from rich.console import Console
-from rich.panel import Panel
-from rich.prompt import Confirm
-from rich.table import Table
 
 from src.cli.plugin_system import cli_command
-
-console = Console()
 
 # Stage roots cleared by this command. data/01_raw is intentionally excluded.
 STAGE_DIRS = [
@@ -54,6 +48,13 @@ def clean_data_command(
     ),
 ):
     """Wipe derived data stages. data/01_raw is never touched."""
+    from rich.console import Console
+    from rich.panel import Panel
+    from rich.prompt import Confirm
+    from rich.table import Table
+
+    console = Console()
+
     table = Table(title="Stages to clear", show_lines=False)
     table.add_column("Path")
     table.add_column("Exists")

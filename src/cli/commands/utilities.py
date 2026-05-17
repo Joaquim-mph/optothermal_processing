@@ -2,14 +2,8 @@
 
 import typer
 from typing import Optional
-from rich.console import Console
-from rich.table import Table
-from rich.panel import Panel
-from rich import box
 
-from src.cli.plugin_system import cli_command, list_available_commands, get_command_groups
-
-console = Console()
+from src.cli.plugin_system import cli_command
 
 
 @cli_command(
@@ -51,6 +45,15 @@ def list_plugins_command(
         # Use alias
         python process_and_analyze.py plugins
     """
+    from rich.console import Console
+    from rich.table import Table
+    from rich.panel import Panel
+    from rich import box
+
+    from src.cli.plugin_system import list_available_commands, get_command_groups
+
+    console = Console()
+
     console.print()
     console.print(Panel.fit(
         "[bold cyan]Available Command Plugins[/bold cyan]",

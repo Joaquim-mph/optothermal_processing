@@ -1,14 +1,10 @@
 """Chip statistics command: show experiment counts per chip and procedure."""
 
 import typer
-from src.cli.plugin_system import cli_command
 from pathlib import Path
 from typing import Optional
-from rich.console import Console
-from rich.table import Table
-from rich.panel import Panel
-from src.cli.context import get_context
-import polars as pl
+
+from src.cli.plugin_system import cli_command
 
 
 @cli_command(
@@ -58,6 +54,12 @@ def chip_stats_command(
         # Different chip group
         python process_and_analyze.py chip-stats --group OtherGroup
     """
+    import polars as pl
+    from rich.table import Table
+    from rich.panel import Panel
+
+    from src.cli.context import get_context
+
     ctx = get_context()
     ctx.print()
 

@@ -1,14 +1,10 @@
 """Data processing pipeline commands: full-pipeline (modern staging-based pipeline)."""
 
 import typer
-from src.cli.plugin_system import cli_command
 from pathlib import Path
 from typing import Optional
-from rich.console import Console
-from rich.panel import Panel
-import time
 
-console = Console()
+from src.cli.plugin_system import cli_command
 
 # Legacy commands have been removed (parse-all, chip-histories, quick-stats)
 # Use the modern pipeline instead:
@@ -119,13 +115,18 @@ def full_pipeline_command(
         # Filter by chip group
         process_and_analyze full-pipeline -g Alisson --min 10
     """
+    import time
+
+    from rich.console import Console
+    from rich.panel import Panel
+
     from src.cli.commands.stage import stage_all_command
     from src.cli.commands.history import build_all_histories_command
     from src.cli.commands.derived_metrics import derive_all_metrics_command
     from src.cli.commands.enrich_unified import enrich_history_unified_command
-
-    # Load config for defaults
     from src.cli.main import get_config
+
+    console = Console()
     config = get_config()
 
     if raw_root is None:

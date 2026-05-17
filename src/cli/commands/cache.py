@@ -8,16 +8,8 @@ from pathlib import Path
 from typing import Optional
 
 import typer
-from rich.console import Console
-from rich.table import Table
-from rich.panel import Panel
-from rich.prompt import Confirm
 
-from src.cli.cache import get_cache, clear_cache
 from src.cli.plugin_system import cli_command
-
-
-console = Console()
 
 
 @cli_command(
@@ -27,6 +19,12 @@ console = Console()
 )
 def cache_stats_command():
     """Display cache statistics and performance metrics"""
+    from rich.console import Console
+    from rich.table import Table
+
+    from src.cli.cache import get_cache
+
+    console = Console()
     cache = get_cache()
     stats = cache.get_stats()
     info = cache.get_info()
@@ -70,6 +68,13 @@ def cache_clear_command(
     )
 ):
     """Clear all cached data"""
+    from rich.console import Console
+    from rich.prompt import Confirm
+
+    from src.cli.cache import get_cache, clear_cache
+
+    console = Console()
+
     if not yes:
         if not Confirm.ask("Clear all cached data?"):
             console.print("[yellow]Cancelled[/yellow]")
@@ -93,6 +98,12 @@ def cache_clear_command(
 )
 def cache_info_command():
     """Show detailed cache information"""
+    from rich.console import Console
+    from rich.panel import Panel
+
+    from src.cli.cache import get_cache
+
+    console = Console()
     cache = get_cache()
     info = cache.get_info()
 
@@ -123,9 +134,12 @@ def cache_warmup_command(
     chip_group: str = typer.Option("Alisson", "--chip-group", "-g", help="Chip group prefix"),
 ):
     """Pre-load chip histories into cache"""
-    from src.cli.config import get_config
-    from src.cli.cache import load_history_cached
+    from rich.console import Console
 
+    from src.cli.config import get_config
+    from src.cli.cache import get_cache, load_history_cached
+
+    console = Console()
     config = get_config()
     cache = get_cache()
 

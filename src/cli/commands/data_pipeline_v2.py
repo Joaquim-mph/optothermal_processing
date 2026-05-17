@@ -5,16 +5,14 @@ This demonstrates how to use the Pipeline class for better error handling,
 rollback, and state management.
 """
 
-import typer
+from __future__ import annotations
+
 import shutil
+import typer
 from pathlib import Path
 from typing import Optional
-from rich.console import Console
 
 from src.cli.plugin_system import cli_command
-from src.core.pipeline import Pipeline
-
-console = Console()
 
 
 def create_full_pipeline(
@@ -28,7 +26,7 @@ def create_full_pipeline(
     force: bool,
     skip_metrics: bool,
     include_calibrations: bool,
-) -> Pipeline:
+) -> "Pipeline":
     """
     Factory function to create the full-pipeline definition.
 
@@ -37,10 +35,11 @@ def create_full_pipeline(
     - Saving pipeline definitions to YAML
     - Reusing pipeline definitions across commands
     """
-    from src.models.parameters import StagingParameters
-    from src.core.stage_raw_measurements import run_staging_pipeline
+    from src.core.pipeline import Pipeline
     from src.core.history_builder import generate_all_chip_histories
+    from src.core.stage_raw_measurements import run_staging_pipeline
     from src.derived.metric_pipeline import MetricPipeline
+    from src.models.parameters import StagingParameters
 
     pipeline = Pipeline(
         name="full-pipeline",
@@ -174,15 +173,19 @@ def create_full_pipeline(
 
 def rollback_staging(stage_root: Path):
     """Rollback staging step by removing staged data."""
+    from rich.console import Console
+
     if stage_root.exists():
-        console.print(f"[yellow]Removing staged data: {stage_root}[/yellow]")
+        Console().print(f"[yellow]Removing staged data: {stage_root}[/yellow]")
         shutil.rmtree(stage_root)
 
 
 def rollback_histories(history_dir: Path):
     """Rollback history generation by removing history files."""
+    from rich.console import Console
+
     if history_dir.exists():
-        console.print(f"[yellow]Removing chip histories: {history_dir}[/yellow]")
+        Console().print(f"[yellow]Removing chip histories: {history_dir}[/yellow]")
         shutil.rmtree(history_dir)
 
 
@@ -241,10 +244,14 @@ def full_pipeline_v2_command(
         # Save pipeline definition for reuse
         process_and_analyze full-pipeline-v2 --save-yaml pipelines/full.yml
     """
-    from src.cli.main import get_config
-    from rich.panel import Panel
     import time
 
+    from rich.console import Console
+    from rich.panel import Panel
+
+    from src.cli.main import get_config
+
+    console = Console()
     config = get_config()
 
     # Use config defaults if not specified
@@ -413,6 +420,7 @@ def run_pipeline_yaml_command(
     from src.cli.commands.stage import stage_all_command
     from src.cli.commands.history import build_all_histories_command
     from src.cli.commands.derived_metrics import derive_all_metrics_command
+    from src.core.pipeline import Pipeline
 
     # Command registry for YAML loading
     command_registry = {
@@ -454,9 +462,10 @@ def quick_staging_command(
     Example:
         process_and_analyze quick-staging --workers 16 --force
     """
-    from src.models.parameters import StagingParameters
-    from src.core.stage_raw_measurements import run_staging_pipeline
     from src.cli.main import get_config
+    from src.core.pipeline import Pipeline
+    from src.core.stage_raw_measurements import run_staging_pipeline
+    from src.models.parameters import StagingParameters
 
     config = get_config()
     raw_root = raw_root or config.raw_data_dir
@@ -531,9 +540,11 @@ def metrics_only_command(
     Example:
         process_and_analyze metrics-only --force --workers 12
     """
-    from src.cli.main import get_config
-    from src.derived.metric_pipeline import MetricPipeline
     import polars as pl
+
+    from src.cli.main import get_config
+    from src.core.pipeline import Pipeline
+    from src.derived.metric_pipeline import MetricPipeline
 
     config = get_config()
     stage_root = config.stage_dir / "raw_measurements"

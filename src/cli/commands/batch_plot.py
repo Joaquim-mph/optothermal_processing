@@ -12,24 +12,12 @@ Performance:
 - Parallel: 10-15x faster for large batches (>10 plots, 4+ cores)
 """
 
-import time
 from pathlib import Path
 from typing import Optional
 
 import typer
-from rich.console import Console
-from rich.panel import Panel
 
 from src.cli.plugin_system import cli_command
-from src.plotting.shared.batch import (
-    load_batch_config,
-    execute_sequential,
-    execute_parallel,
-    display_summary,
-)
-
-
-console = Console()
 
 
 @cli_command(
@@ -102,6 +90,20 @@ def batch_plot_command(
         - config/batch_plots/ for example configurations
         - docs/BATCH_PLOTTING_GUIDE.md for detailed documentation
     """
+    import time
+
+    from rich.console import Console
+    from rich.panel import Panel
+
+    from src.plotting.shared.batch import (
+        load_batch_config,
+        execute_sequential,
+        execute_parallel,
+        display_summary,
+    )
+
+    console = Console()
+
     # Load configuration
     console.print(
         Panel(

@@ -1,16 +1,12 @@
 """Derived metrics pipeline commands: derive-all-metrics, enrich-history."""
 
+from __future__ import annotations
+
 import typer
-from src.cli.plugin_system import cli_command
 from pathlib import Path
 from typing import Optional, List
-from rich.console import Console
-from rich.panel import Panel
-from rich.table import Table
-from rich.progress import Progress, SpinnerColumn, TextColumn
-import polars as pl
 
-console = Console()
+from src.cli.plugin_system import cli_command
 
 
 def _parse_procedures(procedures: Optional[str]) -> Optional[List[str]]:
@@ -19,7 +15,9 @@ def _parse_procedures(procedures: Optional[str]) -> Optional[List[str]]:
     return [p.strip() for p in procedures.split(',') if p.strip()]
 
 
-def _merge_with_existing_metrics(metrics_path: Path, existing_metrics: Optional[pl.DataFrame]) -> None:
+def _merge_with_existing_metrics(metrics_path: Path, existing_metrics: "Optional[pl.DataFrame]") -> None:
+    import polars as pl
+
     if existing_metrics is None or existing_metrics.is_empty():
         return
 
@@ -44,6 +42,16 @@ def _run_metric_extraction(
     dry_run: bool,
     pipeline,
 ) -> Path:
+    import polars as pl
+    from rich.console import Console
+    from rich.panel import Panel
+    from rich.table import Table
+    from rich.progress import Progress, SpinnerColumn, TextColumn
+
+    from src.cli.main import get_config
+
+    console = Console()
+
     console.print()
     console.print(Panel.fit(
         title,
@@ -55,7 +63,6 @@ def _run_metric_extraction(
     if procedure_list:
         console.print(f"[cyan]Filtering procedures:[/cyan] {', '.join(procedure_list)}")
 
-    from src.cli.main import get_config
     config = get_config()
 
     chip_numbers_list = None
@@ -242,7 +249,13 @@ def derive_all_metrics_command(
         # Preview without processing
         python process_and_analyze.py derive-all-metrics --dry-run
     """
+    from rich.console import Console
+    from rich.panel import Panel
+    from rich.progress import Progress, SpinnerColumn, TextColumn
+
     from src.cli.main import get_config
+
+    console = Console()
     config = get_config()
 
     # Initialize pipeline
@@ -437,10 +450,15 @@ def derive_fitting_metrics_command(
         # Limit to ITS only
         python process_and_analyze.py derive-fitting-metrics --procedures ITS
     """
+    import polars as pl
+    from rich.console import Console
+
     from src.derived.metric_pipeline import MetricPipeline
     from src.derived.extractors.its_relaxation_extractor import ITSRelaxationExtractor
     from src.derived.extractors.its_three_phase_fit_extractor import ITSThreePhaseFitExtractor
     from src.derived.extractors.drift_extractor import DriftExtractor
+
+    console = Console()
 
     console.print("[cyan]Initializing metric pipeline (fitting metrics only)...[/cyan]")
     pipeline = MetricPipeline(
@@ -538,8 +556,13 @@ def derive_consecutive_sweeps_command(
         # Limit to a single chip
         python process_and_analyze.py derive-consecutive-sweeps --chip 75
     """
+    import polars as pl
+    from rich.console import Console
+
     from src.derived.metric_pipeline import MetricPipeline
     from src.derived.extractors.consecutive_sweep_difference import ConsecutiveSweepDifferenceExtractor
+
+    console = Console()
 
     console.print("[cyan]Initializing metric pipeline (consecutive sweeps only)...[/cyan]")
     pipeline = MetricPipeline(
@@ -630,6 +653,14 @@ def enrich_history_command(
         # Enrich and overwrite original
         python process_and_analyze.py enrich-history 75 --overwrite
     """
+    import polars as pl
+    from rich.console import Console
+    from rich.panel import Panel
+
+    from src.cli.main import get_config
+
+    console = Console()
+
     # Deprecation warning
     console.print()
     console.print(Panel.fit(
@@ -647,8 +678,6 @@ def enrich_history_command(
     ))
     console.print()
 
-    # Load config
-    from src.cli.main import get_config
     config = get_config()
 
     try:

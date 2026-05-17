@@ -1,15 +1,10 @@
 """Enrich all chip histories command."""
 
 import typer
-from src.cli.plugin_system import cli_command
 from pathlib import Path
 from typing import Optional
-from rich.console import Console
-from rich.panel import Panel
-from rich.progress import Progress, SpinnerColumn, TextColumn
-import polars as pl
 
-console = Console()
+from src.cli.plugin_system import cli_command
 
 
 @cli_command(
@@ -81,6 +76,15 @@ def enrich_all_histories_command(
         # Skip metric extraction, only enrich from existing metrics
         python process_and_analyze.py enrich-all-histories --skip-derive
     """
+    import polars as pl
+    from rich.console import Console
+    from rich.panel import Panel
+    from rich.progress import Progress, SpinnerColumn, TextColumn
+
+    from src.cli.main import get_config
+
+    console = Console()
+
     console.print()
 
     # Deprecation warning / tip
@@ -102,8 +106,6 @@ def enrich_all_histories_command(
     ))
     console.print()
 
-    # Load config
-    from src.cli.main import get_config
     config = get_config()
 
     # Check if metrics exist

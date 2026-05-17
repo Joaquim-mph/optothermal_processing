@@ -1,28 +1,17 @@
-"""History display and generation commands: show-history, build-history, build-all-histories."""
+"""History display and generation commands: show-history, build-history, build-all-histories.
+
+Heavy imports (polars, rich submodules, src.core.history_builder, src.cli.context,
+src.cli.history_utils) are deferred into the command function bodies. The @cli_command
+decorator only needs the function reference and the metadata kwargs, so keeping the
+module top-level cheap keeps `discover_commands` — and therefore CLI startup and shell
+completion — fast.
+"""
 
 import typer
-from src.cli.plugin_system import cli_command
 from pathlib import Path
 from typing import Optional
-from rich.table import Table
-from rich.panel import Panel
-from rich.columns import Columns
-from rich.progress import Progress, SpinnerColumn, TextColumn
-from rich import box
-import polars as pl
 
-from src.cli.context import get_context
-from src.core.history_builder import (
-    build_chip_history_from_manifest,
-    generate_chip_name,
-    save_chip_history,
-    generate_all_chip_histories,
-)
-from src.cli.history_utils import (
-    filter_history,
-    summarize_history,
-    HistoryFilterError,
-)
+from src.cli.plugin_system import cli_command
 
 
 @cli_command(
@@ -113,6 +102,19 @@ def show_history_command(
         # Pipe to jq for filtering
         python process_and_analyze.py show-history 67 --format json | jq '.data[] | select(.procedure == "IVg")'
     """
+    import polars as pl
+    from rich.table import Table
+    from rich.panel import Panel
+    from rich.columns import Columns
+    from rich import box
+
+    from src.cli.context import get_context
+    from src.cli.history_utils import (
+        filter_history,
+        summarize_history,
+        HistoryFilterError,
+    )
+
     ctx = get_context()
 
     # Validate mode
@@ -662,6 +664,15 @@ def build_history_command(
         # Build history for chip 72 with custom manifest
         process_and_analyze build-history 72 -m /path/to/manifest.parquet
     """
+    from rich.panel import Panel
+
+    from src.cli.context import get_context
+    from src.core.history_builder import (
+        build_chip_history_from_manifest,
+        generate_chip_name,
+        save_chip_history,
+    )
+
     ctx = get_context()
 
     if manifest_path is None:
@@ -800,6 +811,11 @@ def build_all_histories_command(
         # Build only for Alisson chips with at least 10 experiments
         process_and_analyze build-all-histories -g Alisson -n 10
     """
+    from rich.panel import Panel
+
+    from src.cli.context import get_context
+    from src.core.history_builder import generate_all_chip_histories
+
     ctx = get_context()
 
     if manifest_path is None:
@@ -992,6 +1008,11 @@ def enrich_histories_command(
         - Wavelength matching is strict (no tolerance)
         - This is a DERIVED METRIC extraction (Stage 3), not raw metadata (Stage 2)
     """
+    import polars as pl
+    from rich.panel import Panel
+    from rich.progress import Progress, SpinnerColumn, TextColumn
+
+    from src.cli.context import get_context
     from src.derived.extractors import CalibrationMatcher, print_enrichment_report
 
     ctx = get_context()
@@ -1181,6 +1202,11 @@ def validate_calibration_links_command(
         # Custom history directory
         validate-calibration-links --history-dir data/histories
     """
+    import polars as pl
+    from rich.panel import Panel
+
+    from src.cli.context import get_context
+
     ctx = get_context()
 
     if history_dir is None:

@@ -4,11 +4,8 @@ from pathlib import Path
 from typing import Optional
 
 import typer
-from rich.console import Console
-from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
 
 from src.cli.plugin_system import cli_command
-from src.plotting.shared.config import PlotConfig
 
 
 @cli_command(
@@ -50,10 +47,14 @@ def plot_ivg_by_sample_group_command(
     2. Generate one plot per chip
     3. Show progress and summary statistics
     """
-    console = Console()
-
-    from src.plotting.ivg_by_sample import plot_ivg_by_sample, scan_csvs_for_chip_samples, load_sample_data_from_manifest
     import polars as pl
+    from rich.console import Console
+    from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
+
+    from src.plotting.ivg_by_sample import plot_ivg_by_sample
+    from src.plotting.shared.config import PlotConfig
+
+    console = Console()
 
     console.print(f"\n[bold cyan]Batch IVg-by-Sample Plotting[/bold cyan]")
     console.print(f"  Chip Group: [green]{chip_group}[/green]")

@@ -1,26 +1,10 @@
 """ITS photoresponse plotting command: plot-its-photoresponse."""
 
 import typer
-from src.cli.plugin_system import cli_command
 from pathlib import Path
 from typing import Optional, Literal
-from rich.console import Console
-from src.cli.context import get_context
-from rich.panel import Panel
-import polars as pl
 
-from src.plotting import its_photoresponse
-from src.cli.helpers import (
-    parse_seq_list,
-    generate_plot_tag,
-    setup_output_dir,
-    auto_select_experiments,
-    validate_experiments_exist,
-    apply_metadata_filters,
-    display_experiment_list,
-    display_plot_settings,
-    display_plot_success
-)
+from src.cli.plugin_system import cli_command
 
 
 @cli_command(
@@ -159,6 +143,24 @@ def plot_its_photoresponse_command(
         python process_and_analyze.py plot-its-photoresponse 67 power --seq 4-7 \\
             --theme paper --dpi 600 --format pdf
     """
+    import polars as pl
+    from rich.panel import Panel
+
+    from src.cli.context import get_context
+    from src.cli.helpers import (
+        parse_seq_list,
+        generate_plot_tag,
+        setup_output_dir,
+        auto_select_experiments,
+        validate_experiments_exist,
+        apply_metadata_filters,
+        display_experiment_list,
+        display_plot_settings,
+        display_plot_success,
+    )
+    from src.cli.main import get_plot_config
+    from src.plotting import its_photoresponse
+
     ctx = get_context()
     ctx.print()
     ctx.print(Panel.fit(
@@ -358,7 +360,6 @@ def plot_its_photoresponse_command(
         raise typer.Exit(0)
 
     # Step 7: Get plot config and apply overrides
-    from src.cli.main import get_plot_config
     plot_config = get_plot_config()
 
     plot_overrides = {}

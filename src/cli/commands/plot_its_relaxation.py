@@ -5,20 +5,6 @@ from pathlib import Path
 from typing import Optional
 
 from src.cli.plugin_system import cli_command
-from src.cli.context import get_context
-from src.cli.cache import load_history_cached
-from src.cli.helpers import (
-    parse_seq_list,
-    generate_plot_tag,
-    setup_output_dir,
-    validate_experiments_exist,
-    display_experiment_list,
-    display_plot_settings,
-    display_plot_success
-)
-from src.plotting.its_relaxation_fit import plot_its_relaxation_fits
-from src.plotting.shared.plot_utils import print_error, print_warning, print_info
-import polars as pl
 
 
 @cli_command(
@@ -94,6 +80,22 @@ def plot_its_relaxation_command(
     # Filter by segment type
     plot-its-relaxation 81 --auto --segment dark
     """
+    import polars as pl
+
+    from src.cli.context import get_context
+    from src.cli.cache import load_history_cached
+    from src.cli.helpers import (
+        parse_seq_list,
+        generate_plot_tag,
+        setup_output_dir,
+        validate_experiments_exist,
+        display_experiment_list,
+        display_plot_settings,
+        display_plot_success,
+    )
+    from src.plotting.its_relaxation_fit import plot_its_relaxation_fits
+    from src.plotting.shared.plot_utils import print_error, print_warning, print_info
+
     ctx = get_context()
     base_dir = Path.cwd()
 

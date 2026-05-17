@@ -2,14 +2,10 @@
 
 from pathlib import Path
 from typing import Optional
+
 import typer
-from rich.console import Console
-from rich.panel import Panel
 
 from src.cli.plugin_system import cli_command
-from src.plotting.consecutive_sweep_diff import plot_consecutive_sweep_differences
-
-console = Console()
 
 
 @cli_command(
@@ -93,6 +89,12 @@ def plot_consecutive_sweep_diff_command(
     Individual plots: figs/{ChipGroup}{ChipNumber}/{Procedure}/ConsecutiveSweepDiff/
     Summary plot: Same directory with "_summary" tag
     """
+    from rich.console import Console
+    from rich.panel import Panel
+
+    from src.plotting.consecutive_sweep_diff import plot_consecutive_sweep_differences
+
+    console = Console()
 
     chip_name = f"{group}{chip_number}"
 

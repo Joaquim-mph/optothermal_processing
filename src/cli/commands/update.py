@@ -4,13 +4,8 @@ from pathlib import Path
 from typing import Optional
 
 import typer
-from rich.console import Console
-from rich.panel import Panel
-from rich.progress import Progress, SpinnerColumn, TextColumn
 
 from src.cli.plugin_system import cli_command
-
-console = Console()
 
 
 @cli_command(
@@ -53,6 +48,9 @@ def update_command(
     Use `enrich-all-histories` when you actually need the derived metric columns.
     """
     import polars as pl
+    from rich.console import Console
+    from rich.panel import Panel
+    from rich.progress import Progress, SpinnerColumn, TextColumn
 
     from src.cli.main import get_config
     from src.core import run_staging_pipeline
@@ -60,6 +58,7 @@ def update_command(
     from src.derived.extractors import CalibrationMatcher
     from src.models.parameters import StagingParameters
 
+    console = Console()
     config = get_config()
 
     raw_root = config.raw_data_dir

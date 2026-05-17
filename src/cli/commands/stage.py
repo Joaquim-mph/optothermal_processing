@@ -1,18 +1,10 @@
 """Staging pipeline commands: stage-all, stage-incremental, validate-manifest, inspect-manifest."""
 
 import typer
-from src.cli.plugin_system import cli_command
 from pathlib import Path
 from typing import Optional
-from rich.console import Console
-from rich.panel import Panel
-from rich.table import Table
-from rich.tree import Tree
-from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
-from rich import box
-import time
 
-console = Console()
+from src.cli.plugin_system import cli_command
 
 
 @cli_command(
@@ -119,8 +111,20 @@ def stage_all_command(
         # Strict schema mode
         process_and_analyze stage-all --only-yaml-data
     """
-    # Load config for defaults
+    import time
+
+    from rich.console import Console
+    from rich.panel import Panel
+    from rich.table import Table
+    from rich.tree import Tree
+    from rich.progress import Progress, SpinnerColumn, TextColumn
+    from rich import box
+
     from src.cli.main import get_config
+    from src.core import run_staging_pipeline, discover_csvs
+    from src.models.parameters import StagingParameters
+
+    console = Console()
     config = get_config()
 
     if raw_root is None:
@@ -132,9 +136,6 @@ def stage_all_command(
         stage_root = config.stage_dir / "raw_measurements"
         if config.verbose or verbose:
             console.print(f"[dim]Using stage directory from config: {stage_root}[/dim]")
-
-    from src.models.parameters import StagingParameters
-    from src.core import run_staging_pipeline, discover_csvs
 
     console.print()
     console.print(Panel.fit(
@@ -348,18 +349,23 @@ def validate_manifest_command(
         # Validate custom manifest
         process_and_analyze validate-manifest -m path/to/manifest.parquet
     """
-    # Load config for defaults
+    import polars as pl
+    from pydantic import TypeAdapter
+    from rich.console import Console
+    from rich.panel import Panel
+    from rich.table import Table
+    from rich import box
+
     from src.cli.main import get_config
+    from src.models.manifest import ManifestRow
+
+    console = Console()
     config = get_config()
 
     if manifest is None:
         manifest = config.stage_dir / "raw_measurements" / "_manifest" / "manifest.parquet"
         if config.verbose:
             console.print(f"[dim]Using manifest path from config: {manifest}[/dim]")
-
-    import polars as pl
-    from pydantic import TypeAdapter
-    from src.models.manifest import ManifestRow
 
     console.print()
     console.print(Panel.fit(
@@ -588,16 +594,21 @@ def inspect_manifest_command(
         # Export as CSV
         process_and_analyze inspect-manifest --chip 67 --format csv > chip67_manifest.csv
     """
-    # Load config for defaults
+    import polars as pl
+    from rich.console import Console
+    from rich.panel import Panel
+    from rich.table import Table
+    from rich import box
+
     from src.cli.main import get_config
+
+    console = Console()
     config = get_config()
 
     if manifest is None:
         manifest = config.stage_dir / "raw_measurements" / "_manifest" / "manifest.parquet"
         if config.verbose:
             console.print(f"[dim]Using manifest path from config: {manifest}[/dim]")
-
-    import polars as pl
 
     try:
         if not manifest.exists():
@@ -745,6 +756,14 @@ def staging_stats_command(
         process_and_analyze staging-stats -s path/to/staging
     """
     import subprocess
+
+    from rich.console import Console
+    from rich.panel import Panel
+    from rich.table import Table
+    from rich.tree import Tree
+    from rich import box
+
+    console = Console()
 
     console.print()
     console.print(Panel.fit(

@@ -4,26 +4,10 @@ Generates 3 plots in one call: overlay, sequential, and photoresponse.
 """
 
 import typer
-from src.cli.plugin_system import cli_command
 from pathlib import Path
 from typing import Optional
-from rich.panel import Panel
 
-from src.plotting import its, its_photoresponse
-from src.cli.context import get_context
-from src.cli.helpers import (
-    parse_seq_list,
-    generate_plot_tag,
-    setup_output_dir,
-    auto_select_experiments,
-    validate_experiments_exist,
-    apply_metadata_filters,
-    display_experiment_list,
-    display_plot_settings,
-    display_plot_success,
-    load_history_for_plotting,
-)
-import polars as pl
+from src.cli.plugin_system import cli_command
 
 
 @cli_command(
@@ -174,6 +158,25 @@ def plot_its_suite_command(
         biotite plot-its-suite 67 --seq 4-7 --photoresponse-x wavelength
         biotite plot-its-suite 67 --auto --conductance
     """
+    import polars as pl
+    from rich.panel import Panel
+
+    from src.cli.context import get_context
+    from src.cli.helpers import (
+        parse_seq_list,
+        generate_plot_tag,
+        setup_output_dir,
+        auto_select_experiments,
+        validate_experiments_exist,
+        apply_metadata_filters,
+        display_experiment_list,
+        display_plot_settings,
+        display_plot_success,
+        load_history_for_plotting,
+    )
+    from src.cli.main import get_plot_config
+    from src.plotting import its, its_photoresponse
+
     ctx = get_context()
 
     # Validate flag combinations
@@ -181,8 +184,6 @@ def plot_its_suite_command(
         ctx.print("[yellow]Warning:[/yellow] --absolute flag ignored (only valid with --conductance)")
         absolute = False
 
-    # Get PlotConfig with command-specific overrides
-    from src.cli.main import get_plot_config
     plot_config = get_plot_config()
 
     plot_overrides = {}

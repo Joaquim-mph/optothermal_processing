@@ -1,29 +1,19 @@
-"""ITS plotting command: plot-its."""
+"""ITS plotting command: plot-its.
+
+Heavy imports (polars, rich submodules, src.plotting.*, src.cli.context,
+src.cli.cache, src.cli.helpers) are deferred into each command function
+body. Type annotations on module-level helpers are stringified via
+``from __future__ import annotations`` so we never need polars at import
+time.
+"""
+
+from __future__ import annotations
 
 import typer
-from src.cli.plugin_system import cli_command
 from pathlib import Path
 from typing import Optional
-from rich.panel import Panel
-from rich.table import Table
 
-from src.plotting import its
-from src.plotting.shared import plot_utils
-from src.plotting.its_presets import PRESETS, get_preset, preset_summary
-from src.cli.context import get_context
-from src.cli.cache import load_history_cached
-from src.cli.helpers import (
-    parse_seq_list,
-    generate_plot_tag,
-    setup_output_dir,
-    auto_select_experiments,
-    validate_experiments_exist,
-    apply_metadata_filters,
-    display_experiment_list,
-    display_plot_settings,
-    display_plot_success
-)
-import polars as pl
+from src.cli.plugin_system import cli_command
 
 
 @cli_command(
@@ -34,6 +24,12 @@ import polars as pl
 )
 def list_presets_command():
     """List all available ITS plot presets with descriptions."""
+    from rich.panel import Panel
+    from rich.table import Table
+
+    from src.cli.context import get_context
+    from src.plotting.its_presets import PRESETS
+
     ctx = get_context()
 
     ctx.print()
@@ -80,6 +76,8 @@ def _all_its_are_dark(meta: pl.DataFrame) -> bool:
 
     Returns True if ALL experiments have laser toggle = False or laser voltage = 0.
     """
+    import polars as pl
+
     its = meta.filter(pl.col("proc") == "It")
     if its.height == 0:
         return False
@@ -275,6 +273,25 @@ def plot_its_command(
         The 'irradiated_power'/'power' legend option requires enriched chip histories
         with calibration data. Run 'derive-all-metrics' to generate these.
     """
+    from rich.panel import Panel
+
+    from src.cli.context import get_context
+    from src.cli.helpers import (
+        parse_seq_list,
+        generate_plot_tag,
+        setup_output_dir,
+        auto_select_experiments,
+        validate_experiments_exist,
+        apply_metadata_filters,
+        display_experiment_list,
+        display_plot_settings,
+        display_plot_success,
+        load_history_for_plotting,
+    )
+    from src.cli.main import get_plot_config
+    from src.plotting import its
+    from src.plotting.its_presets import PRESETS
+
     ctx = get_context()
 
     # Validate flag combinations
@@ -282,8 +299,6 @@ def plot_its_command(
         ctx.print("[yellow]Warning:[/yellow] --absolute flag ignored (only valid with --conductance)")
         absolute = False
 
-    # === Phase 2: Get PlotConfig with command-specific overrides ===
-    from src.cli.main import get_plot_config
     plot_config = get_plot_config()
 
     # Apply command-specific overrides (--theme, --format, --dpi)
@@ -422,7 +437,6 @@ def plot_its_command(
     # Step 3: Load history data (includes parquet_path to staged measurements)
     ctx.print("\n[cyan]Loading experiment history...[/cyan]")
     try:
-        from src.cli.helpers import load_history_for_plotting
         history = load_history_for_plotting(
             seq_numbers,
             chip_number,
@@ -731,6 +745,23 @@ def plot_its_sequential_command(
         python process_and_analyze.py plot-its-sequential 81 --seq 93,94,95,96 \\
             --plot-start 10.0 --no-boundaries --legend vg
     """
+    from rich.panel import Panel
+
+    from src.cli.context import get_context
+    from src.cli.helpers import (
+        parse_seq_list,
+        generate_plot_tag,
+        setup_output_dir,
+        auto_select_experiments,
+        validate_experiments_exist,
+        display_experiment_list,
+        display_plot_settings,
+        display_plot_success,
+        load_history_for_plotting,
+    )
+    from src.cli.main import get_plot_config
+    from src.plotting import its
+
     ctx = get_context()
 
     ctx.print()
@@ -788,7 +819,6 @@ def plot_its_sequential_command(
             if date is not None:
                 filters["date"] = date
 
-            from src.cli.helpers import auto_select_experiments
             seq_numbers = auto_select_experiments(
                 chip_number,
                 "It",  # ITS experiments
@@ -807,7 +837,6 @@ def plot_its_sequential_command(
 
     # Step 2: Validate seq numbers exist
     ctx.print("\n[cyan]Validating experiments...[/cyan]")
-    from src.cli.helpers import validate_experiments_exist
     valid, errors = validate_experiments_exist(
         seq_numbers,
         chip_number,
@@ -826,7 +855,6 @@ def plot_its_sequential_command(
     # Step 3: Load history data
     ctx.print("\n[cyan]Loading experiment history...[/cyan]")
     try:
-        from src.cli.helpers import load_history_for_plotting
         history = load_history_for_plotting(
             seq_numbers,
             chip_number,
@@ -889,8 +917,6 @@ def plot_its_sequential_command(
     ctx.print("\n[cyan]Generating sequential plot...[/cyan]")
     base_dir = Path(".")  # Not used (parquet_path has absolute paths)
 
-    # Get PlotConfig from CLI (Phase 3 integration)
-    from src.cli.main import get_plot_config
     plot_config = get_plot_config()
 
     # Override output_dir if specified via CLI

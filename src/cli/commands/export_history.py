@@ -1,17 +1,14 @@
 """CLI command for exporting chip histories to organized folders."""
 
-from pathlib import Path
+from __future__ import annotations
+
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
-import polars as pl
+
 import typer
-from rich.console import Console
-from rich.panel import Panel
 
 from src.cli.plugin_system import cli_command
-from src.cli.main import get_config
-
-console = Console()
 
 
 @cli_command(
@@ -64,6 +61,14 @@ def export_history(
     # Export without timestamp (cleaner filename)
     $ python process_and_analyze.py export-history 67 --no-timestamp
     """
+    import polars as pl
+    from rich.console import Console
+    from rich.panel import Panel
+
+    from src.cli.main import get_config
+
+    console = Console()
+
     # Validate format
     format = format.lower()
     valid_formats = ["csv", "json", "parquet", "xlsx"]
@@ -282,6 +287,10 @@ def export_all_histories(
     # Export all chips (metrics only)
     $ python process_and_analyze.py export-all-histories --mode metrics
     """
+    from rich.console import Console
+
+    console = Console()
+
     # Find all chip histories
     enriched_dir = Path("data/03_derived/chip_histories_enriched")
     standard_dir = Path("data/02_stage/chip_histories")

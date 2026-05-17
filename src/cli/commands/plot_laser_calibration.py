@@ -5,29 +5,16 @@ Provides commands to generate laser calibration plots showing the relationship
 between laser PSU voltage and measured optical power.
 """
 
+from __future__ import annotations
+
 import typer
 from pathlib import Path
 from typing import Optional
-from rich.console import Console
-from src.cli.context import get_context
-from src.cli.cache import load_history_cached
-from rich.panel import Panel
-from rich.table import Table
-import polars as pl
 
 from src.cli.plugin_system import cli_command
-from src.cli.helpers import (
-    parse_seq_list,
-    display_plot_success,
-)
-from src.plotting.laser_calibration import (
-    plot_laser_calibration,
-    plot_laser_calibration_comparison,
-)
 
 
-
-def _display_calibration_experiments(df: pl.DataFrame, title: str = "Calibration Experiments"):
+def _display_calibration_experiments(df: "pl.DataFrame", title: str = "Calibration Experiments"):
     """
     Display calibration experiments in a Rich table.
 
@@ -38,6 +25,11 @@ def _display_calibration_experiments(df: pl.DataFrame, title: str = "Calibration
     title : str
         Table title
     """
+    from rich.panel import Panel
+    from rich.table import Table
+
+    from src.cli.context import get_context
+
     ctx = get_context()
     ctx.print()
     ctx.print(Panel.fit(
@@ -201,6 +193,14 @@ def plot_laser_calibration_command(
     Output:
         Saves plot to: figs/laser_calibrations/laser_calibration_*.png
     """
+    import polars as pl
+    from rich.panel import Panel
+
+    from src.cli.context import get_context
+    from src.cli.helpers import parse_seq_list, display_plot_success
+    from src.cli.main import get_config, get_plot_config
+    from src.plotting.laser_calibration import plot_laser_calibration
+
     ctx = get_context()
 
     if output_dir is None:
@@ -209,7 +209,6 @@ def plot_laser_calibration_command(
             ctx.print(f"[dim]Using output directory: {output_dir}[/dim]")
 
     if manifest is None:
-        from src.cli.main import get_config
         config = get_config()
         manifest = config.stage_dir / "raw_measurements" / "_manifest" / "manifest.parquet"
         if ctx.verbose:
@@ -316,7 +315,6 @@ def plot_laser_calibration_command(
     plot_tag = "calibrations"
 
     # Get plot config and apply command-specific overrides
-    from src.cli.main import get_plot_config
     plot_config = get_plot_config()
 
     # Apply command-specific overrides

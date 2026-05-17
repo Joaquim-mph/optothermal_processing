@@ -1,17 +1,13 @@
 """Unified enrich-history command - consolidates calibration and metric enrichment."""
 
+from __future__ import annotations
+
+import re
 import typer
-from src.cli.plugin_system import cli_command
 from pathlib import Path
 from typing import Optional, List
-from rich.console import Console
-from rich.panel import Panel
-from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
-from rich.table import Table
-import polars as pl
-import re
 
-console = Console()
+from src.cli.plugin_system import cli_command
 
 
 @cli_command(
@@ -146,8 +142,15 @@ def enrich_history_unified_command(
         - derive-all-metrics: Extract metrics from raw measurements first
         - show-history: View enriched history after processing
     """
+    import polars as pl
+    from rich.console import Console
+    from rich.panel import Panel
+    from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
+    from rich.table import Table
+
     from src.cli.main import get_config
 
+    console = Console()
     config = get_config()
 
     console.print()
@@ -388,7 +391,7 @@ def _run_derive_all_metrics(
     chip_numbers: List[int],
     chip_group: Optional[str],
     workers: int,
-    console: Console
+    console: "Console"
 ):
     """Run metric extraction for specified chips."""
     from src.derived.metric_pipeline import MetricPipeline
@@ -419,7 +422,7 @@ def _enrich_calibrations(
     stale_threshold: float,
     force: bool,
     dry_run: bool,
-    console: Console,
+    console: "Console",
     verbose: bool
 ):
     """Add calibration power columns using CalibrationMatcher."""
@@ -458,10 +461,12 @@ def _enrich_metrics(
     metric_list: List[str],
     force: bool,
     dry_run: bool,
-    console: Console,
+    console: "Console",
     verbose: bool
 ):
     """Add derived metric columns by joining with metrics.parquet."""
+    import polars as pl
+
     metrics_path = Path("data/03_derived/_metrics/metrics.parquet")
 
     if not metrics_path.exists():

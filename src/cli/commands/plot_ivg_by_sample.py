@@ -4,10 +4,8 @@ from pathlib import Path
 from typing import Optional
 
 import typer
-from rich.console import Console
 
 from src.cli.plugin_system import cli_command
-from src.plotting.shared.config import PlotConfig
 
 
 @cli_command(
@@ -47,9 +45,12 @@ def plot_ivg_by_sample_command(
     The command tries to use the staged manifest first (fast), and falls back
     to scanning raw CSV files if the manifest is not available.
     """
-    console = Console()
+    from rich.console import Console
 
     from src.plotting.ivg_by_sample import plot_ivg_by_sample
+    from src.plotting.shared.config import PlotConfig
+
+    console = Console()
 
     console.print(f"\n[bold cyan]Plotting IVg by Sample[/bold cyan]")
     console.print(f"  Chip: [green]{chip_group} {chip_number}[/green]")

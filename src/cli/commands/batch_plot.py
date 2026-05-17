@@ -12,25 +12,12 @@ Performance:
 - Parallel: 10-15x faster for large batches (>10 plots, 4+ cores)
 """
 
-import time
 from pathlib import Path
 from typing import Optional
 
 import typer
-from rich.console import Console
-from rich.panel import Panel
 
 from src.cli.plugin_system import cli_command
-from src.core.data_cache import enable_parquet_caching
-from src.plotting.shared.batch import (
-    load_batch_config,
-    execute_sequential,
-    execute_parallel,
-    display_summary,
-)
-
-
-console = Console()
 
 
 @cli_command(
@@ -103,9 +90,24 @@ def batch_plot_command(
         - config/batch_plots/ for example configurations
         - docs/BATCH_PLOTTING_GUIDE.md for detailed documentation
     """
-    # Enable parquet caching before any plotting module imports/binds
-    # read_measurement_parquet (batch.py imports plotting modules lazily).
+    import time
+
+    from rich.console import Console
+    from rich.panel import Panel
+
+    # Enable parquet caching before src.plotting.shared.batch binds
+    # read_measurement_parquet (it imports plotting modules at import time).
+    from src.core.data_cache import enable_parquet_caching
     enable_parquet_caching()
+
+    from src.plotting.shared.batch import (
+        load_batch_config,
+        execute_sequential,
+        execute_parallel,
+        display_summary,
+    )
+
+    console = Console()
 
     # Load configuration
     console.print(

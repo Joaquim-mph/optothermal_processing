@@ -6,30 +6,15 @@ import itertools
 from pathlib import Path
 from typing import Optional
 
-import matplotlib.pyplot as plt
-import numpy as np
-import polars as pl
 import typer
-import yaml
-from rich.console import Console
 
 from src.cli.plugin_system import cli_command
-from src.core.utils import read_measurement_parquet
-from src.plotting.shared import styles as _styles
-from src.plotting.shared.config import PlotConfig
-from src.plotting.shared.plot_utils import (
-    ensure_standard_columns,
-    segment_voltage_sweep,
-)
-from src.plotting.shared.styles import set_plot_style
 
-PALETTES = {
-    "prism_rain": _styles.PRISM_RAIN_PALETTE,
-    "deep_rain": _styles.DEEP_RAIN_PALETTE,
-    "prism_rain_vivid": _styles.PRISM_RAIN_PALETTE_VIVID,
-    "minimal": _styles.MINIMAL_PALETTE,
-    "scientific": _styles.SCIENTIFIC_PALETTE,
-}
+# Palette / linestyle names. Actual color values are resolved from
+# src.plotting.shared.styles inside the command body to keep import-time
+# cost (matplotlib chain) out of `discover_commands`.
+PALETTE_NAMES = ("prism_rain", "deep_rain", "prism_rain_vivid", "minimal", "scientific")
+LINESTYLE_SET_NAMES = ("mixed",)
 
 LINESTYLE_SETS = {
     "mixed": ["-", "--", "-.", ":"],
@@ -40,10 +25,10 @@ STAGE_HISTORY_DIR = Path("data/02_stage/chip_histories")
 ENCAP_YAML = Path("config/encap_characteristics.yaml")
 DEFAULT_OUTPUT_DIR = Path("figs/compare/first-ivg")
 
-console = Console()
-
 
 def _load_encap_characteristics() -> dict[int, dict]:
+    import yaml
+
     if not ENCAP_YAML.exists():
         return {}
     with ENCAP_YAML.open("r") as f:
@@ -66,13 +51,17 @@ def _resolve_history_path(chip_group: str, chip_number: int) -> Path:
 
 
 def _trim_to_full_sweeps(
-    vg: np.ndarray, i_uA: np.ndarray, range_fraction: float = 0.9
-) -> tuple[np.ndarray, np.ndarray]:
+    vg: "np.ndarray", i_uA: "np.ndarray", range_fraction: float = 0.9
+) -> "tuple[np.ndarray, np.ndarray]":
     """Drop leading/trailing half-sweeps, keep only extremum-to-extremum segments.
 
     Adjacent full sweeps share their turn-point sample; the duplicate is removed
     so the concatenated trace is a clean hysteresis loop.
     """
+    import numpy as np
+
+    from src.plotting.shared.plot_utils import segment_voltage_sweep
+
     segments = segment_voltage_sweep(vg, i_uA)
     if not segments:
         return vg, i_uA
@@ -96,7 +85,12 @@ def _trim_to_full_sweeps(
 
 def _load_first_ivg(
     chip_group: str, chip_number: int
-) -> tuple[np.ndarray, np.ndarray, int, int]:
+) -> "tuple[np.ndarray, np.ndarray, int, int]":
+    import polars as pl
+
+    from src.core.utils import read_measurement_parquet
+    from src.plotting.shared.plot_utils import ensure_standard_columns
+
     history = pl.read_parquet(_resolve_history_path(chip_group, chip_number))
     ivg = history.filter(pl.col("proc") == "IVg").sort("seq")
     if ivg.height == 0:
@@ -182,12 +176,12 @@ def compare_first_ivg(
     palette: Optional[str] = typer.Option(
         None,
         "--palette",
-        help=f"Color palette override (one of: {', '.join(PALETTES)}). Keeps the theme's format.",
+        help=f"Color palette override (one of: {', '.join(PALETTE_NAMES)}). Keeps the theme's format.",
     ),
     linestyle: Optional[str] = typer.Option(
         None,
         "--linestyle",
-        help=f"Linestyle cycle preset (one of: {', '.join(LINESTYLE_SETS)}). Each curve gets the next style.",
+        help=f"Linestyle cycle preset (one of: {', '.join(LINESTYLE_SET_NAMES)}). Each curve gets the next style.",
     ),
     fmt: Optional[str] = typer.Option(
         None,
@@ -206,6 +200,24 @@ def compare_first_ivg(
         biotite compare-first-ivg 80,81,72
         biotite compare-first-ivg 67,72,74,75 --group Alisson --tag baseline
     """
+    import matplotlib.pyplot as plt
+    import numpy as np
+    from rich.console import Console
+
+    from src.plotting.shared import styles as _styles
+    from src.plotting.shared.config import PlotConfig
+    from src.plotting.shared.styles import set_plot_style
+
+    console = Console()
+
+    PALETTES = {
+        "prism_rain": _styles.PRISM_RAIN_PALETTE,
+        "deep_rain": _styles.DEEP_RAIN_PALETTE,
+        "prism_rain_vivid": _styles.PRISM_RAIN_PALETTE_VIVID,
+        "minimal": _styles.MINIMAL_PALETTE,
+        "scientific": _styles.SCIENTIFIC_PALETTE,
+    }
+
     chip_numbers = _parse_chip_list(chips)
     encap = _load_encap_characteristics()
 

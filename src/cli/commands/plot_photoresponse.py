@@ -3,10 +3,6 @@
 import typer
 from pathlib import Path
 from typing import Optional
-from rich.console import Console
-from src.cli.context import get_context
-from src.cli.cache import load_history_cached
-from rich.panel import Panel
 
 from src.cli.plugin_system import cli_command
 
@@ -132,9 +128,14 @@ def plot_photoresponse_command(
         # Filter to power range
         python process_and_analyze.py plot-photoresponse 81 wavelength --power-min 1e-6 --power-max 1e-3
     """
-    ctx = get_context()
     import polars as pl
+    from rich.panel import Panel
+
+    from src.cli.context import get_context
+    from src.cli.main import get_config, get_plot_config
     from src.plotting.photoresponse import plot_photoresponse
+
+    ctx = get_context()
 
     # Validate x_variable
     valid_x_vars = ["power", "wavelength", "gate_voltage", "time"]
@@ -161,8 +162,6 @@ def plot_photoresponse_command(
                 ctx.print(f"[yellow]Valid options:[/yellow] {', '.join(valid_procs)}")
                 raise typer.Exit(1)
 
-    # Load config
-    from src.cli.main import get_config
     config = get_config()
 
     chip_name = f"{chip_group}{chip_number}"
@@ -249,8 +248,6 @@ def plot_photoresponse_command(
 
     ctx.print(f"[green]✓[/green] Found {photo_count} It measurements with photoresponse data")
 
-    # Get plot config and apply command-specific overrides
-    from src.cli.main import get_plot_config
     plot_config = get_plot_config()
 
     # Apply command-specific overrides

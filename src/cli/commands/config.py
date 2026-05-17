@@ -15,16 +15,8 @@ from pathlib import Path
 from typing import Optional
 
 import typer
-from rich.console import Console
-from rich.table import Table
-from rich.panel import Panel
-from rich import box
 
-from src.cli.config import CLIConfig, load_config_with_precedence
 from src.cli.plugin_system import cli_command
-
-
-console = Console()
 
 
 @cli_command(name="config-show", description="Display current configuration settings")
@@ -47,6 +39,14 @@ def show_config_command(
     Shows all configuration fields with their current values,
     and optionally the source of each setting (default/env/file/override).
     """
+    from rich.console import Console
+    from rich.table import Table
+    from rich import box
+
+    from src.cli.config import CLIConfig, load_config_with_precedence
+
+    console = Console()
+
     # Load config with precedence
     try:
         config = load_config_with_precedence(config_file=config_file)
@@ -147,6 +147,14 @@ def init_config_command(
 
     Creates a JSON config file that can be edited to customize behavior.
     """
+    from rich.console import Console
+    from rich.panel import Panel
+    from rich import box
+
+    from src.cli.config import CLIConfig
+
+    console = Console()
+
     # Determine output location
     if output is None:
         output = Path.home() / ".optothermal_cli_config.json"
@@ -235,6 +243,14 @@ def validate_config_command(
     - Write permissions for output directories
     - Config file format (if using file)
     """
+    import os
+
+    from rich.console import Console
+
+    from src.cli.config import load_config_with_precedence
+
+    console = Console()
+
     issues = []
     warnings = []
 
@@ -365,6 +381,14 @@ def reset_config_command(
 
     Creates a backup before resetting (unless --no-backup is used).
     """
+    from rich.console import Console
+    from rich.panel import Panel
+    from rich import box
+
+    from src.cli.config import CLIConfig
+
+    console = Console()
+
     # Determine which config file to reset
     if config_file is None:
         config_file = Path.home() / ".optothermal_cli_config.json"
@@ -426,7 +450,3 @@ Run [bold]config-show[/bold] to see the default settings.
         box=box.ROUNDED
     )
     console.print(panel)
-
-
-# Import os at module level for validate command
-import os

@@ -6,14 +6,18 @@ Commands are auto-discovered from the commands/ directory using
 the @cli_command decorator. No manual registration required.
 """
 
+from __future__ import annotations
+
 import typer
 from pathlib import Path
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
 from src.cli.plugin_system import discover_commands
 from src.cli.config import CLIConfig, load_config_with_precedence
 from src.cli.logging_setup import configure_logging
-from src.plotting.shared.config import PlotConfig
+
+if TYPE_CHECKING:
+    from src.plotting.shared.config import PlotConfig
 
 
 # Global configuration singletons
@@ -71,6 +75,8 @@ def get_plot_config() -> PlotConfig:
         >>> print(config.theme, config.dpi)
         prism_rain 300
     """
+    from src.plotting.shared.config import PlotConfig
+
     global _plot_config
     if _plot_config is None:
         cli_config = get_config()

@@ -7,10 +7,13 @@ sequential experiment numbers, dates, procedures, summaries, and paths to staged
 Parquet measurement files.
 """
 
+import logging
 from pathlib import Path
 from typing import Optional
 import polars as pl
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 
 def compute_parquet_path(stage_root: Path, proc: str, date_local: str, run_id: str) -> str:
@@ -555,8 +558,7 @@ def generate_all_chip_histories(
             histories[chip_name] = output_path
 
         except Exception as e:
-            # Log error but continue with other chips
-            print(f"Warning: Failed to generate history for {chip_id}: {e}")
+            logger.warning("failed to generate history for %s: %s", chip_id, e)
             continue
 
     return histories

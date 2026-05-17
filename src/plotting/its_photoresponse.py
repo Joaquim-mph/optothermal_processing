@@ -1,6 +1,8 @@
 """ITS photoresponse plotting - analyze delta current from ITS measurements."""
 
 from __future__ import annotations
+import logging
+
 from pathlib import Path
 from typing import Literal, Optional
 import matplotlib.pyplot as plt
@@ -10,6 +12,9 @@ import numpy as np
 
 from src.core.utils import read_measurement_parquet
 from src.plotting.shared.config import PlotConfig
+
+logger = logging.getLogger(__name__)
+
 
 
 def _extract_delta_current_from_its(measurement: pl.DataFrame, metadata: dict) -> float | None:
@@ -171,7 +176,7 @@ def plot_its_photoresponse(
 
     if has_enriched:
         # Use pre-computed delta_current from enriched history
-        print("[info] Using delta_current from enriched history (fast!)")
+        logger.info("Using delta_current from enriched history (fast!)")
 
         # Cast delta_current to float if it's stored as string
         if its_data["delta_current"].dtype == pl.Utf8:
@@ -192,7 +197,7 @@ def plot_its_photoresponse(
             )
     else:
         # Extract delta_current on-the-fly from ITS measurements
-        print("[info] Extracting delta_current on-the-fly from ITS measurements...")
+        logger.info("Extracting delta_current on-the-fly from ITS measurements...")
 
         delta_currents = []
         valid_indices = []
@@ -201,7 +206,7 @@ def plot_its_photoresponse(
             # Load measurement
             parquet_path = Path(row.get("parquet_path") or row.get("source_file"))
             if not parquet_path.exists():
-                print(f"[warn] Missing file: {parquet_path}")
+                logger.warning(f"Missing file: {parquet_path}")
                 continue
 
             measurement = read_measurement_parquet(parquet_path)
@@ -232,7 +237,7 @@ def plot_its_photoresponse(
         # Filter out nulls
         its_data = its_data.filter(pl.col("delta_current").is_not_null())
 
-        print(f"[info] Extracted delta_current from {its_data.height} measurements")
+        logger.info(f"Extracted delta_current from {its_data.height} measurements")
 
     # Apply filters
     if filter_wavelength is not None:
@@ -263,8 +268,8 @@ def plot_its_photoresponse(
             x_unit_conversion = 1e6  # W to μW
         elif "laser_voltage_v" in its_data.columns:
             # Fallback: use laser voltage as proxy for power
-            print("[warn] Column 'irradiated_power_w' not found. Using 'laser_voltage_v' as fallback.")
-            print("[info] Run 'derive-all-metrics --calibrations' to get calibrated power values.")
+            logger.warning("Column 'irradiated_power_w' not found. Using 'laser_voltage_v' as fallback.")
+            logger.info("Run 'derive-all-metrics --calibrations' to get calibrated power values.")
             x_col = "laser_voltage_v"
             x_label = "Laser Voltage (V)"
             x_unit_conversion = 1.0  # No conversion
@@ -448,6 +453,7 @@ def plot_its_photoresponse(
     # Pattern: {chip_name}_ITS_photoresponse_vs_{x_variable}[_filters]_{plot_tag}.png
     # Extract chip number from chip_name (e.g., "Alisson67" -> "67")
     import re
+
     chip_match = re.search(r'(\d+)$', chip_name)
     chip_number = chip_match.group(1) if chip_match else chip_name
 
@@ -484,6 +490,6 @@ def plot_its_photoresponse(
     plt.savefig(output_file, dpi=config.dpi, bbox_inches='tight')
     plt.close(fig)
 
-    print(f"saved {output_file}")
+    logger.info(f"saved {output_file}")
 
     return output_file

@@ -12,6 +12,7 @@ from typing import Optional
 
 from src.cli.plugin_system import discover_commands
 from src.cli.config import CLIConfig, load_config_with_precedence
+from src.cli.logging_setup import configure_logging
 from src.plotting.shared.config import PlotConfig
 
 
@@ -180,6 +181,7 @@ def global_options(
         config = config.merge_with(**overrides)
 
     set_config(config)
+    configure_logging(config.verbose)
 
     # Reset plot config to pick up new CLI config changes
     # (forces get_plot_config() to recreate from updated CLI config)

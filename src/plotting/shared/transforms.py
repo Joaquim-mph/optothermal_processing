@@ -17,11 +17,15 @@ Functions:
 - calculate_inverse_conductance(I, V): 1/G = V/I with resistance units
 - calculate_inverse_resistance(V, I): 1/R = I/V with conductance units
 """
-
 from __future__ import annotations
+
+import logging
 from typing import Optional, Tuple
+
 import numpy as np
 import polars as pl
+
+logger = logging.getLogger(__name__)
 
 
 def calculate_resistance(
@@ -69,9 +73,9 @@ def calculate_resistance(
 
     # Check for zero or invalid current
     if current == 0 or not np.isfinite(current):
-        print(
-            f"[warn] Cannot calculate resistance: IDS={current}A "
-            "(would divide by zero - skipping curve)"
+        logger.warning(
+            "cannot calculate resistance: IDS=%sA (would divide by zero - skipping curve)",
+            current,
         )
         return None, None, None
 
@@ -137,9 +141,9 @@ def calculate_conductance(
 
     # Check for zero or invalid voltage
     if voltage == 0 or not np.isfinite(voltage):
-        print(
-            f"[warn] Cannot calculate conductance: VDS={voltage}V "
-            "(would divide by zero - skipping curve)"
+        logger.warning(
+            "cannot calculate conductance: VDS=%sV (would divide by zero - skipping curve)",
+            voltage,
         )
         return None, None, None
 
@@ -210,16 +214,16 @@ def calculate_inverse_conductance(
 
     # Check for zero or invalid voltage
     if voltage == 0 or not np.isfinite(voltage):
-        print(
-            f"[warn] Cannot calculate inverse conductance: VDS={voltage}V "
-            "(would divide by zero - skipping curve)"
+        logger.warning(
+            "cannot calculate inverse conductance: VDS=%sV (would divide by zero - skipping curve)",
+            voltage,
         )
         return None, None, None
 
     # Check for zero or near-zero current values (would cause infinite 1/G)
     if np.any(np.abs(current) < 1e-15):
-        print(
-            f"[warn] Cannot calculate inverse conductance: current contains near-zero values "
+        logger.warning(
+            "cannot calculate inverse conductance: current contains near-zero values "
             "(would cause infinite 1/G - skipping curve)"
         )
         return None, None, None
@@ -291,16 +295,16 @@ def calculate_inverse_resistance(
 
     # Check for zero or invalid current
     if current == 0 or not np.isfinite(current):
-        print(
-            f"[warn] Cannot calculate inverse resistance: IDS={current}A "
-            "(would divide by zero - skipping curve)"
+        logger.warning(
+            "cannot calculate inverse resistance: IDS=%sA (would divide by zero - skipping curve)",
+            current,
         )
         return None, None, None
 
     # Check for zero or near-zero voltage values (would cause infinite 1/R)
     if np.any(np.abs(voltage) < 1e-15):
-        print(
-            f"[warn] Cannot calculate inverse resistance: voltage contains near-zero values "
+        logger.warning(
+            "cannot calculate inverse resistance: voltage contains near-zero values "
             "(would cause infinite 1/R - skipping curve)"
         )
         return None, None, None

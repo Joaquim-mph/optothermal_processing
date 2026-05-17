@@ -9,6 +9,8 @@ Provides plotting functions to visualize:
 
 from __future__ import annotations
 
+import logging
+
 import numpy as np
 import matplotlib.pyplot as plt
 import polars as pl
@@ -18,6 +20,8 @@ import json
 
 from src.core.utils import read_measurement_parquet
 from src.derived.extractors.cnp_extractor import CNPExtractor
+
+logger = logging.getLogger(__name__)
 
 
 def plot_cnp_detection(
@@ -105,7 +109,7 @@ def plot_cnp_detection(
     result = extractor.extract(measurement, metadata)
 
     if result is None:
-        print("CNP extraction failed")
+        logger.warning("CNP extraction failed")
         return
 
     # Parse results
@@ -220,7 +224,7 @@ def plot_cnp_detection(
 
     if save_path:
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
-        print(f"Saved plot to {save_path}")
+        logger.info(f"Saved plot to {save_path}")
 
     if show:
         plt.show()
@@ -258,7 +262,7 @@ def compare_cnp_measurements(
     # Load chip history
     history_path = Path(f"data/02_stage/chip_histories/{chip_group}{chip_number}_history.parquet")
     if not history_path.exists():
-        print(f"History not found: {history_path}")
+        logger.error("history not found: %s", history_path)
         return
 
     history = pl.read_parquet(history_path)
@@ -267,17 +271,17 @@ def compare_cnp_measurements(
     ivg = history.filter(pl.col('proc') == 'IVg').head(max_plots)
 
     if ivg.height == 0:
-        print(f"No IVg measurements found for {chip_group}{chip_number}")
+        logger.warning("no IVg measurements found for %s%s", chip_group, chip_number)
         return
 
-    print(f"Comparing {ivg.height} IVg measurements for {chip_group}{chip_number}")
+    logger.info("comparing %d IVg measurements for %s%s", ivg.height, chip_group, chip_number)
 
     extractor = CNPExtractor()
 
     for i, row in enumerate(ivg.iter_rows(named=True)):
         parquet_path = Path(row['parquet_path'])
 
-        print(f"\n[{i+1}/{ivg.height}] Processing seq={row['seq']}, {row['datetime_local']}")
+        logger.info("[%d/%d] processing seq=%s, %s", i + 1, ivg.height, row['seq'], row['datetime_local'])
 
         try:
             measurement = read_measurement_parquet(parquet_path)
@@ -307,8 +311,8 @@ def compare_cnp_measurements(
             )
 
         except Exception as e:
-            print(f"  Error: {e}")
+            logger.error("error processing seq=%s: %s", row['seq'], e)
             continue
 
     if save_dir:
-        print(f"\nSaved {ivg.height} plots to {save_dir}")
+        logger.info("saved %d plots to %s", ivg.height, save_dir)

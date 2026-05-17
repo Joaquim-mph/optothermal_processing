@@ -1,6 +1,8 @@
 """ITS (current vs time) plotting functions."""
 
 from __future__ import annotations
+import logging
+
 from pathlib import Path
 import numpy as np
 import matplotlib.pyplot as plt
@@ -20,6 +22,9 @@ from src.plotting.shared.plot_utils import (
 )
 from src.plotting.shared.config import PlotConfig
 from src.plotting.shared.formatters import get_legend_formatter
+
+logger = logging.getLogger(__name__)
+
 
 
 def _calculate_auto_baseline(df: pl.DataFrame, divisor: float = 2.0) -> float:
@@ -48,7 +53,7 @@ def _calculate_auto_baseline(df: pl.DataFrame, divisor: float = 2.0) -> float:
     elif "Laser ON+OFF period" in df.columns:
         period_col = "Laser ON+OFF period"
     else:
-        print("[warn] Could not auto-detect LED period (column missing), using baseline_t=60.0")
+        logger.warning("Could not auto-detect LED period (column missing), using baseline_t=60.0")
         return 60.0
 
     periods = []
@@ -63,10 +68,10 @@ def _calculate_auto_baseline(df: pl.DataFrame, divisor: float = 2.0) -> float:
     if periods:
         median_period = float(np.median(periods))
         baseline = median_period / divisor
-        print(f"[info] Auto baseline: {baseline:.1f}s (median period {median_period:.1f}s / {divisor})")
+        logger.info(f"Auto baseline: {baseline:.1f}s (median period {median_period:.1f}s / {divisor})")
         return baseline
 
-    print("[warn] Could not auto-detect LED period (no valid values), using baseline_t=60.0")
+    logger.warning("Could not auto-detect LED period (no valid values), using baseline_t=60.0")
     return 60.0
 
 
@@ -307,16 +312,16 @@ def plot_its_overlay(
         # No baseline correction (raw data mode)
         baseline_t = None
         apply_baseline = False
-        print("[info] Baseline correction disabled (RAW DATA mode)")
+        logger.info("Baseline correction disabled (RAW DATA mode)")
     else:  # baseline_mode == "fixed"
         # Use provided baseline_t value
         if baseline_t is None:
             baseline_t = 60.0
-            print("[warn] baseline_mode='fixed' but baseline_t=None, using 60.0")
+            logger.warning("baseline_mode='fixed' but baseline_t=None, using 60.0")
         # Check if baseline is exactly 0.0 (special case)
         if baseline_t == 0.0:
             apply_baseline = "zero"
-            print("[info] Baseline at t=0: subtracting first point from each trace")
+            logger.info("Baseline at t=0: subtracting first point from each trace")
         else:
             apply_baseline = "interpolate"
 
@@ -325,7 +330,7 @@ def plot_its_overlay(
         durations = _get_experiment_durations(df, base_dir)
         has_mismatch, warning = _check_duration_mismatch(durations, duration_tolerance)
         if has_mismatch:
-            print(warning)
+            logger.warning(warning)
 
     # --- normalize legend_by to a canonical value ---
     lb = legend_by.strip().lower()
@@ -349,7 +354,7 @@ def plot_its_overlay(
     else:
         its = its.sort("file_idx")
     if its.height == 0:
-        print("[warn] no ITS rows in metadata")
+        logger.warning("no ITS rows in metadata")
         return
 
     plt.figure(figsize=config.figsize_timeseries)
@@ -365,7 +370,7 @@ def plot_its_overlay(
     for row in its.iter_rows(named=True):
         path = base_dir / row["source_file"]
         if not path.exists():
-            print(f"[warn] missing file: {path}")
+            logger.warning(f"missing file: {path}")
             continue
 
         d = read_measurement_parquet(path)
@@ -374,13 +379,13 @@ def plot_its_overlay(
         d = ensure_standard_columns(d)
 
         if not {"t", "I"} <= set(d.columns):
-            print(f"[warn] {path} lacks t/I; got {d.columns}")
+            logger.warning(f"{path} lacks t/I; got {d.columns}")
             continue
 
         tt = np.asarray(d["t"])
         yy = np.asarray(d["I"])
         if tt.size == 0 or yy.size == 0:
-            print(f"[warn] empty/invalid series in {path}")
+            logger.warning(f"empty/invalid series in {path}")
             continue
         if not np.all(np.diff(tt) >= 0):
             idx = np.argsort(tt)
@@ -453,7 +458,7 @@ def plot_its_overlay(
             vds = row.get("vds_v") or row.get("VDS")
 
             if vds is None or vds == 0 or not np.isfinite(vds):
-                print(f"[warn] Skipping seq #{int(row.get('file_idx', 0))}: VDS={vds}V (cannot calculate conductance)")
+                logger.warning(f"Skipping seq #{int(row.get('file_idx', 0))}: VDS={vds}V (cannot calculate conductance)")
                 continue
 
             # Calculate conductance G = I/V
@@ -498,7 +503,7 @@ def plot_its_overlay(
                 pass
 
     if curves_plotted == 0:
-        print("[warn] no ITS traces plotted; skipping light-window shading")
+        logger.warning("no ITS traces plotted; skipping light-window shading")
         return
 
     # Set x-axis limits
@@ -626,7 +631,7 @@ def plot_its_overlay(
         create_dirs=True  # Create directories only when saving
     )
     plt.savefig(out, dpi=config.dpi)
-    print(f"saved {out}")
+    logger.info(f"saved {out}")
     plt.close()
 
 
@@ -717,16 +722,16 @@ def plot_its_dark(
         # No baseline correction (raw data mode)
         baseline_t = None
         apply_baseline = False
-        print("[info] Baseline correction disabled (RAW DATA mode)")
+        logger.info("Baseline correction disabled (RAW DATA mode)")
     else:  # baseline_mode == "fixed"
         # Use provided baseline_t value
         if baseline_t is None:
             baseline_t = 60.0
-            print("[warn] baseline_mode='fixed' but baseline_t=None, using 60.0")
+            logger.warning("baseline_mode='fixed' but baseline_t=None, using 60.0")
         # Check if baseline is exactly 0.0 (special case)
         if baseline_t == 0.0:
             apply_baseline = "zero"
-            print("[info] Baseline at t=0: subtracting first point from each trace")
+            logger.info("Baseline at t=0: subtracting first point from each trace")
         else:
             apply_baseline = "interpolate"
 
@@ -735,7 +740,7 @@ def plot_its_dark(
         durations = _get_experiment_durations(df, base_dir)
         has_mismatch, warning = _check_duration_mismatch(durations, duration_tolerance)
         if has_mismatch:
-            print(warning)
+            logger.warning(warning)
 
     # --- normalize legend_by to a canonical value ---
     lb = legend_by.strip().lower()
@@ -750,7 +755,7 @@ def plot_its_dark(
     elif lb in {"datetime", "date", "time", "dt"}:
         lb = "datetime"
     else:
-        print(f"[info] legend_by='{legend_by}' not recognized; using vg")
+        logger.info(f"legend_by='{legend_by}' not recognized; using vg")
         lb = "vg"
 
     its = df.filter(pl.col("proc") == "It")
@@ -759,7 +764,7 @@ def plot_its_dark(
     else:
         its = its.sort("file_idx")
     if its.height == 0:
-        print("[warn] no ITS rows in metadata")
+        logger.warning("no ITS rows in metadata")
         return
 
     plt.figure(figsize=config.figsize_timeseries)
@@ -771,7 +776,7 @@ def plot_its_dark(
     for row in its.iter_rows(named=True):
         path = base_dir / row["source_file"]
         if not path.exists():
-            print(f"[warn] missing file: {path}")
+            logger.warning(f"missing file: {path}")
             continue
 
         d = read_measurement_parquet(path)
@@ -780,13 +785,13 @@ def plot_its_dark(
         d = ensure_standard_columns(d)
 
         if not {"t", "I"} <= set(d.columns):
-            print(f"[warn] {path} lacks t/I; got {d.columns}")
+            logger.warning(f"{path} lacks t/I; got {d.columns}")
             continue
 
         tt = np.asarray(d["t"])
         yy = np.asarray(d["I"])
         if tt.size == 0 or yy.size == 0:
-            print(f"[warn] empty/invalid series in {path}")
+            logger.warning(f"empty/invalid series in {path}")
             continue
         if not np.all(np.diff(tt) >= 0):
             idx = np.argsort(tt)
@@ -856,7 +861,7 @@ def plot_its_dark(
             vds = row.get("vds_v") or row.get("VDS")
 
             if vds is None or vds == 0 or not np.isfinite(vds):
-                print(f"[warn] Skipping seq #{int(row.get('file_idx', 0))}: VDS={vds}V (cannot calculate conductance)")
+                logger.warning(f"Skipping seq #{int(row.get('file_idx', 0))}: VDS={vds}V (cannot calculate conductance)")
                 continue
 
             # Calculate conductance G = I/V
@@ -885,7 +890,7 @@ def plot_its_dark(
             pass
 
     if curves_plotted == 0:
-        print("[warn] no ITS traces plotted")
+        logger.warning("no ITS traces plotted")
         return
 
     # Set x-axis limits
@@ -963,7 +968,7 @@ def plot_its_dark(
         create_dirs=True
     )
     plt.savefig(out, dpi=config.dpi)
-    print(f"saved {out}")
+    logger.info(f"saved {out}")
     plt.close()
 
 
@@ -1030,6 +1035,7 @@ def plot_its_sequential(
 
     # Apply plot style from config
     from src.plotting.shared.styles import set_plot_style, PRISM_RAIN_PALETTE
+
     set_plot_style(config.theme)
 
     # --- normalize legend_by to a canonical value ---
@@ -1045,7 +1051,7 @@ def plot_its_sequential(
     elif lb in {"datetime", "date", "time", "dt"}:
         lb = "datetime"
     else:
-        print(f"[info] legend_by='{legend_by}' not recognized; using datetime")
+        logger.info(f"legend_by='{legend_by}' not recognized; using datetime")
         lb = "datetime"
 
     # Storage for plotting
@@ -1063,12 +1069,12 @@ def plot_its_sequential(
     if lb == "datetime":
         df = _sort_its_for_datetime(df)
 
-    print(f"[info] Plotting {len(df)} ITS experiments sequentially (raw data, no baseline)")
+    logger.info(f"Plotting {len(df)} ITS experiments sequentially (raw data, no baseline)")
 
     for i, row in enumerate(df.iter_rows(named=True)):
         source_file = row.get("source_file")
         if not source_file:
-            print(f"[warn] Skipping row {i}: no source_file")
+            logger.warning(f"Skipping row {i}: no source_file")
             continue
 
         fp = Path(source_file)
@@ -1076,14 +1082,14 @@ def plot_its_sequential(
             fp = base_dir / fp
 
         if not fp.exists():
-            print(f"[warn] File not found: {fp}")
+            logger.warning(f"File not found: {fp}")
             continue
 
         # Load measurement data
         try:
             d = read_measurement_parquet(fp)
         except Exception as e:
-            print(f"[warn] Could not read {fp}: {e}")
+            logger.warning(f"Could not read {fp}: {e}")
             continue
 
         # Normalize column names (handle both "t" and "t (s)" formats)
@@ -1091,7 +1097,7 @@ def plot_its_sequential(
 
         # Extract time and current
         if "t" not in d.columns or "I" not in d.columns:
-            print(f"[warn] Missing t or I columns in {fp}")
+            logger.warning(f"Missing t or I columns in {fp}")
             continue
 
         tt = np.asarray(d["t"])
@@ -1103,7 +1109,7 @@ def plot_its_sequential(
         yy_trimmed = yy[mask]
 
         if len(tt_trimmed) == 0:
-            print(f"[warn] No data after trimming to t>={plot_start_time}s for experiment {i}")
+            logger.warning(f"No data after trimming to t>={plot_start_time}s for experiment {i}")
             continue
 
         # Reset time to start at 0 for this experiment
@@ -1171,7 +1177,7 @@ def plot_its_sequential(
         time_offset += tt_trimmed[-1]
 
     if not experiment_segments:
-        print("[error] No data to plot")
+        logger.error("No data to plot")
         return
 
     # Create figure
@@ -1236,10 +1242,10 @@ def plot_its_sequential(
         create_dirs=True
     )
     plt.savefig(out, dpi=config.dpi)
-    print(f"saved {out}")
+    logger.info(f"saved {out}")
     plt.close()
 
     # Calculate total time from last segment
     if experiment_segments:
         last_time = experiment_segments[-1][0][-1]  # Last time point of last segment
-        print(f"[info] Sequential plot: {len(experiment_segments)} experiments, total time: {last_time:.1f}s")
+        logger.info(f"Sequential plot: {len(experiment_segments)} experiments, total time: {last_time:.1f}s")

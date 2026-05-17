@@ -1,4 +1,6 @@
 from __future__ import annotations
+import logging
+
 from pathlib import Path
 import numpy as np
 import polars as pl
@@ -9,6 +11,9 @@ from src.core.utils import _proc_from_path, _file_index
 
 # Lazy import for rich console to avoid circular dependencies
 _console = None
+
+logger = logging.getLogger(__name__)
+
 
 def get_console():
     """Get or create rich console singleton."""
@@ -48,7 +53,7 @@ def detect_light_on_window(
         if on_idx.size > 0:
             return float(tt[on_idx[0]]), float(tt[on_idx[-1]])
     except (TypeError, ValueError, KeyError) as e:
-        print(f"[warn] VL detection failed: {e}")
+        logger.warning(f"VL detection failed: {e}")
     
     return None, None
 
@@ -66,7 +71,7 @@ def interpolate_baseline(
     if baseline_t < t[0] or baseline_t > t[-1]:
         idx_near = int(np.argmin(np.abs(t - baseline_t)))
         if warn_extrapolation:
-            print(f"[info] baseline_t={baseline_t:.3g}s outside data range "
+            logger.info(f"baseline_t={baseline_t:.3g}s outside data range "
                   f"[{t[0]:.3g}, {t[-1]:.3g}]s; using nearest t={t[idx_near]:.3g}s")
         return float(i[idx_near])
     
@@ -222,14 +227,14 @@ def combine_metadata_by_seq(
     )
 
     if history.height == 0:
-        print(f"[warn] no history found for {chip_group_name}{int(chip)}")
+        logger.warning(f"no history found for {chip_group_name}{int(chip)}")
         return pl.DataFrame()
 
     # Filter history by requested seq numbers
     selected = history.filter(pl.col("seq").is_in(seq_numbers))
 
     if selected.height == 0:
-        print(f"[warn] no experiments found with seq numbers: {seq_numbers}")
+        logger.warning(f"no experiments found with seq numbers: {seq_numbers}")
         return pl.DataFrame()
 
     # Group by day_folder to process each day's metadata
@@ -257,7 +262,7 @@ def combine_metadata_by_seq(
                 break
 
         if meta_path is None:
-            print(f"[warn] could not find metadata for {day_folder}")
+            logger.warning(f"could not find metadata for {day_folder}")
             continue
 
         # Load metadata for this day
@@ -273,10 +278,10 @@ def combine_metadata_by_seq(
                 all_meta.append(day_meta_filtered)
 
         except Exception as e:
-            print(f"[warn] failed to load {meta_path}: {e}")
+            logger.warning(f"failed to load {meta_path}: {e}")
 
     if not all_meta:
-        print("[warn] no metadata could be loaded")
+        logger.warning("no metadata could be loaded")
         return pl.DataFrame()
 
     # Find common columns across all days
@@ -294,8 +299,8 @@ def combine_metadata_by_seq(
     if "start_time" in combined.columns:
         combined = combined.sort("start_time")
 
-    print(f"[info] combined {combined.height} experiment(s) from {len(all_meta)} day(s)")
-    print(f"[info] using {len(common_cols)} common column(s)")
+    logger.info(f"combined {combined.height} experiment(s) from {len(all_meta)} day(s)")
+    logger.info(f"using {len(common_cols)} common column(s)")
 
     return combined
 
@@ -592,7 +597,7 @@ def extract_cnp_for_plotting(
 
     except Exception as e:
         # Silently fail - CNP extraction is optional for plotting
-        print(f"[debug] CNP extraction failed: {e}")
+        logger.debug(f"CNP extraction failed: {e}")
         return None, None, None, None
 
 
@@ -1076,6 +1081,7 @@ class ParquetCache:
         # Cache miss - read from disk
         self._misses += 1
         from src.core.utils import read_measurement_parquet
+
         data = read_measurement_parquet(Path(path_str))
         self._cache[path_str] = data
         return data

@@ -1,28 +1,10 @@
 """IVg plotting command: plot-ivg."""
 
 import typer
-from src.cli.plugin_system import cli_command
 from pathlib import Path
 from typing import Optional
-from rich.console import Console
-from src.cli.context import get_context
-from src.cli.cache import load_history_cached
-from rich.panel import Panel
-import polars as pl
 
-from src.plotting import ivg
-from src.plotting.shared import plot_utils
-from src.cli.helpers import (
-    parse_seq_list,
-    generate_plot_tag,
-    setup_output_dir,
-    auto_select_experiments,
-    validate_experiments_exist,
-    apply_metadata_filters,
-    display_experiment_list,
-    display_plot_settings,
-    display_plot_success
-)
+from src.cli.plugin_system import cli_command
 
 
 
@@ -160,6 +142,25 @@ def plot_ivg_command(
         # Custom output location
         python process_and_analyze.py plot-ivg 72 --seq 5,10,15 --output results/
     """
+    import polars as pl
+    from rich.panel import Panel
+
+    from src.cli.context import get_context
+    from src.cli.helpers import (
+        parse_seq_list,
+        generate_plot_tag,
+        setup_output_dir,
+        auto_select_experiments,
+        validate_experiments_exist,
+        apply_metadata_filters,
+        display_experiment_list,
+        display_plot_settings,
+        display_plot_success,
+        load_history_for_plotting,
+    )
+    from src.cli.main import get_plot_config
+    from src.plotting import ivg
+
     ctx = get_context()
     ctx.print()
     ctx.print(Panel.fit(
@@ -273,7 +274,6 @@ def plot_ivg_command(
     # Step 3: Load history data (includes parquet_path to staged measurements)
     ctx.print("\n[cyan]Loading experiment history...[/cyan]")
     try:
-        from src.cli.helpers import load_history_for_plotting
         history = load_history_for_plotting(
             seq_numbers,
             chip_number,
@@ -375,7 +375,6 @@ def plot_ivg_command(
         raise typer.Exit(0)
 
     # Step 9: Get plot config and apply command-specific overrides
-    from src.cli.main import get_plot_config
     plot_config = get_plot_config()
 
     # Apply command-specific overrides

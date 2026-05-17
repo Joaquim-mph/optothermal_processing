@@ -1,29 +1,10 @@
 """Vt plotting command: plot-vt."""
 
 import typer
-from src.cli.plugin_system import cli_command
 from pathlib import Path
 from typing import Optional
-from rich.console import Console
-from src.cli.context import get_context
-from src.cli.cache import load_history_cached
-from rich.panel import Panel
-import polars as pl
 
-from src.plotting import vt
-from src.plotting.vt_presets import PRESETS, get_preset, preset_summary
-from rich.table import Table
-from src.cli.helpers import (
-    parse_seq_list,
-    generate_plot_tag,
-    setup_output_dir,
-    auto_select_experiments,
-    validate_experiments_exist,
-    apply_metadata_filters,
-    display_experiment_list,
-    display_plot_settings,
-    display_plot_success
-)
+from src.cli.plugin_system import cli_command
 
 
 @cli_command(
@@ -34,6 +15,12 @@ from src.cli.helpers import (
 )
 def list_vt_presets_command():
     """List all available Vt plot presets with descriptions."""
+    from rich.panel import Panel
+    from rich.table import Table
+
+    from src.cli.context import get_context
+    from src.plotting.vt_presets import PRESETS
+
     ctx = get_context()
 
     ctx.print()
@@ -235,6 +222,26 @@ def plot_vt_command(
         The 'irradiated_power'/'power' legend option requires enriched chip histories
         with calibration data. Run 'derive-all-metrics' to generate these.
     """
+    import polars as pl
+    from rich.panel import Panel
+
+    from src.cli.context import get_context
+    from src.cli.helpers import (
+        parse_seq_list,
+        generate_plot_tag,
+        setup_output_dir,
+        auto_select_experiments,
+        validate_experiments_exist,
+        apply_metadata_filters,
+        display_experiment_list,
+        display_plot_settings,
+        display_plot_success,
+        load_history_for_plotting,
+    )
+    from src.cli.main import get_plot_config
+    from src.plotting import vt
+    from src.plotting.vt_presets import PRESETS
+
     ctx = get_context()
     ctx.print()
     ctx.print(Panel.fit(
@@ -367,7 +374,6 @@ def plot_vt_command(
     # Step 3: Load history data (includes parquet_path to staged measurements)
     ctx.print("\n[cyan]Loading experiment history...[/cyan]")
     try:
-        from src.cli.helpers import load_history_for_plotting
         history = load_history_for_plotting(
             seq_numbers,
             chip_number,
@@ -504,7 +510,6 @@ def plot_vt_command(
 
     # Step 9: Get plot config and apply command-specific overrides
     ctx.print("\n[cyan]Generating plot...[/cyan]")
-    from src.cli.main import get_plot_config
     plot_config = get_plot_config()
 
     # Apply command-specific overrides

@@ -1,17 +1,14 @@
 """CLI command for exporting chip histories to LaTeX tables with color-coded procedures."""
 
-from pathlib import Path
+from __future__ import annotations
+
 from datetime import datetime
+from pathlib import Path
 from typing import Optional, Dict
-import polars as pl
+
 import typer
-from rich.console import Console
-from rich.panel import Panel
 
 from src.cli.plugin_system import cli_command
-from src.cli.context import get_context
-
-console = Console()
 
 # ============================================
 # COLOR SCHEME FOR PROCEDURES
@@ -156,7 +153,7 @@ def get_procedure_color(proc: str) -> str:
     return DEFAULT_COLOR["name"]
 
 
-def generate_latex_table(history: pl.DataFrame, chip_name: str) -> str:
+def generate_latex_table(history: "pl.DataFrame", chip_name: str) -> str:
     """Generate LaTeX longtable from chip history."""
 
     # Start document
@@ -360,6 +357,11 @@ def export_latex_command(
     $ cd data/04_exports/latex/Alisson67/
     $ pdflatex Alisson67_table.tex
     """
+    import polars as pl
+    from rich.panel import Panel
+
+    from src.cli.context import get_context
+
     ctx = get_context()
 
     # Determine output directory
@@ -565,6 +567,10 @@ def export_all_latex_command(
     # Export without timestamps
     $ python process_and_analyze.py export-all-latex --no-timestamp
     """
+    from rich.console import Console
+
+    console = Console()
+
     # Find all chip histories
     enriched_dir = Path("data/03_derived/chip_histories_enriched")
     standard_dir = Path("data/02_stage/chip_histories")

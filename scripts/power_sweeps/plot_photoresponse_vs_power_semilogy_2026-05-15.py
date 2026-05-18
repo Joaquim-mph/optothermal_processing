@@ -47,7 +47,7 @@ EVAL_T_PRE = 60.0
 EVAL_T_POST = 120.0
 WAVELENGTH_NM = 365.0
 DATE = "2026-05-15"
-OUTPUT_DIR = Path(f"figs/photoresponse_power_law_{DATE}_365nm")
+OUTPUT_DIR = Path("figs/photoresponse_power_law_365nm")
 ENCAP_YAML = Path("config/encap_characteristics.yaml")
 
 
@@ -90,10 +90,10 @@ CHIPS: list[dict] = [
     {
         "chip": 68,
         "vg_filter": -0.9,
-        # Drop the discarded first attempt (seq 227 @ 1 µW, 228 @ 2 µW,
-        # 230 @ 3 µW, 231 @ 4 µW). Keep only the "ahorasi?" retry set
-        # 234-237 (3, 4, 5, 6 µW), matching the other chips' range.
-        "seq_exclude": [227, 228, 230, 231],
+        # Drop the discarded first attempt (seq 118 @ 1 µW, 119 @ 2 µW,
+        # 121 @ 3 µW, 122 @ 4 µW). Keep only the "ahorasi?" retry set
+        # 125-128 (3, 4, 5, 6 µW), matching the other chips' range.
+        "seq_exclude": [118, 119, 121, 122],
         "color": "#377eb8",
         "marker": "o",
         "gamma_anchor": "left",
@@ -536,6 +536,9 @@ def plot_comparison(
         gamma_annotations.append((chip, gamma, p, di))
 
     ax.set_yscale("log")
+    ax.set_yticks([2, 5, 10])
+    ax.set_yticklabels(["2", "5", "10"])
+    ax.yaxis.set_minor_locator(mpl.ticker.NullLocator())
     ax.set_xlabel(r"LED power ($\mu$W)")
     ax.set_ylabel(r"$|\Delta i_{\mathrm{corr}}|$ ($\mu$A)")
     # Park the legend in the empty band between chip 76 and chip 68 traces.

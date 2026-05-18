@@ -1,19 +1,21 @@
 """
-Photoresponse (|Δi_corrected|) vs laser power on log-log axes for Alisson75
-at 365 nm, with independent power-law fits for two measurement sessions.
+Photoresponse (|Δi_corrected|) vs laser power on log-log axes for Alisson80
+at 365 nm, 2026-05-14, Vg = -1.2 V.
 
-Group A: 2025-09-12, seq 5-9,  Vg = -3.0 V
-Group B: 2025-09-15, seq 52-56, Vg = -3.87 V
+Seqs 147-150, powers 6, 12, 18, 24 µW.
 
-Powers: 6, 12, 18, 24, 30 µW (same set in both groups).
-
-Correction: stretched-exponential fit on t ∈ [5, 60] s subtracted from the
+Correction: stretched-exponential fit on t ∈ [1, 60] s subtracted from the
 trace; Δi_corrected = I_corr(120 s) - I_corr(60 s). Absolute value taken so
-both signs collapse onto the log axis. A linear fit in log P vs log |Δi|
-gives the power-law exponent n with ΔI ∝ P^n.
+the response sits on log axes. A linear fit in log P vs log |Δi| gives the
+power-law exponent γ with |Δi| ∝ P^γ.
+
+Two outputs (style copied from
+plot_photoresponse_vs_power_loglog_alisson75_two_dates.py):
+  1. Sequential raw I_ds vs t with a drift-corrected overlay inset.
+  2. log-log photoresponse vs power.
 
 Run from repo root:
-    python scripts/plot_photoresponse_vs_power_loglog_alisson75_two_dates.py
+    python scripts/power_sweeps/plot_photoresponse_vs_power_loglog_alisson80_2026-05-14.py
 """
 
 from __future__ import annotations
@@ -35,29 +37,24 @@ from src.derived.extractors.corrected_delta_i_extractor import CorrectedDeltaIEx
 from src.plotting.shared.config import PlotConfig
 from src.plotting.shared.styles import set_plot_style
 
+CHIP = 80
+DATE = "2026-05-14"
+SEQS = [147, 148, 149, 150]
+VG = -1.2
+WAVELENGTH_NM = 365.0
+
 FIT_T_START = 1.0
 FIT_T_END = 60.0
 EVAL_T_PRE = 60.0
 EVAL_T_POST = 120.0
-WAVELENGTH_NM = 365.0
-CHIP = 75
 
-GROUPS: list[dict] = [
-    {
-        "label": r"$V_g=-3.0$ V",
-        "color": "#377eb8",
-        "marker": "o",
-        "date": "2025-09-12",
-        "seqs": [5, 6, 7, 8, 9],
-    },
-    {
-        "label": r"$V_g=-3.87$ V (Post-illumination)",
-        "color": "#e41a1c",
-        "marker": "s",
-        "date": "2025-09-15",
-        "seqs": [52, 53, 54, 55, 56],
-    },
-]
+GROUP = {
+    "label": rf"Alisson{CHIP}, $V_g={VG:g}$ V",
+    "color": "#377eb8",
+    "marker": "o",
+    "date": DATE,
+    "seqs": SEQS,
+}
 
 _EXTRACTOR = CorrectedDeltaIExtractor(
     fit_t_start=FIT_T_START,
@@ -87,12 +84,11 @@ def delta_i_for_row(row: dict) -> float | None:
 
 
 def rows_for_group(hist: pl.DataFrame, group: dict) -> pl.DataFrame:
-    # Optimized to a single filter operation to prevent intermediate copies in memory
     return hist.filter(
         pl.col("seq").is_in(group["seqs"]),
         pl.col("date") == group["date"],
         pl.col("proc") == "It",
-        pl.col("has_light"),  # Implicitly evaluates to True without needing == True
+        pl.col("has_light"),
         pl.col("wavelength_nm") == WAVELENGTH_NM,
     ).sort("irradiated_power_w")
 
@@ -138,7 +134,6 @@ def plot_it_overlay(config: PlotConfig, hist: pl.DataFrame, group: dict) -> None
         if t.size == 0:
             continue
 
-        # Drift-corrected trace for the inset
         mask = (t >= FIT_T_START) & (t <= FIT_T_END)
         if mask.sum() >= 10:
             fit = fit_stretched_exponential(t[mask], I[mask])
@@ -155,8 +150,6 @@ def plot_it_overlay(config: PlotConfig, hist: pl.DataFrame, group: dict) -> None
         seg_t.append(t.copy())
         seg_I_corr.append(I_corr * 1e6)
 
-        # Sequential raw trace: zero-base each segment, drop first sample
-        # (instrument glitch on It restart), single color per group.
         t_seg = t - t[0]
         y_seg = I * 1e6
         if t_seg.size > 1:
@@ -191,7 +184,7 @@ def plot_it_overlay(config: PlotConfig, hist: pl.DataFrame, group: dict) -> None
 
     # --- inset: drift-corrected overlay, plasma_r by power ---
     inset = ax.inset_axes([0.12, 0.14, 0.3, 0.3])
-    inset.tick_params(axis="both", labelsize="medium")
+    inset.tick_params(axis="both", labelsize="small")
     cmap = mpl.colormaps["plasma_r"]
     cmap_levels = np.linspace(0.15, 1.0, max(1, n))
 
@@ -228,8 +221,8 @@ def plot_it_overlay(config: PlotConfig, hist: pl.DataFrame, group: dict) -> None
                 pad = config.padding_fraction * (y_max - y_min)
                 inset.set_ylim(y_min - pad, y_max + pad)
 
-    inset.set_xlabel(r"$t\ (\mathrm{s})$", fontsize="medium")
-    inset.set_ylabel(r"$I_{\mathrm{corr}}\ (\mu\mathrm{A})$", fontsize="medium")
+    inset.set_xlabel(r"$t\ (\mathrm{s})$", fontsize="small")
+    inset.set_ylabel(r"$I_{\mathrm{corr}}\ (\mu\mathrm{A})$", fontsize="small")
 
     y_lo, y_hi = inset.get_ylim()
     arrow_top = y_hi - 0.10 * (y_hi - y_lo)
@@ -252,7 +245,7 @@ def plot_it_overlay(config: PlotConfig, hist: pl.DataFrame, group: dict) -> None
     plt.tight_layout()
 
     seq_tag = "_".join(str(s) for s in group["seqs"])
-    filename = f"Alisson{CHIP}_It_sequential_with_overlay_seq_{seq_tag}"
+    filename = f"Alisson{CHIP}_It_sequential_with_overlay_seq_{seq_tag}_{DATE}_365nm"
     out = config.get_output_path(
         filename,
         chip_number=CHIP,
@@ -274,60 +267,47 @@ def main() -> None:
         Path(f"data/03_derived/chip_histories_enriched/Alisson{CHIP}_history.parquet")
     )
 
-    for group in GROUPS:
-        plot_it_overlay(config, hist, group)
+    plot_it_overlay(config, hist, GROUP)
 
     fig, ax = plt.subplots(figsize=(20, 20))
 
-    for group in GROUPS:
-        p, di = curve_for_group(hist, group)
-        if p.size == 0:
-            print(f"[warn] no data for {group['label']}")
-            continue
+    p, di = curve_for_group(hist, GROUP)
+    if p.size == 0:
+        print(f"[warn] no data for {GROUP['label']}")
+        return
 
-        # Power-law fit in log-log space: log(di) = n*log(p) + log(a)
-        mask = (p > 0) & (di > 0) & np.isfinite(p) & np.isfinite(di)
-        n_fit, log_a = np.polyfit(np.log10(p[mask]), np.log10(di[mask]), 1)
-        a_fit = 10.0**log_a
+    mask = (p > 0) & (di > 0) & np.isfinite(p) & np.isfinite(di)
+    n_fit, log_a = np.polyfit(np.log10(p[mask]), np.log10(di[mask]), 1)
+    a_fit = 10.0**log_a
 
-        # geomspace is a cleaner abstraction than logspace with log10 boundaries
-        p_fit = np.geomspace(p[mask].min(), p[mask].max(), 100)
-        di_fit = a_fit * p_fit**n_fit
+    p_fit = np.geomspace(p[mask].min(), p[mask].max(), 100)
+    di_fit = a_fit * p_fit**n_fit
 
-        ax.plot(
-            p,
-            di,
-            marker=group["marker"],
-            linestyle="none",
-            color=group["color"],
-            label=f"{group['label']}, $\\gamma={n_fit:.2f}$",
-        )
-        ax.plot(p_fit, di_fit, linestyle="-", color=group["color"], linewidth=1.2)
+    ax.plot(
+        p,
+        di,
+        marker=GROUP["marker"],
+        linestyle="none",
+        color=GROUP["color"],
+        label=f"{GROUP['label']}, $\\gamma={n_fit:.2f}$",
+    )
+    ax.plot(p_fit, di_fit, linestyle="-", color=GROUP["color"], linewidth=1.2)
 
-        print(
-            f"{group['label']}  n={p.size}  P=[{p.min():.2f},{p.max():.2f}] µW  "
-            f"|Δi|=[{di.min():.3g},{di.max():.3g}] µA  "
-            f"fit: |Δi| = {a_fit:.3g} * P^{n_fit:.3f}"
-        )
+    print(
+        f"{GROUP['label']}  n={p.size}  P=[{p.min():.2f},{p.max():.2f}] µW  "
+        f"|Δi|=[{di.min():.3g},{di.max():.3g}] µA  "
+        f"fit: |Δi| = {a_fit:.3g} * P^{n_fit:.3f}"
+    )
 
-    # Apply logarithmic scales
     ax.set_xscale("log")
     ax.set_yscale("log")
 
-    # Definir ticks mayores explícitos en X (mostrarán números)
-    ax.set_xticks([6, 18, 30])
-    # Definir ticks menores explícitos en X (marcas intermedias sin número)
+    ax.set_xticks([6, 18])
     ax.set_xticks([12, 24], minor=True)
 
-    # Definir ticks mayores explícitos en Y
-    ax.set_yticks([5, 10, 20])
-
-    # Use FuncFormatter to force plain numbers and prevent scientific formatting
     formatter = ticker.FuncFormatter(lambda x, pos: f"{x:g}")
     ax.xaxis.set_major_formatter(formatter)
     ax.yaxis.set_major_formatter(formatter)
-
-    # Ensure minor ticks don't print messy text
     ax.xaxis.set_minor_formatter(ticker.NullFormatter())
     ax.yaxis.set_minor_formatter(ticker.NullFormatter())
 
@@ -336,7 +316,7 @@ def main() -> None:
     ax.legend()
     plt.tight_layout()
 
-    filename = "Alisson75_photoresponse_vs_power_loglog_365nm_two_dates"
+    filename = f"Alisson{CHIP}_photoresponse_vs_power_loglog_{DATE}_365nm"
     out = config.get_output_path(
         filename,
         chip_number=CHIP,

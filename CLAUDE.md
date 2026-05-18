@@ -106,6 +106,7 @@ data/03_derived/
 
 ### Always Use Polars, Never pandas
 Different API: `.filter()` not `.query()`, `.select()` not `[]`. See `src/core/utils.py` for patterns.
+pandas is not installed -- don't call `.to_pandas()`. For wide prints in one-off scripts, use `with pl.Config(tbl_rows=N, tbl_cols=N): print(df)`.
 
 ### Parquet is Source of Truth
 Never read CSV files directly in new code. Use `read_measurement_parquet()` from `src/core/utils.py`. History Parquet files contain `parquet_path` pointing to staged data.

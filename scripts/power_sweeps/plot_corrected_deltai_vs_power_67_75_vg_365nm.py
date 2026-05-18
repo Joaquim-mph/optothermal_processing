@@ -35,7 +35,7 @@ WAVELENGTH_NM = 365.0
 CHIPS: list[dict] = [
     {
         "chip": 67,
-        "label": "hBN",
+        "label": "67 hBN",
         "color": "#377eb8",
         "date": "2025-10-14",
         "vg_groups": [
@@ -45,7 +45,7 @@ CHIPS: list[dict] = [
     },
     {
         "chip": 75,
-        "label": "Biotite",
+        "label": "75 Bio",
         "color": "#e41a1c",
         "date": "2025-09-12",
         "vg_groups": [
@@ -101,16 +101,27 @@ def curve_for_group(
         if v is None or p is None or not np.isfinite(p):
             continue
         powers_uW.append(float(p) * 1e6)
-        di_uA.append(v * 1e6)
+        di_uA.append(float(v) * 1e6)
     return np.asarray(powers_uW), np.asarray(di_uA)
+
+
+def power_law_fit(
+    p: np.ndarray, di: np.ndarray
+) -> tuple[float, np.ndarray, np.ndarray]:
+    mask = (p > 0) & (di > 0) & np.isfinite(p) & np.isfinite(di)
+    if mask.sum() < 2:
+        return float("nan"), np.array([]), np.array([])
+    gamma, log_a = np.polyfit(np.log10(p[mask]), np.log10(di[mask]), 1)
+    a = 10.0**log_a
+    p_fit = np.geomspace(p[mask].min(), p[mask].max(), 100)
+    return float(gamma), p_fit, a * p_fit**gamma
 
 
 def main() -> None:
     config = PlotConfig()
     set_plot_style(config.theme)
 
-    fig, ax = plt.subplots(figsize=config.figsize_derived)
-
+    curves: list[tuple[dict, dict, np.ndarray, np.ndarray]] = []
     for chip in CHIPS:
         hist = pl.read_parquet(
             Path(
@@ -122,27 +133,64 @@ def main() -> None:
             if p.size == 0:
                 print(f"[warn] no data for Alisson{chip['chip']} Vg={group['vg_v']}")
                 continue
-            marker = "o" if group["vg_v"] >= 0 else "s"
-            linestyle = "-" if group["vg_v"] >= 0 else "--"
-            label = f"{chip['label']}, $V_g$={group['vg_v']:+g} V"
+            curves.append((chip, group, p, di))
+
+    def _plot(ax: plt.Axes, *, signed: bool) -> None:
+        for chip, group, p, di in curves:
+            is_electrons = group["vg_v"] >= 0
+            marker = "^" if is_electrons else "o"
+            di_abs = np.abs(di)
+            gamma, p_fit, di_fit = power_law_fit(p, di_abs)
+            if signed:
+                sign = 1.0 if np.nanmean(di) >= 0 else -1.0
+                y = di
+                y_fit = sign * di_fit
+            else:
+                y = di_abs
+                y_fit = di_fit
+            label = (
+                f"{chip['label']}, $V_g$={group['vg_v']:+g} V, $\\gamma={gamma:.2f}$"
+            )
             ax.plot(
                 p,
-                di,
+                y,
                 marker=marker,
-                linestyle=linestyle,
+                linestyle="none",
                 color=chip["color"],
+                markersize=25,
                 label=label,
             )
-            print(
-                f"Alisson{chip['chip']} Vg={group['vg_v']:+g} V  n={p.size}  "
-                f"P=[{p.min():.2f},{p.max():.2f}] µW  "
-                f"Δi_corr=[{di.min():.3g},{di.max():.3g}] µA"
-            )
+            if p_fit.size:
+                ax.plot(
+                    p_fit,
+                    y_fit,
+                    linestyle="-",
+                    color=chip["color"],
+                    linewidth=1.2,
+                )
+            if not signed:
+                print(
+                    f"Alisson{chip['chip']} Vg={group['vg_v']:+g} V  n={p.size}  "
+                    f"P=[{p.min():.2f},{p.max():.2f}] µW  "
+                    f"|Δi_corr|=[{di_abs.min():.3g},{di_abs.max():.3g}] µA  "
+                    f"γ={gamma:.3f}"
+                )
 
-    ax.axhline(0.0, color="k", linewidth=0.5, alpha=0.5)
-    ax.set_xlabel(r"Laser power ($\mu$W)")
-    ax.set_ylabel(r"$\Delta i_{\mathrm{corrected}}$ ($\mu$A)")
-    ax.legend()
+    # --- semilog-y plot of |Δi_corr| ---
+    fig, ax = plt.subplots(figsize=(20, 20))
+    _plot(ax, signed=False)
+    ax.set_yscale("log")
+    ax.set_xlabel(r"LED power ($\mu$W)")
+    ax.set_ylabel(r"$|\Delta i_{\mathrm{corr}}|$ ($\mu$A)")
+    # Legend position in axes fraction (0,0 = bottom-left, 1,1 = top-right).
+    # Tweak these to move the box manually.
+    legend_xy = (0.52, 0.8)
+    ax.legend(
+        loc="upper left",
+        bbox_to_anchor=legend_xy,
+        bbox_transform=ax.transAxes,
+        framealpha=0.9,
+    )
     plt.tight_layout()
 
     filename = "Alisson67_75_corrected_deltai_vs_power_365nm_by_Vg"
@@ -157,6 +205,28 @@ def main() -> None:
     plt.savefig(out, dpi=config.dpi, bbox_inches="tight")
     plt.close(fig)
     print(f"saved {out}")
+
+    # --- linear plot of signed Δi_corr ---
+    fig, ax = plt.subplots(figsize=(20, 20))
+    _plot(ax, signed=True)
+    ax.axhline(0.0, color="k", linewidth=0.5, alpha=0.5)
+    ax.set_xlabel(r"LED power ($\mu$W)")
+    ax.set_ylabel(r"$\Delta i_{\mathrm{corr}}$ ($\mu$A)")
+    ax.legend(framealpha=0.9)
+    plt.tight_layout()
+
+    filename_lin = "Alisson67_75_corrected_deltai_vs_power_365nm_by_Vg_linear"
+    out_lin = config.get_output_path(
+        filename_lin,
+        chip_number=67,
+        procedure="It",
+        metadata={"has_light": True},
+        special_type="photoresponse",
+        create_dirs=True,
+    )
+    plt.savefig(out_lin, dpi=config.dpi, bbox_inches="tight")
+    plt.close(fig)
+    print(f"saved {out_lin}")
 
 
 if __name__ == "__main__":

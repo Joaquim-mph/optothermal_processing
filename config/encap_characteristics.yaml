@@ -33,7 +33,7 @@
 # `aspect_ratio_LW_range` is a uniform-prior range used by the Monte Carlo
 # confidence-band estimator in scripts/estimate_mobility.py.
 geometry:
-  aspect_ratio_LW: 2.0
+  # Central is derived as the midpoint of `_range` (see _resolve_central_range).
   aspect_ratio_LW_range: [3.0, 4.0]
 
 # ── Shared material properties ─────────────────────────────────────────
@@ -41,11 +41,10 @@ geometry:
 #   hBN: ~3.5 (perpendicular epsilon_r, e.g. Laturia et al., npj 2D Mater. 2018)
 #   biotite: ~6.0 (mica-group phyllosilicate, typical out-of-plane value)
 materials:
+  # Central epsilon_r is derived from the midpoint of `_range`.
   hBN:
-    epsilon_r: 3.5
     epsilon_r_range: [3.3, 3.7]
   biotite:
-    epsilon_r: 6.0
     epsilon_r_range: [8, 9]
 
 # ── Per-chip stack ─────────────────────────────────────────────────────

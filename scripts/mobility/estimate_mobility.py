@@ -34,7 +34,7 @@ from src.derived.algorithms.mobility import (
     peak_gm_signed,
     saturation_fraction,
 )
-from src.plotting.shared.styles import set_plot_style
+from src.plotting.shared.styles import PALETTES, set_plot_style
 
 ENRICHED_HISTORY_DIR = Path("data/03_derived/chip_histories_enriched")
 STAGE_HISTORY_DIR = Path("data/02_stage/chip_histories")
@@ -46,10 +46,15 @@ DEFAULT_CHIP_GROUP = "Alisson"
 # want a clean representative sweep for the figures.)
 SATURATION_FRAC_THRESHOLD = 0.10
 
+# Chips to include in the summary bar plot, in the order they should appear.
+PLOT_CHIPS: list[int] = [72, 67, 80, 81, 74, 75, 76, 68]
+
 console = Console()
 
 
-def resolve_history(chip_number: int, group: str = DEFAULT_CHIP_GROUP) -> Optional[Path]:
+def resolve_history(
+    chip_number: int, group: str = DEFAULT_CHIP_GROUP
+) -> Optional[Path]:
     for base in (ENRICHED_HISTORY_DIR, STAGE_HISTORY_DIR):
         p = base / f"{group}{chip_number}_history.parquet"
         if p.exists():
@@ -98,12 +103,12 @@ class ChipResult:
     mu_h: float  # cm^2/Vs   (central estimate, also median of MC samples)
     mu_e: float
     # Extreme values over the parameter box (L/W, eps_top, eps_bot ranges):
-    mu_h_lo: float   # min mu_h within parameter ranges (cm^2/Vs)
-    mu_h_hi: float   # max mu_h
+    mu_h_lo: float  # min mu_h within parameter ranges (cm^2/Vs)
+    mu_h_hi: float  # max mu_h
     mu_e_lo: float
     mu_e_hi: float
-    cox_lo: float    # F/m^2; min Cox (eps_top_min, eps_bot_min)
-    cox_hi: float    # F/m^2; max Cox
+    cox_lo: float  # F/m^2; min Cox (eps_top_min, eps_bot_min)
+    cox_hi: float  # F/m^2; max Cox
     vg: np.ndarray
     i: np.ndarray
     gm: np.ndarray
@@ -129,7 +134,7 @@ def compute_chip(chip: int, cfg: EncapConfig) -> Optional[ChipResult]:
     if sat >= SATURATION_FRAC_THRESHOLD:
         console.print(
             f"[warn] chip {chip}: all dark IVg sweeps are current-limited "
-            f"(best is seq {row.get('seq')} with {sat*100:.0f}% saturated points); "
+            f"(best is seq {row.get('seq')} with {sat * 100:.0f}% saturated points); "
             "mobility estimate will be a lower bound."
         )
     elif int(row.get("seq", 1)) != 1:
@@ -153,27 +158,43 @@ def compute_chip(chip: int, cfg: EncapConfig) -> Optional[ChipResult]:
     gm_h = abs(gm_h_s)
     gm_e = abs(gm_e_s)
     cox = cox_per_area(
-        geom["top_hBN_nm"], geom["eps_top"],
-        geom["bottom_dielectric_nm"], geom["eps_bot"],
+        geom["top_hBN_nm"],
+        geom["eps_top"],
+        geom["bottom_dielectric_nm"],
+        geom["eps_bot"],
     )
     mu_h = mobility_cm2(gm_h, cox, vds, geom["LW"])
     mu_e = mobility_cm2(gm_e, cox, vds, geom["LW"])
 
     mu_h_lo, mu_h_hi = mobility_bounds(
-        gm_h, geom["top_hBN_nm"], geom["bottom_dielectric_nm"],
-        geom["eps_top_range"], geom["eps_bot_range"], geom["LW_range"], float(vds),
+        gm_h,
+        geom["top_hBN_nm"],
+        geom["bottom_dielectric_nm"],
+        geom["eps_top_range"],
+        geom["eps_bot_range"],
+        geom["LW_range"],
+        float(vds),
     )
     mu_e_lo, mu_e_hi = mobility_bounds(
-        gm_e, geom["top_hBN_nm"], geom["bottom_dielectric_nm"],
-        geom["eps_top_range"], geom["eps_bot_range"], geom["LW_range"], float(vds),
+        gm_e,
+        geom["top_hBN_nm"],
+        geom["bottom_dielectric_nm"],
+        geom["eps_top_range"],
+        geom["eps_bot_range"],
+        geom["LW_range"],
+        float(vds),
     )
     cox_lo = cox_per_area(
-        geom["top_hBN_nm"], geom["eps_top_range"][0],
-        geom["bottom_dielectric_nm"], geom["eps_bot_range"][0],
+        geom["top_hBN_nm"],
+        geom["eps_top_range"][0],
+        geom["bottom_dielectric_nm"],
+        geom["eps_bot_range"][0],
     )
     cox_hi = cox_per_area(
-        geom["top_hBN_nm"], geom["eps_top_range"][1],
-        geom["bottom_dielectric_nm"], geom["eps_bot_range"][1],
+        geom["top_hBN_nm"],
+        geom["eps_top_range"][1],
+        geom["bottom_dielectric_nm"],
+        geom["eps_bot_range"][1],
     )
 
     return ChipResult(
@@ -187,9 +208,12 @@ def compute_chip(chip: int, cfg: EncapConfig) -> Optional[ChipResult]:
         gm_e=gm_e,
         mu_h=mu_h,
         mu_e=mu_e,
-        mu_h_lo=float(mu_h_lo), mu_h_hi=float(mu_h_hi),
-        mu_e_lo=float(mu_e_lo), mu_e_hi=float(mu_e_hi),
-        cox_lo=float(cox_lo), cox_hi=float(cox_hi),
+        mu_h_lo=float(mu_h_lo),
+        mu_h_hi=float(mu_h_hi),
+        mu_e_lo=float(mu_e_lo),
+        mu_e_hi=float(mu_e_hi),
+        cox_lo=float(cox_lo),
+        cox_hi=float(cox_hi),
         vg=vg_s,
         i=i_s,
         gm=gm_arr,
@@ -263,6 +287,61 @@ def save_csv(results: list[ChipResult], path: Path) -> None:
     pl.DataFrame(rows).write_csv(path)
 
 
+def save_latex_table(results: list[ChipResult], path: Path) -> None:
+    """Four-column LaTeX table: bottom material, encap, mu_holes, mu_electrons.
+
+    Restricted to `PLOT_CHIPS` (same set as the bar plot) and grouped by
+    bottom dielectric. Mobilities are central values in units of
+    10^3 cm^2 V^-1 s^-1. Requires `\\usepackage{booktabs, multirow}`.
+    """
+    by_chip = {r.chip: r for r in results}
+    selected = [by_chip[c] for c in PLOT_CHIPS if c in by_chip]
+    if not selected:
+        path.write_text("% no chips from PLOT_CHIPS produced a result\n")
+        return
+
+    def fmt(c: float) -> str:
+        return f"{c / 1e3:.1f}"
+
+    # Group consecutive rows with the same material so multirow spans them.
+    rows: list[str] = []
+    i = 0
+    while i < len(selected):
+        mat = selected[i].material
+        j = i
+        while j < len(selected) and selected[j].material == mat:
+            j += 1
+        group = selected[i:j]
+        for k, r in enumerate(group):
+            head = f"\\multirow{{{len(group)}}}{{*}}{{{mat}}}" if k == 0 else ""
+            rows.append(
+                f"    {head} & {r.chip} & {fmt(r.mu_h)} & {fmt(r.mu_e)} \\\\"
+            )
+        if j < len(selected):
+            rows.append("    \\midrule")
+        i = j
+    body = "\n".join(rows)
+
+    tex = (
+        "\\begin{table}[h]\n"
+        "  \\centering\n"
+        "  \\caption{Peak field-effect mobility per encapsulated device "
+        "(central value at the midpoint of the $L/W$ and $\\varepsilon_r$ "
+        "parameter box), in units of $10^3$ cm$^2$ V$^{-1}$ s$^{-1}$.}\n"
+        "  \\label{tab:mobility-estimates}\n"
+        "  \\begin{tabular}{l c c c}\n"
+        "    \\toprule\n"
+        "    Bottom & Encap & $\\mu_h$ ($10^3$ cm$^2$ V$^{-1}$ s$^{-1}$) "
+        "& $\\mu_e$ ($10^3$ cm$^2$ V$^{-1}$ s$^{-1}$) \\\\\n"
+        "    \\midrule\n"
+        f"{body}\n"
+        "    \\bottomrule\n"
+        "  \\end{tabular}\n"
+        "\\end{table}\n"
+    )
+    path.write_text(tex)
+
+
 def make_per_chip_ivg_gm_plots(results: list[ChipResult], out_dir: Path) -> None:
     """One figure per chip: IVg (top) + signed gm (bottom), shared Vg axis."""
     set_plot_style()
@@ -282,7 +361,10 @@ def make_per_chip_ivg_gm_plots(results: list[ChipResult], out_dir: Path) -> None
             continue
         c = color_map.get(r.material, "k")
         fig, (ax_iv, ax_gm) = plt.subplots(
-            2, 1, figsize=(6.0, 6.0), sharex=True,
+            2,
+            1,
+            figsize=(6.0, 6.0),
+            sharex=True,
             gridspec_kw={"height_ratios": [1.0, 1.0]},
         )
 
@@ -304,28 +386,39 @@ def make_per_chip_ivg_gm_plots(results: list[ChipResult], out_dir: Path) -> None
         # Signed gm
         ax_gm.plot(r.vg, gm_uS, color=c, lw=1.4)
         ax_gm.axhline(0.0, color="0.6", lw=0.6)
-        ax_gm.axvline(r.cnp, color="0.5", lw=0.7, ls=":",
-                      label=fr"CNP $\approx$ {r.cnp:.2f} V")
+        ax_gm.axvline(
+            r.cnp, color="0.5", lw=0.7, ls=":", label=rf"CNP $\approx$ {r.cnp:.2f} V"
+        )
         h_mask = r.vg < r.cnp
         e_mask = r.vg > r.cnp
         abs_gm_uS = np.abs(gm_uS)
         if h_mask.any():
             idx_h = np.argmax(abs_gm_uS[h_mask])
             ax_gm.plot(
-                r.vg[h_mask][idx_h], gm_uS[h_mask][idx_h],
-                "v", color=c, ms=8,
-                label=(rf"holes: $\mu$={r.mu_h:,.0f} "
-                       rf"[{r.mu_h_lo:,.0f}–{r.mu_h_hi:,.0f}] "
-                       rf"cm$^2$ V$^{{-1}}$ s$^{{-1}}$"),
+                r.vg[h_mask][idx_h],
+                gm_uS[h_mask][idx_h],
+                "v",
+                color=c,
+                ms=8,
+                label=(
+                    rf"holes: $\mu$={r.mu_h:,.0f} "
+                    rf"[{r.mu_h_lo:,.0f}–{r.mu_h_hi:,.0f}] "
+                    rf"cm$^2$ V$^{{-1}}$ s$^{{-1}}$"
+                ),
             )
         if e_mask.any():
             idx_e = np.argmax(abs_gm_uS[e_mask])
             ax_gm.plot(
-                r.vg[e_mask][idx_e], gm_uS[e_mask][idx_e],
-                "^", color=c, ms=8,
-                label=(rf"electrons: $\mu$={r.mu_e:,.0f} "
-                       rf"[{r.mu_e_lo:,.0f}–{r.mu_e_hi:,.0f}] "
-                       rf"cm$^2$ V$^{{-1}}$ s$^{{-1}}$"),
+                r.vg[e_mask][idx_e],
+                gm_uS[e_mask][idx_e],
+                "^",
+                color=c,
+                ms=8,
+                label=(
+                    rf"electrons: $\mu$={r.mu_e:,.0f} "
+                    rf"[{r.mu_e_lo:,.0f}–{r.mu_e_hi:,.0f}] "
+                    rf"cm$^2$ V$^{{-1}}$ s$^{{-1}}$"
+                ),
             )
         ax_gm.set_xlabel(r"$\rm{V_g\ (V)}$")
         ax_gm.set_ylabel(r"$\rm{g_m\ (\mu S)}$")
@@ -337,83 +430,81 @@ def make_per_chip_ivg_gm_plots(results: list[ChipResult], out_dir: Path) -> None
 
 
 def make_plot(results: list[ChipResult], path: Path) -> None:
-    set_plot_style()
-    plt.rcParams.update(
-        {
-            "font.size": 10,
-            "axes.labelsize": 11,
-            "axes.titlesize": 11,
-            "xtick.labelsize": 9,
-            "ytick.labelsize": 9,
-            "legend.fontsize": 8,
-            "figure.figsize": (13, 5.2),
-        }
-    )
-    fig, (ax_mu, ax_gm) = plt.subplots(1, 2, figsize=(13, 5.2))
+    set_plot_style("prism_rain")
 
-    # ── Left: mu bars per chip ──
-    results_sorted = sorted(results, key=lambda r: (r.material, r.chip))
-    chips = [str(r.chip) for r in results_sorted]
-    mu_h = [r.mu_h for r in results_sorted]
-    mu_e = [r.mu_e for r in results_sorted]
-    mats = [r.material for r in results_sorted]
+    by_chip = {r.chip: r for r in results}
+    selected = [by_chip[c] for c in PLOT_CHIPS if c in by_chip]
+    missing = [c for c in PLOT_CHIPS if c not in by_chip]
+    if missing:
+        console.print(f"[yellow]skipped (no result): {missing}[/yellow]")
+    if not selected:
+        console.print("[red]No chips from PLOT_CHIPS produced a result.[/red]")
+        return
+
+    palette = PALETTES["prism_rain"]
+    color_map = {"hBN": palette[0], "biotite": palette[1]}
+
+    fig, ax_mu = plt.subplots(figsize=(20, 20))
+
+    chips = [str(r.chip) for r in selected]
+    mu_h = [r.mu_h for r in selected]
+    mu_e = [r.mu_e for r in selected]
+    edge = [color_map.get(r.material, "k") for r in selected]
     x = np.arange(len(chips))
     w = 0.4
-    color_map = {"hBN": "tab:blue", "biotite": "tab:orange"}
-    edge = [color_map.get(m, "k") for m in mats]
-    err_h = np.array([
-        [r.mu_h - r.mu_h_lo for r in results_sorted],
-        [r.mu_h_hi - r.mu_h for r in results_sorted],
-    ])
-    err_e = np.array([
-        [r.mu_e - r.mu_e_lo for r in results_sorted],
-        [r.mu_e_hi - r.mu_e for r in results_sorted],
-    ])
-    ax_mu.bar(
-        x - w / 2, mu_h, w,
-        label="µ_h (holes)",
-        color="white", edgecolor=edge, hatch="//", linewidth=1.4,
-        yerr=err_h, ecolor="0.3", capsize=2, error_kw={"lw": 0.8},
+    err_h = np.array(
+        [
+            [r.mu_h - r.mu_h_lo for r in selected],
+            [r.mu_h_hi - r.mu_h for r in selected],
+        ]
+    )
+    err_e = np.array(
+        [
+            [r.mu_e - r.mu_e_lo for r in selected],
+            [r.mu_e_hi - r.mu_e for r in selected],
+        ]
     )
     ax_mu.bar(
-        x + w / 2, mu_e, w,
-        label="µ_e (electrons)", color=edge, alpha=0.85,
-        yerr=err_e, ecolor="0.3", capsize=2, error_kw={"lw": 0.8},
+        x - w / 2,
+        mu_h,
+        w,
+        color="white",
+        edgecolor=edge,
+        hatch="//",
+        linewidth=2.5,
+        yerr=err_h,
+        ecolor="0.3",
+        capsize=6,
+        error_kw={"lw": 2.0},
+    )
+    ax_mu.bar(
+        x + w / 2,
+        mu_e,
+        w,
+        color=edge,
+        alpha=0.9,
+        yerr=err_e,
+        ecolor="0.3",
+        capsize=6,
+        error_kw={"lw": 2.0},
     )
     ax_mu.set_xticks(x)
     ax_mu.set_xticklabels(chips, rotation=0)
-    ax_mu.set_xlabel("chip")
+    ax_mu.set_xlabel("Chip Id")
     ax_mu.set_ylabel(r"$\mu_{FE}$ (cm$^2$ V$^{-1}$ s$^{-1}$)")
-    ax_mu.set_title("Peak field-effect mobility (bars: central; whiskers: min–max over param ranges)")
-    # Material legend (color) + branch legend (hatch/solid)
+    ax_mu.ticklabel_format(style="sci", axis="y", scilimits=(0, 0), useMathText=True)
+
     from matplotlib.patches import Patch
 
     handles = [
-        Patch(facecolor="tab:blue", label="bottom = hBN"),
-        Patch(facecolor="tab:orange", label="bottom = biotite"),
+        Patch(facecolor=color_map["hBN"], label="hBN"),
+        Patch(facecolor=color_map["biotite"], label="Biotite"),
         Patch(facecolor="white", edgecolor="0.3", hatch="//", label="holes"),
         Patch(facecolor="0.3", label="electrons"),
     ]
-    ax_mu.legend(handles=handles, fontsize=8, loc="upper left")
+    ax_mu.legend(handles=handles, loc="upper left")
 
-    # ── Right: |gm|(Vg) overlay ──
-    for r in results_sorted:
-        if r.gm.size == 0:
-            continue
-        ax_gm.plot(
-            r.vg,
-            np.abs(r.gm) * 1e6,
-            color=color_map.get(r.material, "k"),
-            alpha=0.75,
-            lw=1.1,
-            label=f"{r.chip} ({r.material})",
-        )
-    ax_gm.set_xlabel(r"$V_g$ (V)")
-    ax_gm.set_ylabel(r"$|g_m|$ (µS)")
-    ax_gm.set_title("Transconductance traces (first dark IVg)")
-    ax_gm.legend(fontsize=7, ncol=2, loc="best")
-
-    fig.tight_layout()
+    fig.tight_layout(rect=(0, 0, 1, 0.90))
     fig.savefig(path, dpi=200)
     plt.close(fig)
 
@@ -436,13 +527,16 @@ def main() -> None:
     print_table(results)
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     csv_path = OUTPUT_DIR / "mobility_estimates.csv"
-    fig_path = OUTPUT_DIR / "mobility_estimates.png"
+    fig_path = OUTPUT_DIR / "mobility_estimates.pdf"
     save_csv(results, csv_path)
+    tex_path = OUTPUT_DIR / "mobility_estimates.tex"
+    save_latex_table(results, tex_path)
     make_plot(results, fig_path)
     per_chip_dir = OUTPUT_DIR / "per_chip"
     per_chip_dir.mkdir(parents=True, exist_ok=True)
     make_per_chip_ivg_gm_plots(results, per_chip_dir)
     console.print(f"\nWrote {csv_path}")
+    console.print(f"Wrote {tex_path}")
     console.print(f"Wrote {fig_path}")
     console.print(f"Wrote {len(results)} per-chip IVg+gm plots to {per_chip_dir}/")
 

@@ -25,11 +25,12 @@ import polars as pl
 import yaml
 from scipy.signal import savgol_filter
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from scripts.plot_ivg_photocurrent_triplets import (
-    DATASETS as _WL_DATASETS,  # noqa: E402
+from plot_ivg_photocurrent_triplets import (  # noqa: E402
+    DATASETS as _WL_DATASETS,
 )
+
 from src.core.utils import read_measurement_parquet  # noqa: E402
 from src.plotting.shared.config import PlotConfig  # noqa: E402
 from src.plotting.shared.styles import set_plot_style  # noqa: E402
@@ -509,7 +510,7 @@ def plot_photocurrent_overlay(
 
     ax.axhline(0.0, color="k", linewidth=0.5, alpha=0.5)
     ax.set_xlabel("$\\rm{V_g\\ (V)}$")
-    ax.set_ylabel("$\\rm{I_{ph} = I_{(2)} - I_{(1)}\\ (\\mu A)}$")
+    ax.set_ylabel("$\\rm{I_{ph}\\ (\\mu A)}$")
     ax.legend(title="Chip (material)", loc="lower right")
     fig.tight_layout()
 
@@ -611,7 +612,7 @@ def _draw_wavelength_photocurrent_overlay_on_ax(
 
     ax.axhline(0.0, color="k", linewidth=0.5, alpha=0.5)
     ax.set_xlabel("$\\rm{V_g\\ (V)}$")
-    ax.set_ylabel("$\\rm{I_{ph} = I_{on} - I_{off}\\ (\\mu A)}$")
+    ax.set_ylabel("$\\rm{I_{ph}\\ (\\mu A)}$")
     if show_legend:
         ax.legend(title="Wavelength", loc="best")
 
@@ -654,6 +655,7 @@ def plot_74_72_triplet_photocurrent_wavelength_3x2(
             axes[2, col], chip, wl_date, wl_triplets, show_legend=True
         )
 
+    _annotate_panel_letters(axes, ["a", "b", "c", "d", "e", "f"])
     fig.tight_layout()
 
     filename = f"Compare_IVg_triplet_photocurrent_wavelength_3x2_7472_{WAVELENGTH_NM}nm"
@@ -705,6 +707,7 @@ def plot_74_72_triplet_photocurrent_wavelength_2x3(
             axes[row, 2], chip, wl_date, wl_triplets, show_legend=True
         )
 
+    _annotate_panel_letters(axes, ["a", "b", "c", "d", "e", "f"])
     fig.tight_layout()
 
     filename = f"Compare_IVg_triplet_photocurrent_wavelength_2x3_7472_{WAVELENGTH_NM}nm"
@@ -712,6 +715,107 @@ def plot_74_72_triplet_photocurrent_wavelength_2x3(
         filename,
         procedure="IVg",
         special_type="triplets",
+        create_dirs=True,
+    )
+    fig.savefig(out, dpi=config.dpi)
+    plt.close(fig)
+    print(f"saved {out}")
+
+
+def _annotate_panel_letters(axes, letters: list[str]) -> None:
+    """Stamp bold 'a)', 'b)', ... outside each axes, above the y-axis label."""
+    for ax, letter in zip(np.asarray(axes).ravel(), letters):
+        ax.text(
+            -0.13,
+            1.0,
+            f"{letter})",
+            transform=ax.transAxes,
+            ha="left",
+            va="bottom",
+            fontweight="bold",
+            fontsize=56,
+        )
+
+
+def plot_74_72_triplet_subs_2x2(
+    triplets: list[Triplet], materials: dict[int, str], config: PlotConfig
+) -> None:
+    """2x2 grid for chips 72 and 74 (columns):
+    row 1 — 365 nm OFF→ON→OFF triplet plots,
+    row 2 — 365 nm photocurrent subtractions (2)-(1), (3)-(2), (3)-(1)."""
+    by_chip = {t.chip_number: t for t in triplets}
+    chips = [72, 74]
+    missing = [c for c in chips if c not in by_chip]
+    if missing:
+        print(f"[warn] no 365 nm triplet for chips {missing}; skipping 2x2 grid")
+        return
+
+    fig, axes = plt.subplots(
+        2,
+        2,
+        figsize=(40, 40),
+        sharex=True,
+        gridspec_kw={"wspace": 0.28},
+    )
+
+    for col, chip in enumerate(chips):
+        t = by_chip[chip]
+        _draw_triplet_on_ax(
+            axes[0, col], t, materials, show_legend=True, show_title=False
+        )
+        _draw_photocurrent_subtractions_on_ax(
+            axes[1, col], t, materials, show_legend=True, show_title=False
+        )
+        # Top row: drop redundant x-axis label since x is shared with row below.
+        axes[0, col].set_xlabel("")
+        if chip == 74:
+            axes[1, col].set_ylim(top=22)
+
+    _annotate_panel_letters(axes, ["a", "b", "c", "d"])
+    fig.tight_layout()
+
+    filename = f"Compare_IVg_triplet_subs_2x2_7274_{WAVELENGTH_NM}nm"
+    out = config.get_output_path(
+        filename,
+        procedure="IVg",
+        special_type="triplets",
+        create_dirs=True,
+    )
+    fig.savefig(out, dpi=config.dpi)
+    plt.close(fig)
+    print(f"saved {out}")
+
+
+def plot_74_72_photocurrent_wavelength_1x2(
+    materials: dict[int, str], config: PlotConfig
+) -> None:
+    """1x2 grid: multi-wavelength photocurrent overlay for chips 72 and 74."""
+    chips = [72, 74]
+    wl_missing = [c for c in chips if c not in WAVELENGTH_TRIPLETS_BY_CHIP]
+    if wl_missing:
+        print(
+            f"[warn] no wavelength triplets configured for chips {wl_missing}; "
+            "skipping 1x2 wavelength grid"
+        )
+        return
+
+    fig, axes = plt.subplots(1, 2, figsize=(40, 20), gridspec_kw={"wspace": 0.28})
+
+    for col, chip in enumerate(chips):
+        wl_date, wl_triplets = WAVELENGTH_TRIPLETS_BY_CHIP[chip]
+        _draw_wavelength_photocurrent_overlay_on_ax(
+            axes[col], chip, wl_date, wl_triplets, show_legend=True
+        )
+
+    _annotate_panel_letters(axes, ["a", "b"])
+    fig.tight_layout()
+
+    filename = f"Compare_IVg_photocurrent_wavelength_1x2_7274"
+    out = config.get_output_path(
+        filename,
+        procedure="IVg",
+        metadata={"has_light": True},
+        special_type="photocurrent",
         create_dirs=True,
     )
     fig.savefig(out, dpi=config.dpi)
@@ -738,6 +842,8 @@ def main() -> None:
     plot_triplets_grid_1x3(triplets, materials, config)
     plot_74_72_triplet_photocurrent_wavelength_3x2(triplets, materials, config)
     plot_74_72_triplet_photocurrent_wavelength_2x3(triplets, materials, config)
+    plot_74_72_triplet_subs_2x2(triplets, materials, config)
+    plot_74_72_photocurrent_wavelength_1x2(materials, config)
 
 
 if __name__ == "__main__":

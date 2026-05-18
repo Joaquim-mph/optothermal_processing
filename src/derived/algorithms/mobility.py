@@ -173,6 +173,24 @@ class EncapConfig:
     aspect_ratio_LW_range: tuple[float, float]
 
 
+def _resolve_central_range(
+    central: Optional[float],
+    rng: Optional[list | tuple],
+) -> tuple[float, tuple[float, float]]:
+    """Reconcile a scalar central and a (lo, hi) range.
+
+    Range, if given, is authoritative — central becomes its midpoint so the
+    invariant `lo <= central <= hi` always holds. If only the central is
+    given, the range collapses to (central, central). At least one must be
+    provided; the caller is responsible for handling None.
+    """
+    if rng is not None:
+        lo, hi = float(rng[0]), float(rng[1])
+        return 0.5 * (lo + hi), (lo, hi)
+    c = float(central)
+    return c, (c, c)
+
+
 def load_encap_config(
     path: Path = Path("config/encap_characteristics.yaml"),
 ) -> EncapConfig:
@@ -190,8 +208,10 @@ def load_encap_config(
     chips = {int(k): (v or {}) for k, v in data.items() if isinstance(k, int)}
     materials = data.get("materials", {}) or {}
     geometry = data.get("geometry", {}) or {}
-    LW = float(geometry.get("aspect_ratio_LW", 2.0))
-    LW_range = tuple(geometry.get("aspect_ratio_LW_range", [LW, LW]))
+    LW, LW_range = _resolve_central_range(
+        geometry.get("aspect_ratio_LW", 2.0),
+        geometry.get("aspect_ratio_LW_range"),
+    )
     return EncapConfig(
         chips=chips, materials=materials,
         aspect_ratio_LW=LW, aspect_ratio_LW_range=LW_range,
@@ -217,20 +237,25 @@ def chip_geometry(
     t_bot = chip_cfg.get("bottom_dielectric_nm")
     if mat is None or t_top is None or t_bot is None:
         return None
-    eps_top = cfg.materials.get("hBN", {}).get("epsilon_r")
-    eps_bot = cfg.materials.get(mat, {}).get("epsilon_r")
-    if eps_top is None or eps_bot is None:
+    hbn = cfg.materials.get("hBN", {})
+    bot = cfg.materials.get(mat, {})
+    if hbn.get("epsilon_r") is None and hbn.get("epsilon_r_range") is None:
         return None
-    eps_top_range = tuple(
-        cfg.materials.get("hBN", {}).get("epsilon_r_range", [eps_top, eps_top])
+    if bot.get("epsilon_r") is None and bot.get("epsilon_r_range") is None:
+        return None
+    eps_top, eps_top_range = _resolve_central_range(
+        hbn.get("epsilon_r"), hbn.get("epsilon_r_range")
     )
-    eps_bot_range = tuple(
-        cfg.materials.get(mat, {}).get("epsilon_r_range", [eps_bot, eps_bot])
+    eps_bot, eps_bot_range = _resolve_central_range(
+        bot.get("epsilon_r"), bot.get("epsilon_r_range")
     )
-    LW = float(chip_cfg.get("aspect_ratio_LW", cfg.aspect_ratio_LW))
-    LW_range = cfg.aspect_ratio_LW_range
-    if "aspect_ratio_LW" in chip_cfg and "aspect_ratio_LW_range" not in chip_cfg:
-        LW_range = (LW, LW)
+    if "aspect_ratio_LW" in chip_cfg or "aspect_ratio_LW_range" in chip_cfg:
+        LW, LW_range = _resolve_central_range(
+            chip_cfg.get("aspect_ratio_LW"),
+            chip_cfg.get("aspect_ratio_LW_range"),
+        )
+    else:
+        LW, LW_range = cfg.aspect_ratio_LW, cfg.aspect_ratio_LW_range
     return {
         "bottom_material": mat,
         "top_hBN_nm": float(t_top),

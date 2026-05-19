@@ -556,6 +556,26 @@ def execute_plot(spec: PlotSpec, chip_group: str, quiet: bool = True) -> PlotRes
 
         elif spec.type == "plot-vts-suite":
             # Unified Vt plotting: overlay, sequential, and photoresponse (delta voltage)
+
+            # Refuse the whole suite if a non-Vt seq sits between the selected ones —
+            # the sequential plot would otherwise hide that fact by silently dropping it.
+            intruders = find_proc_intruders(history, seq_list, required_proc="Vt")
+            if intruders.height > 0:
+                seq_lo, seq_hi = min(seq_list), max(seq_list)
+                pairs = ", ".join(
+                    f"seq {r['seq']}:{r['proc']}"
+                    for r in intruders.select(["seq", "proc"]).iter_rows(named=True)
+                )
+                return PlotResult(
+                    spec=spec,
+                    success=False,
+                    elapsed=time.time() - start,
+                    error=(
+                        f"Non-Vt measurement(s) between selected seqs ({seq_lo}-{seq_hi}); "
+                        f"vts-suite requires contiguous Vt only. Intruders: {pairs}"
+                    ),
+                )
+
             df_vt = df.filter(pl.col("proc") == "Vt") if "proc" in df.columns else df
             if df_vt.height == 0:
                 return PlotResult(

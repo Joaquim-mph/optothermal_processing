@@ -586,6 +586,10 @@ def plot_vt_sequential(
         tt = np.asarray(d["t"])
         yy = np.asarray(d["VDS"])
 
+        # Full duration (wall-clock end - start), used for gap detection.
+        # Computed from untrimmed data so it does not depend on plot_start_time.
+        full_duration_s = float(tt[-1] - tt[0]) if len(tt) > 0 else 0.0
+
         mask = tt >= plot_start_time
         tt_trimmed = tt[mask]
         yy_trimmed = yy[mask]
@@ -595,6 +599,35 @@ def plot_vt_sequential(
             continue
 
         tt_trimmed = tt_trimmed - tt_trimmed[0]
+
+        # Parse this experiment's wall-clock start
+        this_start_dt: datetime | None = None
+        dt_str = row.get("datetime_local")
+        if dt_str:
+            try:
+                this_start_dt = datetime.fromisoformat(str(dt_str))
+            except (ValueError, TypeError):
+                this_start_dt = None
+
+        this_seq = row.get("seq")
+
+        # Gap check vs previous successfully-plotted experiment
+        if prev_end_dt is not None and this_start_dt is not None:
+            gap_s = (this_start_dt - prev_end_dt).total_seconds()
+            if gap_s < -1.0:
+                msg = (
+                    f"Overlap of {-gap_s:.1f}s between seq {prev_seq} and seq {this_seq} "
+                    f"(next experiment starts before previous ended); refusing to plot."
+                )
+                print_warning(msg)
+                raise ValueError(msg)
+            if gap_s > 100:
+                print_warning(
+                    f"Gap of {gap_s:.0f}s between seq {prev_seq} and seq {this_seq} "
+                    f"exceeds 100s threshold; next trace shown at real time offset."
+                )
+            time_offset += max(0.0, gap_s)
+
         experiment_boundaries.append(time_offset)
 
         lbl, legend_title = legend_formatter(row, config)
@@ -623,6 +656,13 @@ def plot_vt_sequential(
         all_y_values.extend(yy_plot)
 
         time_offset += tt_trimmed[-1]
+
+        # Advance wall-clock end for gap detection on the next iteration
+        if this_start_dt is not None:
+            prev_end_dt = this_start_dt + timedelta(seconds=full_duration_s)
+        else:
+            prev_end_dt = None
+        prev_seq = this_seq
 
     if not experiment_segments:
         logger.error("No data to plot")

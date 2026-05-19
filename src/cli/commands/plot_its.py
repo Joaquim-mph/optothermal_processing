@@ -416,7 +416,7 @@ def plot_its_command(
         output_dir_calc = setup_output_dir(chip_number, chip_group, output_dir)
         plot_tag = generate_plot_tag(seq_numbers, custom_tag=tag)
         # Note: Can't detect dark/light in dry-run, assume regular ITS
-        output_file = output_dir_calc / f"encap{chip_number}_ITS_{plot_tag}.png"
+        output_file = output_dir_calc / f"encap{chip_number}_ITS_{plot_tag}.{plot_config.format}"
 
         # Check if file already exists
         file_exists = output_file.exists()
@@ -559,7 +559,7 @@ def plot_its_command(
     plot_tag = generate_plot_tag(seq_numbers, custom_tag=tag)
 
     # Preview output filename (will be updated if dark measurement detected)
-    output_file = output_dir / f"encap{chip_number}_ITS_{plot_tag}.png"
+    output_file = output_dir / f"encap{chip_number}_ITS_{plot_tag}.{plot_config.format}"
 
     ctx.print()
     ctx.print(Panel(
@@ -582,7 +582,7 @@ def plot_its_command(
         ctx.print("\n[dim]Detected: All ITS experiments are dark (no laser)[/dim]")
         ctx.print("[dim]Using simplified dark plot (no light window shading)[/dim]")
         # Update output filename for dark plots
-        output_file = output_dir / f"encap{chip_number}_ITS_dark_{plot_tag}.png"
+        output_file = output_dir / f"encap{chip_number}_ITS_dark_{plot_tag}.{plot_config.format}"
         # Adjust legend default for dark plots (vg is more useful than led_voltage)
         if legend_by == "led_voltage":
             ctx.print("[dim]Tip: For dark measurements, --legend vg might be more useful[/dim]")
@@ -852,6 +852,30 @@ def plot_its_sequential_command(
 
     ctx.print(f"[green]✓[/green] All seq numbers valid")
 
+    # Step 2b: Refuse to plot if any non-It procedure falls between selected seqs
+    import polars as pl
+    full_history_path = Path(history_dir) / f"{chip_group}{chip_number}_history.parquet"
+    try:
+        full_history = pl.read_parquet(full_history_path)
+    except Exception as e:
+        ctx.print(f"[red]Error reading chip history:[/red] {e}")
+        raise typer.Exit(1)
+
+    seq_lo, seq_hi = min(seq_numbers), max(seq_numbers)
+    intruders = full_history.filter(
+        (pl.col("seq") >= seq_lo)
+        & (pl.col("seq") <= seq_hi)
+        & (pl.col("proc") != "It")
+    )
+    if intruders.height > 0:
+        ctx.print(
+            f"[red]Error:[/red] Non-It measurement(s) found between selected seqs "
+            f"({seq_lo}-{seq_hi}); sequential plot requires contiguous It only."
+        )
+        for r in intruders.select(["seq", "proc", "datetime_local"]).iter_rows(named=True):
+            ctx.print(f"  • seq {r['seq']}: {r['proc']} at {r['datetime_local']}")
+        raise typer.Exit(1)
+
     # Step 3: Load history data
     ctx.print("\n[cyan]Loading experiment history...[/cyan]")
     try:
@@ -896,8 +920,10 @@ def plot_its_sequential_command(
     output_dir = setup_output_dir(chip_number, chip_group, output_dir)
     plot_tag = generate_plot_tag(seq_numbers, custom_tag=tag)
 
+    plot_config = get_plot_config()
+
     # Preview output filename
-    output_file = output_dir / f"encap{chip_number}_ITS_sequential_{plot_tag}.png"
+    output_file = output_dir / f"encap{chip_number}_ITS_sequential_{plot_tag}.{plot_config.format}"
 
     ctx.print()
     ctx.print(Panel(
@@ -916,8 +942,6 @@ def plot_its_sequential_command(
     # Step 7: Generate plot
     ctx.print("\n[cyan]Generating sequential plot...[/cyan]")
     base_dir = Path(".")  # Not used (parquet_path has absolute paths)
-
-    plot_config = get_plot_config()
 
     # Override output_dir if specified via CLI
     if output_dir != ctx.output_dir:

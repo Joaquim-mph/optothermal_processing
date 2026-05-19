@@ -56,6 +56,8 @@ biotite list-plugins
 
 ### Testing
 
+Activate `.venv` first (`source .venv/bin/activate`).
+
 ```bash
 python3 -m pytest tests/ -v
 python3 -m pytest tests/test_config.py::test_function_name -v

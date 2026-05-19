@@ -3,6 +3,7 @@
 from __future__ import annotations
 import logging
 
+from datetime import datetime, timedelta
 from pathlib import Path
 import numpy as np
 import matplotlib.pyplot as plt
@@ -1062,6 +1063,10 @@ def plot_its_sequential(
     time_offset = 0.0  # Running time offset for concatenation
     legend_title = "Experiment"  # Will be updated based on legend_by
 
+    # Wall-clock gap tracking
+    prev_end_dt: datetime | None = None
+    prev_seq: int | None = None
+
     # Color palette
     colors = PRISM_RAIN_PALETTE
     num_colors = len(colors)
@@ -1103,6 +1108,10 @@ def plot_its_sequential(
         tt = np.asarray(d["t"])
         yy = np.asarray(d["I"])
 
+        # Full duration (wall-clock end - start), used for gap detection.
+        # Computed from untrimmed data so it does not depend on plot_start_time.
+        full_duration_s = float(tt[-1] - tt[0]) if len(tt) > 0 else 0.0
+
         # Trim to plot_start_time
         mask = tt >= plot_start_time
         tt_trimmed = tt[mask]
@@ -1114,6 +1123,34 @@ def plot_its_sequential(
 
         # Reset time to start at 0 for this experiment
         tt_trimmed = tt_trimmed - tt_trimmed[0]
+
+        # Parse this experiment's wall-clock start
+        this_start_dt: datetime | None = None
+        dt_str = row.get("datetime_local")
+        if dt_str:
+            try:
+                this_start_dt = datetime.fromisoformat(str(dt_str))
+            except (ValueError, TypeError):
+                this_start_dt = None
+
+        this_seq = row.get("seq")
+
+        # Gap check vs previous successfully-plotted experiment
+        if prev_end_dt is not None and this_start_dt is not None:
+            gap_s = (this_start_dt - prev_end_dt).total_seconds()
+            if gap_s < -1.0:
+                msg = (
+                    f"Overlap of {-gap_s:.1f}s between seq {prev_seq} and seq {this_seq} "
+                    f"(next experiment starts before previous ended); refusing to plot."
+                )
+                print_warning(msg)
+                raise ValueError(msg)
+            if gap_s > 100:
+                print_warning(
+                    f"Gap of {gap_s:.0f}s between seq {prev_seq} and seq {this_seq} "
+                    f"exceeds 100s threshold; next trace shown at real time offset."
+                )
+            time_offset += max(0.0, gap_s)
 
         # Record boundary for this experiment
         experiment_boundaries.append(time_offset)
@@ -1175,6 +1212,13 @@ def plot_its_sequential(
 
         # Update offset for next experiment
         time_offset += tt_trimmed[-1]
+
+        # Advance wall-clock end for gap detection on the next iteration
+        if this_start_dt is not None:
+            prev_end_dt = this_start_dt + timedelta(seconds=full_duration_s)
+        else:
+            prev_end_dt = None
+        prev_seq = this_seq
 
     if not experiment_segments:
         logger.error("No data to plot")

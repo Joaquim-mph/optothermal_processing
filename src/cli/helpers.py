@@ -458,6 +458,27 @@ def load_history_for_plotting(
     return filtered
 
 
+def find_proc_intruders(
+    history: pl.DataFrame,
+    seq_numbers: list[int],
+    required_proc: str = "It",
+) -> pl.DataFrame:
+    """Find non-`required_proc` rows inside the seq range of a selection.
+
+    Returns rows of `history` where min(seq_numbers) <= seq <= max(seq_numbers)
+    and proc != required_proc. An empty DataFrame means the selection is
+    procedurally contiguous (no foreign measurements sit between the requested seqs).
+    """
+    if not seq_numbers:
+        return history.head(0)
+    seq_lo, seq_hi = min(seq_numbers), max(seq_numbers)
+    return history.filter(
+        (pl.col("seq") >= seq_lo)
+        & (pl.col("seq") <= seq_hi)
+        & (pl.col("proc") != required_proc)
+    )
+
+
 def apply_metadata_filters(
     meta: pl.DataFrame,
     vg: float | None = None,

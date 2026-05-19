@@ -854,6 +854,8 @@ def plot_its_sequential_command(
 
     # Step 2b: Refuse to plot if any non-It procedure falls between selected seqs
     import polars as pl
+    from src.cli.helpers import find_proc_intruders
+
     full_history_path = Path(history_dir) / f"{chip_group}{chip_number}_history.parquet"
     try:
         full_history = pl.read_parquet(full_history_path)
@@ -861,13 +863,9 @@ def plot_its_sequential_command(
         ctx.print(f"[red]Error reading chip history:[/red] {e}")
         raise typer.Exit(1)
 
-    seq_lo, seq_hi = min(seq_numbers), max(seq_numbers)
-    intruders = full_history.filter(
-        (pl.col("seq") >= seq_lo)
-        & (pl.col("seq") <= seq_hi)
-        & (pl.col("proc") != "It")
-    )
+    intruders = find_proc_intruders(full_history, seq_numbers, required_proc="It")
     if intruders.height > 0:
+        seq_lo, seq_hi = min(seq_numbers), max(seq_numbers)
         ctx.print(
             f"[red]Error:[/red] Non-It measurement(s) found between selected seqs "
             f"({seq_lo}-{seq_hi}); sequential plot requires contiguous It only."

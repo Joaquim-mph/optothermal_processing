@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
@@ -549,6 +550,10 @@ def plot_vt_sequential(
     time_offset = 0.0
     legend_title = "Experiment"
     units = None
+
+    # Wall-clock gap tracking
+    prev_end_dt: datetime | None = None
+    prev_seq: int | None = None
 
     logger.info(f"Plotting {len(vt)} Vt experiments sequentially (raw data, no baseline)")
 

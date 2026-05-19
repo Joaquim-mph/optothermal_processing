@@ -90,16 +90,18 @@ def suppress_output(allow_errors: bool = True):
         yield
     finally:
         # Restore original streams
+        captured_stdout = sys.stdout.getvalue()
         captured_stderr = sys.stderr.getvalue()
         sys.stdout = old_stdout
         sys.stderr = old_stderr
 
-        # Show captured errors/warnings if allowed
-        if allow_errors and captured_stderr:
-            # Only show actual errors/warnings, not info messages
-            for line in captured_stderr.split('\n'):
-                if line and ('error' in line.lower() or 'warning' in line.lower()):
-                    console.print(f"[dim]{line}[/dim]")
+        # Show captured errors/warnings if allowed. Scan both streams: the rich
+        # `print_warning` helper writes via Console -> stdout, so warnings only
+        # surface if we look there too.
+        if allow_errors:
+            for line in (captured_stdout + "\n" + captured_stderr).split("\n"):
+                if line and ("error" in line.lower() or "warning" in line.lower()):
+                    console.print(line)
 
 
 @contextmanager
@@ -340,6 +342,7 @@ def execute_plot(spec: PlotSpec, chip_group: str, quiet: bool = True) -> PlotRes
         plot_ivg_transconductance,
         plot_ivg_transconductance_savgol,
     )
+    from src.cli.helpers import find_proc_intruders
     from src.plotting.vvg import plot_vvg_sequence
     from src.plotting.vt import plot_vt_overlay, plot_vt_sequential
     from src.plotting import its_photoresponse
@@ -388,6 +391,22 @@ def execute_plot(spec: PlotSpec, chip_group: str, quiet: bool = True) -> PlotRes
             plots_generated = 1
 
         elif spec.type == "plot-its-sequential":
+            intruders = find_proc_intruders(history, seq_list, required_proc="It")
+            if intruders.height > 0:
+                seq_lo, seq_hi = min(seq_list), max(seq_list)
+                pairs = ", ".join(
+                    f"seq {r['seq']}:{r['proc']}"
+                    for r in intruders.select(["seq", "proc"]).iter_rows(named=True)
+                )
+                return PlotResult(
+                    spec=spec,
+                    success=False,
+                    elapsed=time.time() - start,
+                    error=(
+                        f"Non-It measurement(s) between selected seqs ({seq_lo}-{seq_hi}); "
+                        f"sequential plot requires contiguous It only. Intruders: {pairs}"
+                    ),
+                )
             with suppress_output() if quiet else null_context():
                 plot_its_sequential(df, base_dir, tag, legend_by=spec.legend_by, config=config)
             plots_generated = 1
@@ -465,6 +484,25 @@ def execute_plot(spec: PlotSpec, chip_group: str, quiet: bool = True) -> PlotRes
         elif spec.type == "plot-its-suite":
             # Unified ITS plotting: generates overlay, sequential, and photoresponse plots
             # This is a convenience type that replaces 3 separate plot entries
+
+            # Refuse the whole suite if a non-It seq sits between the selected ones —
+            # the sequential plot would otherwise hide that fact by silently dropping it.
+            intruders = find_proc_intruders(history, seq_list, required_proc="It")
+            if intruders.height > 0:
+                seq_lo, seq_hi = min(seq_list), max(seq_list)
+                pairs = ", ".join(
+                    f"seq {r['seq']}:{r['proc']}"
+                    for r in intruders.select(["seq", "proc"]).iter_rows(named=True)
+                )
+                return PlotResult(
+                    spec=spec,
+                    success=False,
+                    elapsed=time.time() - start,
+                    error=(
+                        f"Non-It measurement(s) between selected seqs ({seq_lo}-{seq_hi}); "
+                        f"its-suite requires contiguous It only. Intruders: {pairs}"
+                    ),
+                )
 
             # Filter for It procedures only (ITS measurements)
             df_its = df.filter(pl.col("proc") == "It") if "proc" in df.columns else df

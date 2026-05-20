@@ -723,12 +723,12 @@ def plot_74_72_triplet_photocurrent_wavelength_2x3(
 
 
 def _annotate_panel_letters(axes, letters: list[str]) -> None:
-    """Stamp bold 'a)', 'b)', ... outside each axes, above the y-axis label."""
+    """Stamp bold 'a', 'b', ... outside each axes, above the y-axis label."""
     for ax, letter in zip(np.asarray(axes).ravel(), letters):
         ax.text(
             -0.13,
             1.0,
-            f"{letter})",
+            f"{letter}",
             transform=ax.transAxes,
             ha="left",
             va="bottom",

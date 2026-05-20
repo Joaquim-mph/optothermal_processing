@@ -138,7 +138,8 @@ def main() -> None:
     def _plot(ax: plt.Axes, *, signed: bool) -> None:
         for chip, group, p, di in curves:
             is_electrons = group["vg_v"] >= 0
-            marker = "^" if is_electrons else "o"
+            # marker = "^" if is_electrons else "o"
+            marker = "+" if is_electrons else "_"
             di_abs = np.abs(di)
             gamma, p_fit, di_fit = power_law_fit(p, di_abs)
             if signed:
@@ -158,6 +159,7 @@ def main() -> None:
                 linestyle="none",
                 color=chip["color"],
                 markersize=25,
+                markeredgewidth=9,
                 label=label,
             )
             if p_fit.size:
@@ -180,6 +182,7 @@ def main() -> None:
     fig, ax = plt.subplots(figsize=(20, 20))
     _plot(ax, signed=False)
     ax.set_yscale("log")
+    ax.set_xticks([6, 12, 18, 24])
     ax.set_xlabel(r"LED power ($\mu$W)")
     ax.set_ylabel(r"$|\Delta i_{\mathrm{corr}}|$ ($\mu$A)")
     # Legend position in axes fraction (0,0 = bottom-left, 1,1 = top-right).
@@ -210,6 +213,7 @@ def main() -> None:
     fig, ax = plt.subplots(figsize=(20, 20))
     _plot(ax, signed=True)
     ax.axhline(0.0, color="k", linewidth=0.5, alpha=0.5)
+    ax.set_xticks([6, 12, 18, 24])
     ax.set_xlabel(r"LED power ($\mu$W)")
     ax.set_ylabel(r"$\Delta i_{\mathrm{corr}}$ ($\mu$A)")
     ax.legend(framealpha=0.9)

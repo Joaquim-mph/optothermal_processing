@@ -24,11 +24,18 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 import polars as pl
+from matplotlib.lines import Line2D
+from matplotlib.transforms import blended_transform_factory
 
 from src.core.utils import read_measurement_parquet
+from src.derived.algorithms.stretched_exponential import (
+    fit_stretched_exponential,
+    stretched_exponential,
+)
 from src.derived.extractors.corrected_delta_i_extractor import CorrectedDeltaIExtractor
 from src.plotting.shared.config import PlotConfig
 from src.plotting.shared.styles import set_plot_style
@@ -130,7 +137,9 @@ def curve_for_group(
     return np.asarray(powers_uW), np.asarray(di_uA)
 
 
-def power_law_fit(p: np.ndarray, di: np.ndarray) -> tuple[float, np.ndarray, np.ndarray]:
+def power_law_fit(
+    p: np.ndarray, di: np.ndarray
+) -> tuple[float, np.ndarray, np.ndarray]:
     mask = (p > 0) & (di > 0) & np.isfinite(p) & np.isfinite(di)
     if mask.sum() < 2:
         return float("nan"), np.array([]), np.array([])
@@ -140,8 +149,15 @@ def power_law_fit(p: np.ndarray, di: np.ndarray) -> tuple[float, np.ndarray, np.
     return float(gamma), p_fit, a * p_fit**gamma
 
 
-def plot_sequential(ax: plt.Axes, hist: pl.DataFrame, group: dict) -> float:
-    """Stitch the raw It segments end-to-end. Returns total stitched time."""
+def plot_sequential(
+    ax: plt.Axes,
+    hist: pl.DataFrame,
+    group: dict,
+    config: PlotConfig,
+    annotate_led: bool = True,
+) -> float:
+    """Stitch the raw It segments end-to-end. When ``annotate_led`` is set,
+    shade each LED-on window and label its power. Returns total stitched time."""
     rows = hist.filter(
         pl.col("seq").is_in(group["seqs"]),
         pl.col("date") == group["date"],
@@ -157,18 +173,28 @@ def plot_sequential(ax: plt.Axes, hist: pl.DataFrame, group: dict) -> float:
     all_y: list[float] = []
     time_offset = 0.0
     label_used = False
+    led_spans: list[tuple[float, float, float]] = []  # (x_on0, x_on1, power_uW)
 
     for row in rows.iter_rows(named=True):
         meas = read_measurement_parquet(Path(row["parquet_path"]))
         t = meas["t (s)"].to_numpy().astype(np.float64)
         I = meas["I (A)"].to_numpy().astype(np.float64)
+        vl = meas["VL (V)"].to_numpy().astype(np.float64)
         finite = np.isfinite(t) & np.isfinite(I)
-        t, I = t[finite], I[finite]
+        t, I, vl = t[finite], I[finite], vl[finite]
         if t.size == 0:
             continue
 
+        # LED-on window for this segment (VL >= 0.1 V = illuminated).
+        t0 = float(t[0])
+        on = vl >= 0.1
+        if on.any():
+            x_on0 = float(t[on][0]) - t0 + time_offset
+            x_on1 = float(t[on][-1]) - t0 + time_offset
+            led_spans.append((x_on0, x_on1, float(row["irradiated_power_w"]) * 1e6))
+
         # Zero-base each segment; drop first sample (instrument glitch on restart).
-        t_seg = t - t[0]
+        t_seg = t - t0
         y_seg = I * 1e6
         if t_seg.size > 1:
             t_seg = t_seg[1:]
@@ -194,10 +220,28 @@ def plot_sequential(ax: plt.Axes, hist: pl.DataFrame, group: dict) -> float:
         if y_max > y_min:
             pad = 0.05 * (y_max - y_min)
             ax.set_ylim(y_min - pad, y_max + pad)
+
+    # Shade each LED-on window and label its power above the band.
+    if annotate_led:
+        blend = blended_transform_factory(ax.transData, ax.transAxes)
+        for x0, x1, power in led_spans:
+            ax.axvspan(x0, x1, color="0.7", alpha=config.light_window_alpha, lw=0)
+            ax.text(
+                0.5 * (x0 + x1),
+                0.93,
+                f"{power:.0f} µW",
+                transform=blend,
+                ha="center",
+                va="top",
+                fontsize=22,
+                fontweight="bold",
+            )
     return time_offset
 
 
-def plot_power_law(ax: plt.Axes, curves: list[tuple[dict, dict, np.ndarray, np.ndarray]]) -> None:
+def plot_power_law(
+    ax: plt.Axes, curves: list[tuple[dict, dict, np.ndarray, np.ndarray]]
+) -> None:
     for chip, group, p, di in curves:
         is_electrons = group["vg_v"] >= 0
         marker = "+" if is_electrons else "_"
@@ -249,6 +293,185 @@ def annotate_panel_letter(ax: plt.Axes, letter: str) -> None:
     )
 
 
+def build_figure(
+    config: PlotConfig,
+    histories: dict[int, pl.DataFrame],
+    curves: list[tuple[dict, dict, np.ndarray, np.ndarray]],
+    *,
+    annotate_led: bool,
+    filename: str,
+) -> None:
+    fig = plt.figure(figsize=(40, 20))
+    gs = fig.add_gridspec(2, 2, width_ratios=[1, 1], height_ratios=[1, 1])
+    ax_bio = fig.add_subplot(gs[0, 0])
+    ax_hbn = fig.add_subplot(gs[1, 0], sharex=ax_bio)
+    ax_pl = fig.add_subplot(gs[:, 1])
+
+    totals: list[float] = []
+    for ax, group in zip([ax_bio, ax_hbn], SEQUENTIAL):
+        totals.append(
+            plot_sequential(
+                ax, histories[group["chip"]], group, config, annotate_led=annotate_led
+            )
+        )
+
+    ax_bio.tick_params(axis="x", labelbottom=False)
+    ax_hbn.set_xlabel(r"t (s)")
+    ax_bio.set_xlim(0.0, max([t for t in totals if t > 0], default=1.0))
+
+    plot_power_law(ax_pl, curves)
+
+    annotate_panel_letter(ax_bio, "a")
+    annotate_panel_letter(ax_hbn, "b")
+    annotate_panel_letter(ax_pl, "c")
+
+    plt.tight_layout()
+    out = config.get_output_path(
+        filename,
+        chip_number=67,
+        procedure="It",
+        metadata={"has_light": True},
+        special_type="photoresponse",
+        create_dirs=True,
+    )
+    plt.savefig(out, dpi=config.dpi, bbox_inches="tight")
+    plt.close(fig)
+    print(f"saved {out}")
+
+
+def plot_corrected_overlay(
+    ax: plt.Axes, hist: pl.DataFrame, group: dict, config: PlotConfig
+) -> list[tuple[float, tuple]]:
+    """Drift-corrected I(t) overlay for one chip: stretched-exp fit on
+    [FIT_T_START, FIT_T_END] subtracted, re-zeroed at EVAL_T_PRE, traces colored
+    by power (plasma). Returns [(power_uW, rgba), ...] for a shared legend."""
+    rows = hist.filter(
+        pl.col("seq").is_in(group["seqs"]),
+        pl.col("date") == group["date"],
+        pl.col("proc") == "It",
+        pl.col("has_light"),
+        pl.col("wavelength_nm") == WAVELENGTH_NM,
+    ).sort("irradiated_power_w")
+    if rows.height == 0:
+        print(f"[warn] no It traces for {group['label']}")
+        return []
+
+    seg_t: list[np.ndarray] = []
+    seg_I_corr: list[np.ndarray] = []
+    seg_power: list[float] = []
+    for row in rows.iter_rows(named=True):
+        meas = read_measurement_parquet(Path(row["parquet_path"]))
+        t = meas["t (s)"].to_numpy().astype(np.float64)
+        I = meas["I (A)"].to_numpy().astype(np.float64)
+        finite = np.isfinite(t) & np.isfinite(I)
+        t, I = t[finite], I[finite]
+        if t.size == 0:
+            continue
+
+        mask = (t >= FIT_T_START) & (t <= FIT_T_END)
+        if mask.sum() >= 10:
+            fit = fit_stretched_exponential(t[mask], I[mask])
+            drift = stretched_exponential(
+                t, fit["baseline"], fit["amplitude"], fit["tau"], fit["beta"]
+            )
+            I_corr = I - drift
+            idx_pre = int(np.argmin(np.abs(t - EVAL_T_PRE)))
+            I_corr = I_corr - I_corr[idx_pre]
+        else:
+            idx_pre = int(np.argmin(np.abs(t - EVAL_T_PRE)))
+            I_corr = I - I[idx_pre]
+
+        seg_t.append(t)
+        seg_I_corr.append(I_corr * 1e6)
+        seg_power.append(float(row["irradiated_power_w"]) * 1e6)
+
+    n = len(seg_t)
+    cmap = mpl.colormaps["plasma"]
+    cmap_levels = np.linspace(0.15, 0.85, max(1, n))
+
+    legend_info: list[tuple[float, tuple]] = []
+    t_totals: list[float] = []
+    for i, (t_full, ic_uA) in enumerate(zip(seg_t, seg_I_corr)):
+        color = cmap(cmap_levels[i])
+        ax.plot(t_full, ic_uA, color=color, linewidth=4.0)
+        t_totals.append(float(t_full[-1]))
+        legend_info.append((seg_power[i], color))
+
+    ax.axvspan(
+        EVAL_T_PRE, EVAL_T_POST, color="0.7", alpha=config.light_window_alpha, lw=0
+    )
+
+    x_lo = 50.0
+    x_hi = None
+    if t_totals:
+        T_total = float(np.median(t_totals))
+        if np.isfinite(T_total) and T_total > 0:
+            x_hi = T_total
+            ax.set_xlim(x_lo, x_hi)
+    ax.set_xticks([60, 120, 180])
+
+    visible_y: list[float] = []
+    for t_full, ic_uA in zip(seg_t, seg_I_corr):
+        m = t_full >= x_lo
+        if x_hi is not None:
+            m &= t_full <= x_hi
+        visible_y.extend(ic_uA[m].tolist())
+    y = np.array([v for v in visible_y if np.isfinite(v)], dtype=float)
+    if y.size:
+        y_min, y_max = float(y.min()), float(y.max())
+        if y_max > y_min:
+            pad = config.padding_fraction * (y_max - y_min)
+            ax.set_ylim(y_min - pad, y_max + pad)
+
+    ax.set_xlabel(r"$t\ (\mathrm{s})$")
+    ax.set_ylabel(r"$I_{\mathrm{corr}}\ (\mu\mathrm{A})$")
+    return legend_info
+
+
+def build_overlay_figure(
+    config: PlotConfig, histories: dict[int, pl.DataFrame]
+) -> None:
+    fig, (ax_a, ax_b) = plt.subplots(1, 2, figsize=(40, 20))
+
+    legend_info: list[tuple[float, tuple]] = []
+    for ax, group in zip([ax_a, ax_b], SEQUENTIAL):
+        info = plot_corrected_overlay(ax, histories[group["chip"]], group, config)
+        if info and not legend_info:
+            legend_info = info
+
+    annotate_panel_letter(ax_a, "a")
+    annotate_panel_letter(ax_b, "b")
+
+    if legend_info:
+        handles = [
+            Line2D([0], [0], color=color, lw=10.0, label=f"{power:.0f} µW")
+            for power, color in legend_info
+        ]
+        fig.legend(
+            handles=handles,
+            title="LED power",
+            loc="lower center",
+            bbox_to_anchor=(0.5, -0.04),
+            ncol=len(handles),
+            framealpha=0.9,
+            fontsize=34,
+            title_fontsize=38,
+        )
+    plt.tight_layout()
+
+    out = config.get_output_path(
+        "Alisson67_75_corrected_overlay_holes_365nm_1x2",
+        chip_number=67,
+        procedure="It",
+        metadata={"has_light": True},
+        special_type="photoresponse",
+        create_dirs=True,
+    )
+    plt.savefig(out, dpi=config.dpi, bbox_inches="tight")
+    plt.close(fig)
+    print(f"saved {out}")
+
+
 def main() -> None:
     config = PlotConfig()
     set_plot_style(config.theme)
@@ -262,22 +485,6 @@ def main() -> None:
         for chip in {g["chip"] for g in SEQUENTIAL} | {c["chip"] for c in CHIPS}
     }
 
-    fig = plt.figure(figsize=(40, 20))
-    gs = fig.add_gridspec(2, 2, width_ratios=[1, 1], height_ratios=[1, 1])
-    ax_bio = fig.add_subplot(gs[0, 0])
-    ax_hbn = fig.add_subplot(gs[1, 0], sharex=ax_bio)
-    ax_pl = fig.add_subplot(gs[:, 1])
-
-    seq_axes = [ax_bio, ax_hbn]
-    totals: list[float] = []
-    for ax, group in zip(seq_axes, SEQUENTIAL):
-        totals.append(plot_sequential(ax, histories[group["chip"]], group))
-
-    ax_bio.tick_params(axis="x", labelbottom=False)
-    ax_hbn.set_xlabel(r"t (s)")
-    max_total = max([t for t in totals if t > 0], default=1.0)
-    ax_bio.set_xlim(0.0, max_total)
-
     curves: list[tuple[dict, dict, np.ndarray, np.ndarray]] = []
     for chip in CHIPS:
         hist = histories[chip["chip"]]
@@ -287,26 +494,25 @@ def main() -> None:
                 print(f"[warn] no data for Alisson{chip['chip']} Vg={group['vg_v']}")
                 continue
             curves.append((chip, group, p, di))
-    plot_power_law(ax_pl, curves)
 
-    annotate_panel_letter(ax_bio, "a")
-    annotate_panel_letter(ax_hbn, "b")
-    annotate_panel_letter(ax_pl, "c")
-
-    plt.tight_layout()
-
-    filename = "Alisson67_75_It_sequential_holes_and_powerlaw_365nm"
-    out = config.get_output_path(
-        filename,
-        chip_number=67,
-        procedure="It",
-        metadata={"has_light": True},
-        special_type="photoresponse",
-        create_dirs=True,
+    # Original (no LED/power annotation) — kept alongside the annotated version.
+    build_figure(
+        config,
+        histories,
+        curves,
+        annotate_led=False,
+        filename="Alisson67_75_It_sequential_holes_and_powerlaw_365nm",
     )
-    plt.savefig(out, dpi=config.dpi, bbox_inches="tight")
-    plt.close(fig)
-    print(f"saved {out}")
+    # Annotated version: shaded LED-on windows + per-segment power labels.
+    build_figure(
+        config,
+        histories,
+        curves,
+        annotate_led=True,
+        filename="Alisson67_75_It_sequential_holes_and_powerlaw_365nm_led",
+    )
+    # Standalone 1x2 drift-corrected I(t) overlay (a = Biotite, b = hBN).
+    build_overlay_figure(config, histories)
 
 
 if __name__ == "__main__":

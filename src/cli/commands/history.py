@@ -812,6 +812,9 @@ def build_all_histories_command(
         process_and_analyze build-all-histories -g Alisson -n 10
     """
     from rich.panel import Panel
+    from rich.progress import Progress, SpinnerColumn, TextColumn
+    from rich.table import Table
+    from rich import box
 
     from src.cli.context import get_context
     from src.core.history_builder import generate_all_chip_histories

@@ -546,14 +546,14 @@ def main() -> None:
         a, b = pair
         plot_pair(
             pair, traces_by_chip, config,
-            OUTPUT_DIR / f"alisson{a}_{b}_It_corrected_overlay_pair.png",
+            OUTPUT_DIR / f"alisson{a}_{b}_It_corrected_overlay_pair.pdf",
             field="i_corr_uA",
             ylabel=r"$I_{\mathrm{corr}}\ (\mu\mathrm{A})$",
             plot_start=PLOT_START_TIME,
         )
         plot_pair(
             pair, traces_by_chip, config,
-            OUTPUT_DIR / f"alisson{a}_{b}_It_uncorrected_overlay_pair.png",
+            OUTPUT_DIR / f"alisson{a}_{b}_It_uncorrected_overlay_pair.pdf",
             field="i_raw_uA",
             ylabel=r"$I\ (\mu\mathrm{A})$",
             plot_start=20.0,
@@ -562,7 +562,7 @@ def main() -> None:
     for chip_num, traces in traces_by_chip.items():
         plot_single(
             chip_num, traces, config,
-            OUTPUT_DIR / f"alisson{chip_num}_It_corrected_overlay.png",
+            OUTPUT_DIR / f"alisson{chip_num}_It_corrected_overlay.pdf",
             field="i_corr_uA",
             ylabel=r"$I_{\mathrm{corr}}\ (\mu\mathrm{A})$",
             plot_start=PLOT_START_TIME,
@@ -571,7 +571,7 @@ def main() -> None:
     plot_photoresponse_vs_wl(
         traces_by_chip,
         config,
-        OUTPUT_DIR / "alisson67_72_74_75_80_81_photoresponse_vs_wl.png",
+        OUTPUT_DIR / "alisson67_72_74_75_80_81_photoresponse_vs_wl.pdf",
     )
 
     rows = build_comparison_table(traces_by_chip)

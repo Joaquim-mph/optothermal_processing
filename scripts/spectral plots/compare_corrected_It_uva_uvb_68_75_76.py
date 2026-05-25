@@ -1,11 +1,14 @@
 """
-Drift-corrected It wavelength sweeps for the UVA/UVB session, chips 68/75/76.
+Drift-corrected It wavelength sweeps for the UVA/UVB session, chips 68/75/76/80.
 
-Wavelengths: 280, 300, 365, 385, 405, 455 nm at fixed Vg (68/75: -0.65 V, 76: -0.5 V).
+Wavelengths: 280, 300, 365, 385, 405, 455 nm at fixed Vg
+  (68/75: -0.65 V, 76: -0.5 V, 80: -0.75 V).
   Chip 68  — 2026-05-18 — complete (6 wavelengths)
   Chip 75  — 2026-05-20 — complete (6 wavelengths)
   Chip 76  — 2026-05-20 — died mid-run: 365/385/405/455 complete, 300 nm
              truncated at ~86 s (died during illumination), 280 nm never taken.
+  Chip 80  — 2026-05-25 — complete (6 wavelengths); 455 nm was run twice,
+             only the latest run is used (see select_its_rows dedup).
 
 Light protocol: ON 60 -> 120 s, 180 s total trace (same as the older sweeps).
 
@@ -14,7 +17,7 @@ t in [fit_t_start, 60] s, subtracted from the full trace; baseline anchored so
 I_corr(60 s) = 0; corrected photoresponse |ΔI| = |I_corr(120 s)|.
 
 Per-chip fit window (fit_t_start):
-  68, 75 -> [1, 60] s  (matches the 2026-05-14 power-sweep script; both fit
+  68, 75, 80 -> [1, 60] s  (matches the 2026-05-14 power-sweep script; all fit
             cleanly over the full pre-illumination window, residual ~0.1-0.5 µA).
   76     -> [40, 60] s. A single stretched-exponential cannot capture chip 76's
             pre-illumination shape over [1, 60] (leaves a ~1-2 µA baseline hump
@@ -24,10 +27,10 @@ Per-chip fit window (fit_t_start):
             (405/455 nm) signals.
 
 Outputs (figs/uva-uvb/):
-  - uva_uvb_68_75_corrected_deltaI_vs_wl.png       (two complete chips)
-  - uva_uvb_68_75_76_corrected_deltaI_vs_wl.png    (all three; 76's truncated
+  - uva_uvb_68_75_80_corrected_deltaI_vs_wl.png    (without 76)
+  - uva_uvb_68_75_76_80_corrected_deltaI_vs_wl.png (with 76; its truncated
                                                     300 nm point auto-omitted)
-  - alisson{68,75,76}_It_corrected_overlay.png     (corrected I(t) per wavelength;
+  - alisson{68,75,76,80}_It_corrected_overlay.png  (corrected I(t) per wavelength;
                                                     76 keeps its truncated 300 nm)
 
 Run from repo root:
@@ -86,10 +89,11 @@ CHIPS = {
     68: {"label": _label(68), "date": "2026-05-18"},
     75: {"label": _label(75), "date": "2026-05-20"},
     76: {"label": _label(76), "date": "2026-05-20", "fit_t_start": 40.0},
+    80: {"label": _label(80), "date": "2026-05-25"},
 }
 
-CHIP_COLORS = {68: "C0", 75: "C1", 76: "C3"}
-CHIP_MARKERS = {68: "o", 75: "s", 76: "D"}
+CHIP_COLORS = {68: "C0", 75: "C1", 76: "C3", 80: "C2"}
+CHIP_MARKERS = {68: "o", 75: "s", 76: "D", 80: "^"}
 
 
 def load_history(chip_number: int) -> pl.DataFrame:
@@ -111,7 +115,12 @@ def select_its_rows(history: pl.DataFrame, date: str) -> pl.DataFrame:
     )
     if rows.height == 0:
         raise ValueError(f"no It+light rows matched date={date}")
-    return rows.sort("wavelength_nm")
+    # Dedup repeated wavelengths (e.g. chip 80's 455 nm run twice): keep latest seq.
+    return (
+        rows.sort("seq")
+        .unique(subset=["wavelength_nm"], keep="last", maintain_order=True)
+        .sort("wavelength_nm")
+    )
 
 
 def _window_mask(t: np.ndarray, fit_t_start: float) -> np.ndarray:
@@ -350,12 +359,12 @@ def main() -> None:
         traces_by_chip[chip_num] = collect_chip_traces(chip_num)
 
     plot_photoresponse_vs_wl(
-        [68, 75], traces_by_chip, config,
-        OUTPUT_DIR / "uva_uvb_68_75_corrected_deltaI_vs_wl.png",
+        [68, 75, 80], traces_by_chip, config,
+        OUTPUT_DIR / "uva_uvb_68_75_80_corrected_deltaI_vs_wl.png",
     )
     plot_photoresponse_vs_wl(
-        [68, 75, 76], traces_by_chip, config,
-        OUTPUT_DIR / "uva_uvb_68_75_76_corrected_deltaI_vs_wl.png",
+        [68, 75, 76, 80], traces_by_chip, config,
+        OUTPUT_DIR / "uva_uvb_68_75_76_80_corrected_deltaI_vs_wl.png",
     )
 
     for chip_num, traces in traces_by_chip.items():

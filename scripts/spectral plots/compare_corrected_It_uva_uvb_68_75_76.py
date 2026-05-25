@@ -10,16 +10,18 @@ Wavelengths: 280, 300, 365, 385, 405, 455 nm at fixed Vg (68/75: -0.65 V, 76: -0
 Light protocol: ON 60 -> 120 s, 180 s total trace (same as the older sweeps).
 
 Drift model: stretched-exponential fit on the pre-illumination window
-t in [DEFAULT_FIT_T_START, 60] s = [1, 60] s (matches the 2026-05-14 power-sweep
-script), subtracted from the full trace; baseline anchored so I_corr(60 s) = 0;
-corrected photoresponse |ΔI| = |I_corr(120 s)|.
+t in [fit_t_start, 60] s, subtracted from the full trace; baseline anchored so
+I_corr(60 s) = 0; corrected photoresponse |ΔI| = |I_corr(120 s)|.
 
-Caveat: the full [1, 60] s window fits chip 75 cleanly (in-window residual
-~0.1-0.5 µA) but NOT chip 76 — a single stretched-exponential cannot capture
-chip 76's pre-illumination shape over the whole window, leaving a ~1-2 µA
-baseline hump comparable to its own photoresponse. Chip 76's ΔI is therefore
-only semi-quantitative here; a later fit start (e.g. [40, 60] s) flattens its
-baseline if a cleaner 76 number is needed.
+Per-chip fit window (fit_t_start):
+  68, 75 -> [1, 60] s  (matches the 2026-05-14 power-sweep script; both fit
+            cleanly over the full pre-illumination window, residual ~0.1-0.5 µA).
+  76     -> [40, 60] s. A single stretched-exponential cannot capture chip 76's
+            pre-illumination shape over [1, 60] (leaves a ~1-2 µA baseline hump
+            comparable to its own signal). A window scan showed [40, 60] s is the
+            best balance: in-window residual minimized (~0.1-0.3 µA) while ΔI is
+            still on its stable plateau — starts >=45 s begin eating the small
+            (405/455 nm) signals.
 
 Outputs (figs/uva-uvb/):
   - uva_uvb_68_75_corrected_deltaI_vs_wl.png       (two complete chips)
@@ -83,7 +85,7 @@ TICK_STEP = 30.0  # ticks at 60, 90, 120, … (multiples of 30)
 CHIPS = {
     68: {"label": _label(68), "date": "2026-05-18"},
     75: {"label": _label(75), "date": "2026-05-20"},
-    76: {"label": _label(76), "date": "2026-05-20"},
+    76: {"label": _label(76), "date": "2026-05-20", "fit_t_start": 40.0},
 }
 
 CHIP_COLORS = {68: "C0", 75: "C1", 76: "C3"}

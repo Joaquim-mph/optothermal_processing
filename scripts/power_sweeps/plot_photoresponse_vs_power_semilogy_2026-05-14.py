@@ -71,11 +71,36 @@ def _load_chip_materials() -> dict[int, str]:
 
 _CHIP_MATERIALS = _load_chip_materials()
 
+# Abbreviations for the bottom dielectric in the stack tag. The top encapsulant
+# is always hBN (see config/encap_characteristics.yaml), so the tag is
+# "hBN/<bottom>", e.g. "hBN/Bio" for a biotite-bottom chip.
+_MATERIAL_ABBREV = {"biotite": "Bio", "hBN": "hBN"}
 
-def label_for_chip(chip: dict, include_material: bool = True) -> str:
+
+def material_stack_for_chip(chip_number: int) -> str | None:
+    """Top/bottom dielectric stack tag, e.g. "hBN/Bio". None if unknown."""
+    mat = _CHIP_MATERIALS.get(chip_number)
+    if not mat:
+        return None
+    bottom = _MATERIAL_ABBREV.get(mat, mat)
+    return f"hBN/{bottom}"
+
+
+def label_for_chip(
+    chip: dict, include_material: bool = True, stack: bool = False
+) -> str:
     n = chip["chip"]
-    mat = _CHIP_MATERIALS.get(n) if include_material else None
     vg = chip.get("vg_filter")
+    if stack:
+        if include_material:
+            mat = _CHIP_MATERIALS.get(n)
+            bottom = _MATERIAL_ABBREV.get(mat, mat) if mat else None
+        else:
+            bottom = None
+        mat_part = f" {bottom}" if bottom else ""
+        vg_part = f", $V_g={vg:g}$ V" if vg is not None else ""
+        return f"{n}{mat_part}{vg_part}"
+    mat = _CHIP_MATERIALS.get(n) if include_material else None
     mat_part = f" ({mat})" if mat else ""
     vg_part = f" $V_g={vg:g}$ V" if vg is not None else ""
     return f"{n}{mat_part}{vg_part}"
@@ -525,7 +550,7 @@ def plot_comparison(
             linestyle="none",
             color=chip["color"],
             markersize=25,
-            label=label_for_chip(chip, include_material=False),
+            label=label_for_chip(chip, stack=True),
         )
         if p_fit.size:
             ax.plot(p_fit, di_fit, linestyle="-", color=chip["color"], linewidth=1.2)
@@ -540,9 +565,11 @@ def plot_comparison(
     ax.set_yticks([5, 10, 20, 40])
     ax.set_yticklabels(["5", "10", "20", "40"])
     ax.yaxis.set_minor_locator(plt.NullLocator())
+    # Anchor by the legend's left edge so label width (e.g. the material tag)
+    # does not push the box off the y-axis.
     ax.legend(
-        loc="center",
-        bbox_to_anchor=(0.15, 0.45),
+        loc="center left",
+        bbox_to_anchor=(0.00, 0.45),
         framealpha=0.9,
     )
 

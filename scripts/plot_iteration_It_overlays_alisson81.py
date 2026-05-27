@@ -36,14 +36,24 @@ from matplotlib.ticker import MultipleLocator
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from scripts.compare_corrected_It_67_72_74_75_80_81_pairs import (  # noqa: E402
-    DEFAULT_FIT_T_START,
-    PLOT_START_TIME,
-    TICK_STEP,
-    corrected_trace,
-    fit_both_models,
-    light_window,
+import importlib.util  # noqa: E402
+
+_pairs_path = (
+    Path(__file__).resolve().parent
+    / "spectral plots"
+    / "compare_corrected_It_67_72_74_75_80_81_pairs.py"
 )
+_spec = importlib.util.spec_from_file_location(
+    "compare_corrected_It_67_72_74_75_80_81_pairs", _pairs_path
+)
+_pairs_mod = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_pairs_mod)
+DEFAULT_FIT_T_START = _pairs_mod.DEFAULT_FIT_T_START
+PLOT_START_TIME = _pairs_mod.PLOT_START_TIME
+TICK_STEP = _pairs_mod.TICK_STEP
+corrected_trace = _pairs_mod.corrected_trace
+fit_both_models = _pairs_mod.fit_both_models
+light_window = _pairs_mod.light_window
 
 from src.core.utils import read_measurement_parquet  # noqa: E402
 from src.plotting.shared.config import PlotConfig  # noqa: E402
@@ -119,8 +129,7 @@ def plot_cluster_overlay(
     config: PlotConfig,
 ) -> None:
     set_plot_style(config.theme)
-    side = float(config.figsize_timeseries[1])
-    fig, ax = plt.subplots(1, 1, figsize=(side, side))
+    fig, ax = plt.subplots(1, 1, figsize=(20, 20))
 
     n = len(traces)
     cmap = mpl.colormaps["viridis"]
@@ -136,6 +145,7 @@ def plot_cluster_overlay(
             tr["i_corr_uA"],
             color=color,
             linestyle="-",
+            linewidth=2.0,
             label=f"#{k + 1}",
         )
         visible = tr["t"] >= PLOT_START_TIME
@@ -256,7 +266,7 @@ def plot_sequential_with_overlay_inset(
     for k, tr in enumerate(traces):
         color = cmap(cmap_levels[k])
         inset.plot(
-            tr["t"], tr["i_corr_uA"], color=color, linewidth=1.5, label=f"#{k + 1}"
+            tr["t"], tr["i_corr_uA"], color=color, linewidth=1.2, label=f"#{k + 1}"
         )
         visible = tr["t"] >= PLOT_START_TIME
         inset_y.extend(tr["i_corr_uA"][visible])
@@ -321,17 +331,16 @@ def plot_cluster_sequential(
 ) -> None:
     """Raw I(t) concatenated on a continuous axis, plasma-by-iteration."""
     set_plot_style(config.theme)
-    fig, ax = plt.subplots(1, 1, figsize=config.figsize_timeseries)
+    fig, ax = plt.subplots(1, 1, figsize=(20, 20))
 
-    n = len(traces)
-    cmap = mpl.colormaps["plasma_r"]
-    cmap_levels = np.linspace(0.15, 1.0, max(1, n))
+    line_color = PRISM_RAIN_PALETTE[0]
 
-    boundaries: list[float] = []
     all_y: list[float] = []
     time_offset = 0.0
 
-    for k, tr in enumerate(traces):
+    vg_label = rf"$V_g = {cluster['vg_v']:g}$ V"
+    label_used = False
+    for tr in traces:
         t = tr["t"]
         y = tr["i_raw_uA"]
         mask = t >= SEQUENTIAL_START_TIME
@@ -340,16 +349,15 @@ def plot_cluster_sequential(
         if t_seg.size == 0:
             continue
         t_seg = t_seg - t_seg[0]
-        boundaries.append(time_offset)
 
-        color = cmap(cmap_levels[k])
         ax.plot(
             t_seg + time_offset,
             y_seg,
-            color=color,
+            color=line_color,
             linewidth=2.0,
-            label=f"iter {k + 1} (seq {tr['seq']})",
+            label=vg_label if not label_used else None,
         )
+        label_used = True
         all_y.extend(y_seg.tolist())
 
         span = tr.get("light_span")
@@ -363,9 +371,6 @@ def plot_cluster_sequential(
             )
 
         time_offset += float(t_seg[-1])
-
-    for b in boundaries[1:]:
-        ax.axvline(b, color="gray", linestyle="--", linewidth=1.2, alpha=0.5)
 
     ax.set_xlabel(r"Concatenated time (s)")
     ax.set_ylabel(r"$I_{ds}\ (\mu\mathrm{A})$")
@@ -384,9 +389,7 @@ def plot_cluster_sequential(
                 ax.set_ylim(y_min - pad, y_max + pad)
     ax.set_xlim(0.0, time_offset)
 
-    ax.legend(
-        loc="best", framealpha=0.9, ncol=2, fontsize="small", title_fontsize="small"
-    )
+    ax.legend(loc="best", framealpha=0.9)
 
     plt.tight_layout()
     _save(fig, f"Alisson{CHIP_NUMBER}_iteration_It_sequential_{cluster['tag']}", config)

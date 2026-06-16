@@ -40,6 +40,32 @@ from src.plotting.shared.styles import PRISM_RAIN_PALETTE, set_plot_style
 ENRICHED_DIR = Path("data/03_derived/chip_histories_enriched")
 OUTPUT_DIR = Path("figs/drift_unified_67_72_74_75_80_81")
 
+# Responsivity: R = |ΔI_corr| / P_device, P_device = P_beam · (A_device / A_beam).
+# Beam spot area (µm²) is per-chip: chips 67 and 81 were measured with a 1e5 µm²
+# spot, the rest with 1.2e5 µm².
+BEAM_AREA_UM2_DEFAULT = 1.2e5
+BEAM_AREA_UM2_BY_CHIP = {67: 1e5, 81: 1e5}
+ENCAP_YAML = Path("config/encap_characteristics.yaml")
+RESPONSIVITY_CHIPS = [75, 74, 72, 67]
+
+
+def beam_area_um2(chip_number: int) -> float:
+    return BEAM_AREA_UM2_BY_CHIP.get(chip_number, BEAM_AREA_UM2_DEFAULT)
+
+
+def chip_materials() -> dict[int, str]:
+    """Per-chip bottom-dielectric material from config/encap_characteristics.yaml."""
+    import yaml
+
+    if not ENCAP_YAML.exists():
+        return {}
+    data = yaml.safe_load(ENCAP_YAML.read_text()) or {}
+    return {
+        int(k): str(v["material"])
+        for k, v in data.items()
+        if isinstance(k, int) and isinstance(v, dict) and "material" in v
+    }
+
 DEFAULT_FIT_T_START = 0.0
 FIT_T_END = 60.0
 EVAL_T_PRE = 60.0
@@ -47,20 +73,20 @@ PLOT_START_TIME = 50.0
 TICK_STEP = 30.0  # ticks at 60, 90, 120, … (multiples of 30)
 
 CHIPS = {
-    67: {"label": "67 (hBN)",
-         "seqs": [4, 15, 27, 41, 103, 102, 100, 98, 96, 94]},
-    72: {"label": "72 (hBN)",
-         "seqs": [103, 105, 107, 112, 114, 116, 118, 120, 122, 124]},
-    74: {"label": "74 (biotite)",
-         "seqs": [5, 7, 9, 11, 13, 17, 20, 22, 24, 28],
+    67: {"seqs": [4, 15, 27, 41, 103, 102, 100, 98, 96, 94]},
+    72: {"seqs": [103, 105, 107, 112, 114, 116, 118, 120, 122, 124]},
+    74: {"seqs": [5, 7, 9, 11, 13, 17, 20, 22, 24, 28],
          "fit_t_start": 30.0},
-    75: {"label": "75 (biotite)",
-         "seqs": [62, 64, 69, 71, 73, 75, 77, 81, 83, 85]},
-    80: {"label": "80 (biotite)",
-         "seqs": [95, 97, 99, 101, 103, 105, 107, 109, 111, 113]},
-    81: {"label": "81 (biotite)",
-         "seqs": [4, 6, 8, 10, 12, 14, 16, 18, 33, 35]},
+    75: {"seqs": [62, 64, 69, 71, 73, 75, 77, 81, 83, 85]},
+    80: {"seqs": [95, 97, 99, 101, 103, 105, 107, 109, 111, 113]},
+    81: {"seqs": [4, 6, 8, 10, 12, 14, 16, 18, 33, 35]},
 }
+
+# Legend/title labels: "{chip} ({material})", material from encap config.
+_MATERIALS = chip_materials()
+for _chip, _cfg in CHIPS.items():
+    _mat = _MATERIALS.get(_chip)
+    _cfg["label"] = f"{_chip} ({_mat})" if _mat else str(_chip)
 
 PAIRS = [(72, 67), (74, 75), (80, 81)]
 
@@ -73,6 +99,20 @@ def load_history(chip_number: int) -> pl.DataFrame:
             f"Run: biotite build-all-histories && biotite enrich-history {chip_number}"
         )
     return pl.read_parquet(path)
+
+
+def device_areas_um2() -> dict[int, float]:
+    """Per-chip flake area (µm²) from config/encap_characteristics.yaml."""
+    import yaml
+
+    if not ENCAP_YAML.exists():
+        return {}
+    data = yaml.safe_load(ENCAP_YAML.read_text()) or {}
+    return {
+        int(k): float(v["flake_area_um2"])
+        for k, v in data.items()
+        if isinstance(k, int) and isinstance(v, dict) and "flake_area_um2" in v
+    }
 
 
 def select_its_rows(history: pl.DataFrame, seqs: list[int]) -> pl.DataFrame:
@@ -209,6 +249,8 @@ def collect_chip_traces(chip_number: int) -> list[dict]:
             "wavelength_nm": float(wl) if wl is not None else float("nan"),
             "vg_v": (float(row.get("vg_fixed_v"))
                      if row.get("vg_fixed_v") is not None else None),
+            "power_w": (float(row.get("irradiated_power_w"))
+                        if row.get("irradiated_power_w") is not None else None),
             "t": fit["t_full"],
             "i_raw_uA": i_uncorr * 1e6,
             "i_corr_uA": i_corr * 1e6,
@@ -383,7 +425,13 @@ def plot_single(
 
 
 CHIP_COLORS = {67: "C0", 72: "C4", 74: "C3", 75: "C1", 80: "C2", 81: "C5"}
-CHIP_MARKERS = {67: "o", 72: "s", 74: "o", 75: "s", 80: "o", 81: "s"}
+
+# Marker by material (from encap config), so each material shares one marker.
+MATERIAL_MARKERS = {"hBN": "o", "biotite": "s"}
+
+
+def chip_marker(chip_number: int) -> str:
+    return MATERIAL_MARKERS.get(_MATERIALS.get(chip_number, ""), "o")
 EVAL_T_POST = 120.0
 
 
@@ -396,6 +444,67 @@ def photoresponse_at_post(tr: dict) -> float:
         return float("nan")
     idx = int(np.argmin(np.abs(t - EVAL_T_POST)))
     return float(y[idx])
+
+
+def responsivity_at_post(tr: dict, area_um2: float | None) -> float:
+    """R = |ΔI_corr| / P_device (A/W); P_device = P_beam · A_device/A_beam."""
+    di_uA = abs(photoresponse_at_post(tr))
+    p_w = tr.get("power_w")
+    if area_um2 is None or p_w is None or not np.isfinite(p_w) or p_w <= 0:
+        return float("nan")
+    p_dev_w = p_w * (area_um2 / beam_area_um2(int(tr["chip"])))
+    return (di_uA * 1e-6) / p_dev_w
+
+
+def plot_responsivity_vs_wl(
+    traces_by_chip: dict[int, list[dict]],
+    config: PlotConfig,
+    output_path: Path,
+    *,
+    chips: list[int] | None = None,
+    logy: bool = False,
+) -> None:
+    set_plot_style(config.theme)
+    side = float(config.figsize_timeseries[1])
+    fig, ax = plt.subplots(1, 1, figsize=(side, side))
+
+    chips = chips if chips is not None else RESPONSIVITY_CHIPS
+    areas = device_areas_um2()
+    for chip_num in chips:
+        traces = traces_by_chip.get(chip_num, [])
+        area = areas.get(chip_num)
+        pts = []
+        for tr in traces:
+            wl = tr["wavelength_nm"]
+            r = responsivity_at_post(tr, area)
+            if np.isfinite(wl) and np.isfinite(r):
+                pts.append((wl, r))
+        if not pts:
+            print(f"  [chip {chip_num}] no responsivity points (area={area})")
+            continue
+        pts.sort()
+        wls = np.array([p[0] for p in pts])
+        rs = np.array([p[1] for p in pts])
+        ax.plot(
+            wls, rs,
+            color=CHIP_COLORS.get(chip_num, "k"),
+            marker=chip_marker(chip_num),
+            linestyle="-",
+            label=CHIPS[chip_num]["label"],
+        )
+
+    if logy:
+        ax.set_yscale("log")
+    ax.set_xlabel(r"Wavelength (nm)")
+    ax.set_ylabel(r"$R$ (A/W)")
+    ax.set_box_aspect(1.0)
+    ax.legend(loc="best", framealpha=0.9, ncol=2, fontsize="small")
+
+    plt.tight_layout()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    plt.savefig(output_path, dpi=config.dpi, bbox_inches="tight")
+    plt.close(fig)
+    print(f"saved {output_path}")
 
 
 def plot_photoresponse_vs_wl(
@@ -422,7 +531,7 @@ def plot_photoresponse_vs_wl(
         ax.plot(
             wls, dis,
             color=CHIP_COLORS.get(chip_num, "k"),
-            marker=CHIP_MARKERS.get(chip_num, "o"),
+            marker=chip_marker(chip_num),
             linestyle="-",
             label=CHIPS[chip_num]["label"],
         )
@@ -572,6 +681,56 @@ def main() -> None:
         traces_by_chip,
         config,
         OUTPUT_DIR / "alisson67_72_74_75_80_81_photoresponse_vs_wl.pdf",
+    )
+
+    plot_responsivity_vs_wl(
+        traces_by_chip,
+        config,
+        OUTPUT_DIR / "alisson75_74_72_67_responsivity_vs_wl.pdf",
+    )
+    plot_responsivity_vs_wl(
+        traces_by_chip,
+        config,
+        OUTPUT_DIR / "alisson75_74_72_67_responsivity_vs_wl_semilogy.pdf",
+        logy=True,
+    )
+
+    # All six chips from the original photoresponse plot.
+    all_chips = list(CHIPS)
+    plot_responsivity_vs_wl(
+        traces_by_chip,
+        config,
+        OUTPUT_DIR / "alisson67_72_74_75_80_81_responsivity_vs_wl.pdf",
+        chips=all_chips,
+    )
+    plot_responsivity_vs_wl(
+        traces_by_chip,
+        config,
+        OUTPUT_DIR / "alisson67_72_74_75_80_81_responsivity_vs_wl_semilogy.pdf",
+        chips=all_chips,
+        logy=True,
+    )
+
+    # Subset comparison: encaps 74, 75, 81, 67.
+    subset_chips = [74, 75, 81, 67]
+    plot_responsivity_vs_wl(
+        traces_by_chip,
+        config,
+        OUTPUT_DIR / "alisson74_75_81_67_responsivity_vs_wl.pdf",
+        chips=subset_chips,
+    )
+    plot_responsivity_vs_wl(
+        traces_by_chip,
+        config,
+        OUTPUT_DIR / "alisson74_75_81_67_responsivity_vs_wl.png",
+        chips=subset_chips,
+    )
+    plot_responsivity_vs_wl(
+        traces_by_chip,
+        config,
+        OUTPUT_DIR / "alisson74_75_81_67_responsivity_vs_wl_semilogy.pdf",
+        chips=subset_chips,
+        logy=True,
     )
 
     rows = build_comparison_table(traces_by_chip)

@@ -38,6 +38,9 @@ from src.plotting.transconductance import auto_select_savgol_params  # noqa: E40
 
 ENCAP_PATH = Path("config/encap_characteristics.yaml")
 WAVELENGTH_NM = 365
+# Laser spot area (µm²). `irradiated_power_w` is the total beam power over this
+# spot; the power on a device is scaled by A_device / A_beam.
+BEAM_AREA_UM2 = 1.2e5
 INSET_VG_CENTER = -2.6  # V — center of inset zoom window
 INSET_VG_HALFWIDTH = 0.1  # V — half-width of Vg window in inset
 
@@ -152,6 +155,26 @@ def _load_materials() -> dict[int, str]:
         if isinstance(v, dict):
             materials[chip] = v.get("material", "?")
     return materials
+
+
+def _device_areas_um2() -> dict[int, float]:
+    """Per-chip flake area (µm²) from config/encap_characteristics.yaml."""
+    raw = yaml.safe_load(ENCAP_PATH.read_text())
+    areas: dict[int, float] = {}
+    for k, v in raw.items():
+        try:
+            chip = int(k)
+        except (TypeError, ValueError):
+            continue
+        if isinstance(v, dict) and "flake_area_um2" in v:
+            areas[chip] = float(v["flake_area_um2"])
+    return areas
+
+
+def _enriched_history_path(chip_number: int) -> Path:
+    return Path(
+        f"data/03_derived/chip_histories_enriched/Alisson{chip_number}_history.parquet"
+    )
 
 
 def _first_half_sweep(vg: np.ndarray) -> slice:
@@ -577,14 +600,43 @@ def _draw_wavelength_photocurrent_overlay_on_ax(
     *,
     show_legend: bool = True,
     linewidth: float = 3.7,
+    responsivity: bool = False,
+    device_area_um2: float | None = None,
 ) -> None:
     """Overlay smoothed photocurrent (I_on - I_off) vs Vg for one chip across
     several wavelengths on a single axes. One smoothed curve per triplet,
     labelled by the ON seq's `wavelength_nm`. Mirrors the per-chip overlay
     produced by scripts/plot_ivg_photocurrent_triplets.py but renders into a
-    caller-supplied axes."""
+    caller-supplied axes.
+
+    When ``responsivity`` is True the y-axis is responsivity R = I_ph / P_device
+    in A/W, where P_device = irradiated_power_w * (device_area_um2 / BEAM_AREA_UM2).
+    The per-ON-seq optical power is read from the enriched chip history."""
     hist = pl.read_parquet(_history_path(chip_number))
     hist = hist.filter((pl.col("proc") == "IVg") & (pl.col("date") == date))
+
+    power_by_seq: dict[int, float] = {}
+    if responsivity:
+        if device_area_um2 is None:
+            print(
+                f"[warn] no device area for Alisson{chip_number}; "
+                "cannot compute responsivity"
+            )
+            return
+        enr_path = _enriched_history_path(chip_number)
+        if not enr_path.exists():
+            print(
+                f"[warn] no enriched history for Alisson{chip_number}; "
+                "cannot compute responsivity"
+            )
+            return
+        enr = pl.read_parquet(enr_path).filter(
+            (pl.col("proc") == "IVg") & (pl.col("date") == date)
+        )
+        power_by_seq = {
+            int(r["seq"]): r["irradiated_power_w"]
+            for r in enr.select(["seq", "irradiated_power_w"]).iter_rows(named=True)
+        }
 
     for off_seq, on_seq, _off_after in triplets:
         off_row = hist.filter(pl.col("seq") == off_seq).row(0, named=True)
@@ -608,6 +660,18 @@ def _draw_wavelength_photocurrent_overlay_on_ax(
         vg = vg_on[:n]
         i_photo = (i_on[:n] - i_off[:n]) * 1e6  # µA
 
+        if responsivity:
+            power_w = power_by_seq.get(int(on_seq))
+            if power_w is None or not np.isfinite(power_w) or power_w <= 0:
+                print(
+                    f"[warn] no optical power for Alisson{chip_number} "
+                    f"seq {on_seq} (wl={wl:.0f} nm); skipping responsivity curve"
+                )
+                continue
+            # P_device = P_beam * (A_device / A_beam); convert I_ph (µA) -> A.
+            p_device_w = power_w * (device_area_um2 / BEAM_AREA_UM2)
+            i_photo = (i_photo * 1e-6) / p_device_w  # A/W
+
         # Forward leg only (V_min -> V_max), not the full first-half sweep.
         s = _forward_sweep_slice(vg)
         vg_fwd = vg[s]
@@ -630,7 +694,10 @@ def _draw_wavelength_photocurrent_overlay_on_ax(
 
     ax.axhline(0.0, color="k", linewidth=0.5, alpha=0.5)
     ax.set_xlabel("$\\rm{V_g\\ (V)}$")
-    ax.set_ylabel("$\\rm{I_{ph}\\ (\\mu A)}$")
+    if responsivity:
+        ax.set_ylabel("$\\rm{R\\ (A/W)}$")
+    else:
+        ax.set_ylabel("$\\rm{I_{ph}\\ (\\mu A)}$")
     if show_legend:
         ax.legend(title="Wavelength", loc="best")
 
@@ -873,6 +940,98 @@ def plot_74_72_on_off_wavelength_2x2(
     plt.close(fig)
 
 
+def plot_74_72_on_off_responsivity_2x2(
+    triplets: list[Triplet], materials: dict[int, str], config: PlotConfig
+) -> None:
+    """Responsivity twin of `plot_74_72_on_off_wavelength_2x2` — identical top
+    row, but the bottom row plots responsivity R = I_ph / P_device (A/W)
+    instead of photocurrent."""
+    by_chip = {t.chip_number: t for t in triplets}
+    chips = [72, 74]
+    missing = [c for c in chips if c not in by_chip]
+    if missing:
+        print(f"[warn] no 365 nm triplet for chips {missing}; skipping 2x2 grid")
+        return
+    wl_missing = [c for c in chips if c not in WAVELENGTH_TRIPLETS_BY_CHIP]
+    if wl_missing:
+        print(
+            f"[warn] no wavelength triplets configured for chips {wl_missing}; "
+            "skipping on/off+responsivity 2x2 grid"
+        )
+        return
+    areas = _device_areas_um2()
+    area_missing = [c for c in chips if c not in areas]
+    if area_missing:
+        print(
+            f"[warn] no flake_area_um2 for chips {area_missing}; "
+            "skipping on/off+responsivity 2x2 grid"
+        )
+        return
+
+    fig, axes = plt.subplots(
+        2,
+        2,
+        figsize=(40, 30),
+        gridspec_kw={"wspace": 0.28, "height_ratios": [2, 1]},
+    )
+
+    for col, chip in enumerate(chips):
+        t = by_chip[chip]
+        _draw_triplet_on_ax(
+            axes[0, col],
+            t,
+            materials,
+            show_legend=True,
+            show_title=False,
+            include_off_after=False,
+            legend_fontsize_delta=2,
+        )
+        wl_date, wl_triplets = WAVELENGTH_TRIPLETS_BY_CHIP[chip]
+        _draw_wavelength_photocurrent_overlay_on_ax(
+            axes[1, col],
+            chip,
+            wl_date,
+            wl_triplets,
+            show_legend=True,
+            linewidth=5.7,
+            responsivity=True,
+            device_area_um2=areas[chip],
+        )
+
+    # Share y across the bottom (responsivity) row: common limits, and drop the
+    # right panel's redundant y tick labels + label.
+    y_lo = min(axes[1, 0].get_ylim()[0], axes[1, 1].get_ylim()[0])
+    y_hi = max(axes[1, 0].get_ylim()[1], axes[1, 1].get_ylim()[1])
+    axes[1, 0].set_ylim(y_lo, y_hi)
+    axes[1, 1].set_ylim(y_lo, y_hi)
+    axes[1, 1].tick_params(labelleft=False)
+    axes[1, 1].set_ylabel("")
+
+    _annotate_panel_letters(axes, ["a", "b", "c", "d"])
+    fig.tight_layout()
+
+    filename = f"Compare_IVg_on_off_responsivity_2x2_7274_{WAVELENGTH_NM}nm"
+    out = config.get_output_path(
+        filename,
+        procedure="IVg",
+        special_type="triplets",
+        create_dirs=True,
+    )
+    fig.savefig(out, dpi=config.dpi)
+    print(f"saved {out}")
+
+    # Also emit a PNG alongside the default PDF for this figure.
+    out_png = config.get_output_path(
+        f"{filename}.png",
+        procedure="IVg",
+        special_type="triplets",
+        create_dirs=True,
+    )
+    fig.savefig(out_png, dpi=config.dpi)
+    print(f"saved {out_png}")
+    plt.close(fig)
+
+
 def plot_chip_photocurrent_wavelength(
     chip_number: int, materials: dict[int, str], config: PlotConfig
 ) -> None:
@@ -965,6 +1124,7 @@ def main() -> None:
     plot_74_72_triplet_photocurrent_wavelength_2x3(triplets, materials, config)
     plot_74_72_triplet_subs_2x2(triplets, materials, config)
     plot_74_72_on_off_wavelength_2x2(triplets, materials, config)
+    plot_74_72_on_off_responsivity_2x2(triplets, materials, config)
     plot_74_72_photocurrent_wavelength_1x2(materials, config)
     for chip in (74, 72):
         plot_chip_photocurrent_wavelength(chip, materials, config)

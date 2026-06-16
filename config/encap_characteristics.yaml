@@ -45,7 +45,7 @@ materials:
   hBN:
     epsilon_r_range: [3.3, 3.7]
   biotite:
-    epsilon_r_range: [8, 9]
+    epsilon_r_range: [5, 6]
 
 # ── Per-chip stack ─────────────────────────────────────────────────────
 # hBN bottom layer
@@ -53,22 +53,37 @@ materials:
   material: hBN
   top_hBN_nm: 54
   bottom_dielectric_nm: 43
+  flake_area_um2: 18 # approx
 
 72:
   material: hBN
   top_hBN_nm: 5
   bottom_dielectric_nm: 31
+  flake_area_um2: 15 # approx
 
 79:
   material: hBN
   top_hBN_nm: 12
   bottom_dielectric_nm: 92
 
+80:
+  material: hBN
+  top_hBN_nm: 20
+  bottom_dielectric_nm: 90
+  flake_area_um2: 20 # approx
+
+81:
+  material: hBN
+  top_hBN_nm: 9
+  bottom_dielectric_nm: 70
+  flake_area_um2: 63 # approx
+
 # Biotite bottom layer
 68:
   material: biotite
   top_hBN_nm: 58
   bottom_dielectric_nm: 30
+  flake_area_um2: 40 # approx
 
 69:
   material: biotite
@@ -89,26 +104,19 @@ materials:
   material: biotite
   top_hBN_nm: 13
   bottom_dielectric_nm: 45
+  flake_area_um2: 90 # approx
 
 75:
   material: biotite
   top_hBN_nm: 5
   bottom_dielectric_nm: 37
+  flake_area_um2: 120 # approx
 
 76:
   material: biotite
   top_hBN_nm: 17
   bottom_dielectric_nm: 24
-
-80:
-  material: biotite
-  top_hBN_nm: 20
-  bottom_dielectric_nm: 90
-
-81:
-  material: biotite
-  top_hBN_nm: 9
-  bottom_dielectric_nm: 70
+  flake_area_um2: 35 # approx
 
 100:
   material: biotite

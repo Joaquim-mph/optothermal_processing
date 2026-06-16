@@ -32,10 +32,18 @@ EVAL_T_PRE = 60.0
 EVAL_T_POST = 120.0
 WAVELENGTH_NM = 365.0
 
+# Laser spot area (µm²). The measured `irradiated_power_w` is the total beam
+# power over this spot; the power on a device is scaled by A_device / A_beam.
+BEAM_AREA_UM2 = 1e5
+ENCAP_YAML = Path("config/encap_characteristics.yaml")
+
+# Dedicated output folder for this script's three figures.
+OUTPUT_DIR = Path("figs/power_sweeps/corrected_deltai_responsivity_67_75_365nm")
+
 CHIPS: list[dict] = [
     {
         "chip": 67,
-        "label": "67 hBN",
+        "label": "67 (hBN)",
         "color": "#377eb8",
         "date": "2025-10-14",
         "vg_groups": [
@@ -45,7 +53,7 @@ CHIPS: list[dict] = [
     },
     {
         "chip": 75,
-        "label": "75 Bio",
+        "label": "75 (Biotite)",
         "color": "#e41a1c",
         "date": "2025-09-12",
         "vg_groups": [
@@ -117,9 +125,56 @@ def power_law_fit(
     return float(gamma), p_fit, a * p_fit**gamma
 
 
+def device_areas_um2() -> dict[int, float]:
+    """Per-chip flake area (µm²) from config/encap_characteristics.yaml."""
+    import yaml
+
+    if not ENCAP_YAML.exists():
+        return {}
+    data = yaml.safe_load(ENCAP_YAML.read_text()) or {}
+    out: dict[int, float] = {}
+    for k, v in data.items():
+        if isinstance(k, int) and isinstance(v, dict) and "flake_area_um2" in v:
+            out[k] = float(v["flake_area_um2"])
+    return out
+
+
+def responsivity_A_per_W(
+    p_uW: np.ndarray, di_uA: np.ndarray, area_um2: float
+) -> np.ndarray:
+    """R = ΔI / P_device, where P_device = P_beam · (A_device / A_beam)."""
+    p_dev_w = (p_uW * 1e-6) * (area_um2 / BEAM_AREA_UM2)
+    return (di_uA * 1e-6) / p_dev_w
+
+
+# Beam area in m² (BEAM_AREA_UM2 is in µm²; 1 µm² = 1e-12 m²).
+_BEAM_AREA_M2 = BEAM_AREA_UM2 * 1e-12
+
+
+def power_density_W_per_m2(p_uW: np.ndarray) -> np.ndarray:
+    """Incident power density Φ = P_beam / A_beam (W/m²)."""
+    return (p_uW * 1e-6) / _BEAM_AREA_M2
+
+
+# X-axis (Φ) tick positions, converted from the original LED-power ticks (µW).
+_PHI_TICKS = power_density_W_per_m2(np.array([6.0, 12.0, 18.0, 24.0]))
+
+
 def main() -> None:
-    config = PlotConfig()
+    # Route all three figures into one dedicated folder (no chip/proc/subcategory
+    # hierarchy) by overriding output_dir and disabling the subdir levels.
+    config = PlotConfig(
+        output_dir=OUTPUT_DIR,
+        chip_subdir_enabled=False,
+        use_proc_subdirs=False,
+        auto_subcategories=False,
+    )
     set_plot_style(config.theme)
+
+    # Legend font: 2 pt larger than the theme default.
+    legend_fontsize = plt.rcParams["legend.fontsize"] + 2
+    # Title naming the order of fields in each legend entry.
+    legend_title = r"Chip Id (Material), $V_g$, $\gamma$"
 
     curves: list[tuple[dict, dict, np.ndarray, np.ndarray]] = []
     for chip in CHIPS:
@@ -153,7 +208,7 @@ def main() -> None:
                 f"{chip['label']}, $V_g$={group['vg_v']:+g} V, $\\gamma={gamma:.2f}$"
             )
             ax.plot(
-                p,
+                power_density_W_per_m2(p),
                 y,
                 marker=marker,
                 linestyle="none",
@@ -164,7 +219,7 @@ def main() -> None:
             )
             if p_fit.size:
                 ax.plot(
-                    p_fit,
+                    power_density_W_per_m2(p_fit),
                     y_fit,
                     linestyle="-",
                     color=chip["color"],
@@ -182,9 +237,9 @@ def main() -> None:
     fig, ax = plt.subplots(figsize=(20, 20))
     _plot(ax, signed=False)
     ax.set_yscale("log")
-    ax.set_xticks([6, 12, 18, 24])
-    ax.set_xlabel(r"LED power ($\mu$W)")
-    ax.set_ylabel(r"$|\Delta i_{\mathrm{corr}}|$ ($\mu$A)")
+    ax.set_xticks(_PHI_TICKS)
+    ax.set_xlabel(r"$\Phi$ (W/m$^2$)")
+    ax.set_ylabel(r"$|I_{\mathrm{ph}}|$ ($\mu$A)")
     # Legend position in axes fraction (0,0 = bottom-left, 1,1 = top-right).
     # Tweak these to move the box manually.
     legend_xy = (0.52, 0.8)
@@ -193,6 +248,9 @@ def main() -> None:
         bbox_to_anchor=legend_xy,
         bbox_transform=ax.transAxes,
         framealpha=0.9,
+        fontsize=legend_fontsize,
+        title=legend_title,
+        title_fontsize=legend_fontsize,
     )
     plt.tight_layout()
 
@@ -213,10 +271,15 @@ def main() -> None:
     fig, ax = plt.subplots(figsize=(20, 20))
     _plot(ax, signed=True)
     ax.axhline(0.0, color="k", linewidth=0.5, alpha=0.5)
-    ax.set_xticks([6, 12, 18, 24])
-    ax.set_xlabel(r"LED power ($\mu$W)")
-    ax.set_ylabel(r"$\Delta i_{\mathrm{corr}}$ ($\mu$A)")
-    ax.legend(framealpha=0.9)
+    ax.set_xticks(_PHI_TICKS)
+    ax.set_xlabel(r"$\Phi$ (W/m$^2$)")
+    ax.set_ylabel(r"$I_{\mathrm{ph}}$ ($\mu$A)")
+    ax.legend(
+        framealpha=0.9,
+        fontsize=legend_fontsize,
+        title=legend_title,
+        title_fontsize=legend_fontsize,
+    )
     plt.tight_layout()
 
     filename_lin = "Alisson67_75_corrected_deltai_vs_power_365nm_by_Vg_linear"
@@ -231,6 +294,71 @@ def main() -> None:
     plt.savefig(out_lin, dpi=config.dpi, bbox_inches="tight")
     plt.close(fig)
     print(f"saved {out_lin}")
+
+    # --- semilog-y plot of |Responsivity| (A/W) ---
+    areas = device_areas_um2()
+    fig, ax = plt.subplots(figsize=(20, 20))
+    for chip, group, p, di in curves:
+        area = areas.get(chip["chip"])
+        if area is None:
+            print(f"[warn] no flake_area_um2 for chip {chip['chip']}; skipping R")
+            continue
+        di_abs = np.abs(di)
+        r = responsivity_A_per_W(p, di_abs, area)
+        is_electrons = group["vg_v"] >= 0
+        marker = "+" if is_electrons else "_"
+        # γ is the photocurrent power-law exponent (same as the |I_ph| plot);
+        # convert that fit to responsivity so the displayed γ matches.
+        gamma, p_fit, di_fit = power_law_fit(p, di_abs)
+        r_fit = responsivity_A_per_W(p_fit, di_fit, area)
+        label = f"{chip['label']}, $V_g$={group['vg_v']:+g} V, $\\gamma={gamma:.2f}$"
+        ax.plot(
+            power_density_W_per_m2(p),
+            r,
+            marker=marker,
+            linestyle="none",
+            color=chip["color"],
+            markersize=25,
+            markeredgewidth=9,
+            label=label,
+        )
+        if p_fit.size:
+            ax.plot(
+                power_density_W_per_m2(p_fit),
+                r_fit,
+                linestyle="-",
+                color=chip["color"],
+                linewidth=1.2,
+            )
+        print(
+            f"Alisson{chip['chip']} Vg={group['vg_v']:+g} V  A={area:g} µm²  "
+            f"P=[{p.min():.2f},{p.max():.2f}] µW  "
+            f"R=[{r.min():.3g},{r.max():.3g}] A/W  γ={gamma:.3f}"
+        )
+    ax.set_yscale("log")
+    ax.set_xticks(_PHI_TICKS)
+    ax.set_xlabel(r"$\Phi$ (W/m$^2$)")
+    ax.set_ylabel(r"$R$ (A/W)")
+    ax.legend(
+        framealpha=0.9,
+        fontsize=legend_fontsize,
+        title=legend_title,
+        title_fontsize=legend_fontsize,
+    )
+    plt.tight_layout()
+
+    filename_r = "Alisson67_75_responsivity_vs_power_365nm_by_Vg"
+    out_r = config.get_output_path(
+        filename_r,
+        chip_number=67,
+        procedure="It",
+        metadata={"has_light": True},
+        special_type="photoresponse",
+        create_dirs=True,
+    )
+    plt.savefig(out_r, dpi=config.dpi, bbox_inches="tight")
+    plt.close(fig)
+    print(f"saved {out_r}")
 
 
 if __name__ == "__main__":

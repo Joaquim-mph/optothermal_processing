@@ -248,35 +248,47 @@ def _draw_triplet_on_ax(
     *,
     show_legend: bool = True,
     show_title: bool = False,
+    include_off_after: bool = True,
+    legend_fontsize_delta: float = 0.0,
 ) -> None:
-    """Draw OFF -> ON -> OFF triplet (with inset) onto a given axes."""
+    """Draw OFF -> ON -> OFF triplet (with inset) onto a given axes.
+
+    When ``include_off_after`` is False, only the ``(1) OFF (before)`` and
+    ``(2) ON`` traces are drawn (and the insets show only those two).
+    ``legend_fontsize_delta`` bumps the legend font size relative to the
+    theme default (in points)."""
     hist = pl.read_parquet(_history_path(triplet.chip_number))
     hist = hist.filter(pl.col("proc") == "IVg")
 
     off1 = _load_seq(hist, triplet.off_before)
     on = _load_seq(hist, triplet.on)
-    off2 = _load_seq(hist, triplet.off_after)
 
+    off_label = "(1) OFF (before)" if include_off_after else "(1) LED OFF"
+    on_label = "(2) ON" if include_off_after else "(2) LED ON"
     curves: list[tuple[np.ndarray, np.ndarray, str, dict]] = [
         (
             off1["Vg (V)"].to_numpy(),
             off1["I (A)"].to_numpy() * 1e6,
-            "(1) OFF (before)",
+            off_label,
             {"linewidth": 3.7, "linestyle": "--"},
         ),
         (
             on["Vg (V)"].to_numpy(),
             on["I (A)"].to_numpy() * 1e6,
-            "(2) ON",
+            on_label,
             {"linewidth": 3.3},
         ),
-        (
-            off2["Vg (V)"].to_numpy(),
-            off2["I (A)"].to_numpy() * 1e6,
-            "(3) OFF (after)",
-            {"linewidth": 3.7, "linestyle": ":"},
-        ),
     ]
+    if include_off_after:
+        off2 = _load_seq(hist, triplet.off_after)
+        curves.append(
+            (
+                off2["Vg (V)"].to_numpy(),
+                off2["I (A)"].to_numpy() * 1e6,
+                "(3) OFF (after)",
+                {"linewidth": 3.7, "linestyle": ":"},
+            )
+        )
 
     for vg, y, label, kw in curves:
         ax.plot(vg, y, label=label, **kw)
@@ -287,7 +299,12 @@ def _draw_triplet_on_ax(
         ax.set_title(_label(triplet.chip_number, materials))
     ax.set_ylim(bottom=0)
     if show_legend:
-        ax.legend(loc="best")
+        legend_kw: dict = {"loc": "best"}
+        if legend_fontsize_delta:
+            legend_kw["fontsize"] = (
+                plt.rcParams["legend.fontsize"] + legend_fontsize_delta
+            )
+        ax.legend(**legend_kw)
 
     _add_zoom_inset(
         ax,
@@ -559,6 +576,7 @@ def _draw_wavelength_photocurrent_overlay_on_ax(
     triplets: list[tuple[int, int, int]],
     *,
     show_legend: bool = True,
+    linewidth: float = 3.7,
 ) -> None:
     """Overlay smoothed photocurrent (I_on - I_off) vs Vg for one chip across
     several wavelengths on a single axes. One smoothed curve per triplet,
@@ -607,7 +625,7 @@ def _draw_wavelength_photocurrent_overlay_on_ax(
             iph_smooth,
             color=color,
             label=f"{int(wl)} nm",
-            linewidth=3.7,
+            linewidth=linewidth,
         )
 
     ax.axhline(0.0, color="k", linewidth=0.5, alpha=0.5)
@@ -786,6 +804,75 @@ def plot_74_72_triplet_subs_2x2(
     print(f"saved {out}")
 
 
+def plot_74_72_on_off_wavelength_2x2(
+    triplets: list[Triplet], materials: dict[int, str], config: PlotConfig
+) -> None:
+    """2x2 grid for chips 72 and 74 (columns):
+    row 1 — 365 nm OFF/ON traces only (no OFF-after), with the two zoom insets
+            and a legend 2 pt larger than the theme default,
+    row 2 — multi-wavelength photocurrent overlay (365/385/405/455 nm)."""
+    by_chip = {t.chip_number: t for t in triplets}
+    chips = [72, 74]
+    missing = [c for c in chips if c not in by_chip]
+    if missing:
+        print(f"[warn] no 365 nm triplet for chips {missing}; skipping 2x2 grid")
+        return
+    wl_missing = [c for c in chips if c not in WAVELENGTH_TRIPLETS_BY_CHIP]
+    if wl_missing:
+        print(
+            f"[warn] no wavelength triplets configured for chips {wl_missing}; "
+            "skipping on/off+wavelength 2x2 grid"
+        )
+        return
+
+    fig, axes = plt.subplots(
+        2,
+        2,
+        figsize=(40, 30),
+        gridspec_kw={"wspace": 0.28, "height_ratios": [2, 1]},
+    )
+
+    for col, chip in enumerate(chips):
+        t = by_chip[chip]
+        _draw_triplet_on_ax(
+            axes[0, col],
+            t,
+            materials,
+            show_legend=True,
+            show_title=False,
+            include_off_after=False,
+            legend_fontsize_delta=2,
+        )
+        wl_date, wl_triplets = WAVELENGTH_TRIPLETS_BY_CHIP[chip]
+        _draw_wavelength_photocurrent_overlay_on_ax(
+            axes[1, col], chip, wl_date, wl_triplets, show_legend=True, linewidth=5.7
+        )
+
+    _annotate_panel_letters(axes, ["a", "b", "c", "d"])
+    fig.tight_layout()
+
+    filename = f"Compare_IVg_on_off_wavelength_2x2_7274_{WAVELENGTH_NM}nm"
+    out = config.get_output_path(
+        filename,
+        procedure="IVg",
+        special_type="triplets",
+        create_dirs=True,
+    )
+    fig.savefig(out, dpi=config.dpi)
+    print(f"saved {out}")
+
+    # Also emit a PNG alongside the default PDF for this figure.
+    out_png = config.get_output_path(
+        f"{filename}.png",
+        procedure="IVg",
+        special_type="triplets",
+        create_dirs=True,
+    )
+    fig.savefig(out_png, dpi=config.dpi)
+    print(f"saved {out_png}")
+    plt.close(fig)
+
+
 def plot_chip_photocurrent_wavelength(
     chip_number: int, materials: dict[int, str], config: PlotConfig
 ) -> None:
@@ -877,6 +964,7 @@ def main() -> None:
     plot_74_72_triplet_photocurrent_wavelength_3x2(triplets, materials, config)
     plot_74_72_triplet_photocurrent_wavelength_2x3(triplets, materials, config)
     plot_74_72_triplet_subs_2x2(triplets, materials, config)
+    plot_74_72_on_off_wavelength_2x2(triplets, materials, config)
     plot_74_72_photocurrent_wavelength_1x2(materials, config)
     for chip in (74, 72):
         plot_chip_photocurrent_wavelength(chip, materials, config)

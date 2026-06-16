@@ -786,6 +786,40 @@ def plot_74_72_triplet_subs_2x2(
     print(f"saved {out}")
 
 
+def plot_chip_photocurrent_wavelength(
+    chip_number: int, materials: dict[int, str], config: PlotConfig
+) -> None:
+    """Single-panel multi-wavelength photocurrent overlay for one chip —
+    standalone version of panels (c) and (f) in the 2x3 grid."""
+    if chip_number not in WAVELENGTH_TRIPLETS_BY_CHIP:
+        print(
+            f"[warn] no wavelength triplets configured for chip {chip_number}; "
+            "skipping standalone wavelength overlay"
+        )
+        return
+
+    wl_date, wl_triplets = WAVELENGTH_TRIPLETS_BY_CHIP[chip_number]
+
+    fig, ax = plt.subplots(figsize=(20, 20))
+    _draw_wavelength_photocurrent_overlay_on_ax(
+        ax, chip_number, wl_date, wl_triplets, show_legend=True
+    )
+    fig.tight_layout()
+
+    filename = f"Alisson{chip_number}_IVg_photocurrent_wavelength_{wl_date}"
+    out = config.get_output_path(
+        filename,
+        chip_number=chip_number,
+        procedure="IVg",
+        metadata={"has_light": True},
+        special_type="photocurrent",
+        create_dirs=True,
+    )
+    fig.savefig(out, dpi=config.dpi)
+    plt.close(fig)
+    print(f"saved {out}")
+
+
 def plot_74_72_photocurrent_wavelength_1x2(
     materials: dict[int, str], config: PlotConfig
 ) -> None:
@@ -844,6 +878,8 @@ def main() -> None:
     plot_74_72_triplet_photocurrent_wavelength_2x3(triplets, materials, config)
     plot_74_72_triplet_subs_2x2(triplets, materials, config)
     plot_74_72_photocurrent_wavelength_1x2(materials, config)
+    for chip in (74, 72):
+        plot_chip_photocurrent_wavelength(chip, materials, config)
 
 
 if __name__ == "__main__":

@@ -46,6 +46,10 @@ EVAL_T_PRE = 60.0
 EVAL_T_POST = 120.0
 WAVELENGTH_NM = 365.0
 
+# All outputs of this script land in this dedicated folder under figs/, with no
+# chip/procedure/subcategory hierarchy (these comparisons span two chips).
+OUTPUT_SUBDIR = Path("figs/it_sequential_and_powerlaw_67_75_365nm")
+
 # Sequential It panels (holes / negative Vg), drawn top -> bottom.
 SEQUENTIAL: list[dict] = [
     {
@@ -326,14 +330,23 @@ def build_figure(
     annotate_panel_letter(ax_pl, "c")
 
     plt.tight_layout()
-    out = config.get_output_path(
-        filename,
-        chip_number=67,
-        procedure="It",
-        metadata={"has_light": True},
-        special_type="photoresponse",
-        create_dirs=True,
-    )
+    out = config.get_output_path(filename, create_dirs=True)
+    plt.savefig(out, dpi=config.dpi, bbox_inches="tight")
+    plt.close(fig)
+    print(f"saved {out}")
+
+
+def build_powerlaw_only_figure(
+    config: PlotConfig,
+    curves: list[tuple[dict, dict, np.ndarray, np.ndarray]],
+    *,
+    filename: str,
+) -> None:
+    """Standalone semilog-y |Δi_corr| vs LED power figure (panel c only)."""
+    fig, ax = plt.subplots(figsize=(20, 20))
+    plot_power_law(ax, curves)
+    plt.tight_layout()
+    out = config.get_output_path(filename, create_dirs=True)
     plt.savefig(out, dpi=config.dpi, bbox_inches="tight")
     plt.close(fig)
     print(f"saved {out}")
@@ -460,12 +473,7 @@ def build_overlay_figure(
     plt.tight_layout()
 
     out = config.get_output_path(
-        "Alisson67_75_corrected_overlay_holes_365nm_1x2",
-        chip_number=67,
-        procedure="It",
-        metadata={"has_light": True},
-        special_type="photoresponse",
-        create_dirs=True,
+        "Alisson67_75_corrected_overlay_holes_365nm_1x2", create_dirs=True
     )
     plt.savefig(out, dpi=config.dpi, bbox_inches="tight")
     plt.close(fig)
@@ -473,7 +481,14 @@ def build_overlay_figure(
 
 
 def main() -> None:
-    config = PlotConfig()
+    # Route all outputs to a dedicated flat folder under figs/, bypassing the
+    # default chip/procedure/subcategory hierarchy.
+    config = PlotConfig(
+        output_dir=OUTPUT_SUBDIR,
+        chip_subdir_enabled=False,
+        use_proc_subdirs=False,
+        auto_subcategories=False,
+    )
     set_plot_style(config.theme)
 
     histories = {
@@ -510,6 +525,12 @@ def main() -> None:
         curves,
         annotate_led=True,
         filename="Alisson67_75_It_sequential_holes_and_powerlaw_365nm_led",
+    )
+    # Standalone semilog-y power-law panel only (matches panel c of the composite).
+    build_powerlaw_only_figure(
+        config,
+        curves,
+        filename="Alisson67_75_powerlaw_365nm",
     )
     # Standalone 1x2 drift-corrected I(t) overlay (a = Biotite, b = hBN).
     build_overlay_figure(config, histories)

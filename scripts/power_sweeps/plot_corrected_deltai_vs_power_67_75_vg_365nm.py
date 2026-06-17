@@ -171,8 +171,8 @@ def main() -> None:
     )
     set_plot_style(config.theme)
 
-    # Legend font: 2 pt larger than the theme default.
-    legend_fontsize = plt.rcParams["legend.fontsize"] + 2
+    # Legend font: 4 pt larger than the theme default.
+    legend_fontsize = plt.rcParams["legend.fontsize"] + 4
     # Title naming the order of fields in each legend entry.
     legend_title = r"Chip Id (Material), $V_g$, $\gamma$"
 
@@ -357,8 +357,19 @@ def main() -> None:
         create_dirs=True,
     )
     plt.savefig(out_r, dpi=config.dpi, bbox_inches="tight")
+    # Also save a PNG copy of the responsivity figure.
+    out_r_png = config.get_output_path(
+        f"{filename_r}.png",
+        chip_number=67,
+        procedure="It",
+        metadata={"has_light": True},
+        special_type="photoresponse",
+        create_dirs=True,
+    )
+    plt.savefig(out_r_png, dpi=config.dpi, bbox_inches="tight")
     plt.close(fig)
     print(f"saved {out_r}")
+    print(f"saved {out_r_png}")
 
 
 if __name__ == "__main__":

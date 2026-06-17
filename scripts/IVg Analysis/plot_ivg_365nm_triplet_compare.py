@@ -915,6 +915,21 @@ def plot_74_72_on_off_wavelength_2x2(
             axes[1, col], chip, wl_date, wl_triplets, show_legend=True, linewidth=5.7
         )
 
+    # Share y across the bottom (photocurrent) row: common limits, and drop the
+    # right panel's redundant y tick labels + label.
+    y_lo = min(axes[1, 0].get_ylim()[0], axes[1, 1].get_ylim()[0])
+    y_hi = max(axes[1, 0].get_ylim()[1], axes[1, 1].get_ylim()[1])
+    axes[1, 0].set_ylim(y_lo, y_hi)
+    axes[1, 1].set_ylim(y_lo, y_hi)
+    axes[1, 1].tick_params(labelleft=False)
+    axes[1, 1].set_ylabel("")
+
+    # Bottom-row y ticks every 5 µA.
+    from matplotlib.ticker import MultipleLocator
+
+    axes[1, 0].yaxis.set_major_locator(MultipleLocator(5))
+    axes[1, 1].yaxis.set_major_locator(MultipleLocator(5))
+
     _annotate_panel_letters(axes, ["a", "b", "c", "d"])
     fig.tight_layout()
 

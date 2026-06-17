@@ -40,6 +40,15 @@ from src.plotting.shared.styles import PRISM_RAIN_PALETTE, set_plot_style
 ENRICHED_DIR = Path("data/03_derived/chip_histories_enriched")
 OUTPUT_DIR = Path("figs/drift_unified_67_72_74_75_80_81")
 
+# Legend font: 2 pt larger than the "small" relative size, resolved against the
+# active theme's base font size so it stays correct regardless of theme.
+LEGEND_FONTSIZE_BUMP = 2.0
+
+
+def _legend_fontsize(relative: str = "small") -> float:
+    from matplotlib.font_manager import font_scalings
+    return plt.rcParams["font.size"] * font_scalings[relative] + LEGEND_FONTSIZE_BUMP
+
 # Responsivity: R = |ΔI_corr| / P_device, P_device = P_beam · (A_device / A_beam).
 # Beam spot area (µm²) is per-chip: chips 67 and 81 were measured with a 1e5 µm²
 # spot, the rest with 1.2e5 µm².
@@ -341,7 +350,8 @@ def plot_pair(
                 pad = config.padding_fraction * (y_max - y_min)
                 axes[0].set_ylim(y_min - pad, y_max + pad)
 
-    axes[1].legend(title="Wavelength", loc="best", framealpha=0.9, ncol=2)
+    axes[1].legend(title="Wavelength", loc="best", framealpha=0.9, ncol=2,
+                   fontsize=_legend_fontsize(), title_fontsize=_legend_fontsize())
 
     plt.tight_layout()
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -386,15 +396,8 @@ def plot_single(
         e = float(np.median([sp[1] for sp in spans]))
         ax.axvspan(s, e, alpha=config.light_window_alpha)
 
-    vgs = [tr["vg_v"] for tr in traces if tr.get("vg_v") is not None]
-    title = CHIPS[chip_num]["label"]
-    if vgs:
-        vg_repr = float(np.median(vgs))
-        title = f"{title}, $V_g = {vg_repr:g}$ V"
-
     ax.set_xlabel(r"$t\ (\mathrm{s})$")
     ax.set_ylabel(ylabel)
-    ax.set_title(title)
     ax.set_box_aspect(1.0)
 
     if t_totals:
@@ -415,7 +418,7 @@ def plot_single(
                 ax.set_ylim(y_min - pad, y_max + pad)
 
     ax.legend(title="Wavelength", loc="best", framealpha=0.9, ncol=2,
-              fontsize="small", title_fontsize="small")
+              fontsize=_legend_fontsize(), title_fontsize=_legend_fontsize())
 
     plt.tight_layout()
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -463,10 +466,11 @@ def plot_responsivity_vs_wl(
     *,
     chips: list[int] | None = None,
     logy: bool = False,
+    box_aspect: float = 1.0,
 ) -> None:
     set_plot_style(config.theme)
     side = float(config.figsize_timeseries[1])
-    fig, ax = plt.subplots(1, 1, figsize=(side, side))
+    fig, ax = plt.subplots(1, 1, figsize=(side / box_aspect, side))
 
     chips = chips if chips is not None else RESPONSIVITY_CHIPS
     areas = device_areas_um2()
@@ -497,8 +501,8 @@ def plot_responsivity_vs_wl(
         ax.set_yscale("log")
     ax.set_xlabel(r"Wavelength (nm)")
     ax.set_ylabel(r"$R$ (A/W)")
-    ax.set_box_aspect(1.0)
-    ax.legend(loc="best", framealpha=0.9, ncol=2, fontsize="small")
+    ax.set_box_aspect(box_aspect)
+    ax.legend(loc="best", framealpha=0.9, ncol=2, fontsize=_legend_fontsize())
 
     plt.tight_layout()
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -541,7 +545,7 @@ def plot_photoresponse_vs_wl(
         r"$|\Delta I_{\mathrm{corr}}|\ (\mu\mathrm{A})$"
     )
     ax.set_box_aspect(1.0)
-    ax.legend(loc="best", framealpha=0.9, ncol=2, fontsize="small")
+    ax.legend(loc="best", framealpha=0.9, ncol=2, fontsize=_legend_fontsize())
 
     plt.tight_layout()
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -724,6 +728,14 @@ def main() -> None:
         config,
         OUTPUT_DIR / "alisson74_75_81_67_responsivity_vs_wl.png",
         chips=subset_chips,
+    )
+    # 2:3 (vertical:horizontal) aspect-ratio variant.
+    plot_responsivity_vs_wl(
+        traces_by_chip,
+        config,
+        OUTPUT_DIR / "alisson74_75_81_67_responsivity_vs_wl_2x3.pdf",
+        chips=subset_chips,
+        box_aspect=2.0 / 3.0,
     )
     plot_responsivity_vs_wl(
         traces_by_chip,

@@ -32,14 +32,21 @@ class CorrectedDeltaIExtractor(MetricExtractor):
         fit_t_end: float = 60.0,
         eval_t_pre: float = 60.0,
         eval_t_post: float = 120.0,
+        delta_mode: str = "max_deviation",
     ):
         if model not in ("stretched_exponential", "linear"):
             raise ValueError(f"unknown model: {model!r}")
+        if delta_mode not in ("max_deviation", "endpoint"):
+            raise ValueError(f"unknown delta_mode: {delta_mode!r}")
         self.model = model
         self.fit_t_start = fit_t_start
         self.fit_t_end = fit_t_end
         self.eval_t_pre = eval_t_pre
         self.eval_t_post = eval_t_post
+        # "max_deviation": largest absolute excursion from the eval_t_pre onset
+        # over the illuminated window [eval_t_pre, eval_t_post] -- the true peak
+        # photoresponse. "endpoint": legacy I_corr(eval_t_post) - I_corr(eval_t_pre).
+        self.delta_mode = delta_mode
 
     @property
     def applicable_procedures(self) -> List[str]:
@@ -107,12 +114,21 @@ class CorrectedDeltaIExtractor(MetricExtractor):
         i_corrected = i - fit_full
 
         idx_pre = int(np.argmin(np.abs(t - self.eval_t_pre)))
-        idx_post = int(np.argmin(np.abs(t - self.eval_t_post)))
+        win = (t >= self.eval_t_pre) & (t <= self.eval_t_post)
+        dev = i_corrected - i_corrected[idx_pre]  # deviation from onset
+
         flags: List[str] = []
-        if abs(t[idx_pre] - self.eval_t_pre) > 1.0 or abs(t[idx_post] - self.eval_t_post) > 1.0:
+        if abs(t[idx_pre] - self.eval_t_pre) > 1.0 or win.sum() == 0:
             flags.append("EVAL_TIME_OUT_OF_RANGE")
 
-        delta = float(i_corrected[idx_post] - i_corrected[idx_pre])
+        if self.delta_mode == "max_deviation" and win.sum() > 0:
+            win_idx = np.flatnonzero(win)
+            idx_peak = int(win_idx[int(np.argmax(np.abs(dev[win_idx])))])
+        else:
+            # endpoint (or degenerate window): nearest sample to eval_t_post
+            idx_peak = int(np.argmin(np.abs(t - self.eval_t_post)))
+
+        delta = float(dev[idx_peak])  # signed peak excursion
 
         if not converged:
             flags.append("FIT_DID_NOT_CONVERGE")
@@ -123,15 +139,17 @@ class CorrectedDeltaIExtractor(MetricExtractor):
 
         value_json = json.dumps({
             "model": self.model,
+            "delta_mode": self.delta_mode,
             "fit_params": fit_params,
             "r_squared": r_squared,
             "converged": converged,
             "fit_window_s": [self.fit_t_start, self.fit_t_end],
             "eval_times_s": [self.eval_t_pre, self.eval_t_post],
+            "peak_time_s": float(t[idx_peak]),
             "i_at_pre": float(i[idx_pre]),
-            "i_at_post": float(i[idx_post]),
+            "i_at_peak": float(i[idx_peak]),
             "fit_at_pre": float(fit_full[idx_pre]),
-            "fit_at_post": float(fit_full[idx_post]),
+            "fit_at_peak": float(fit_full[idx_peak]),
         })
 
         return DerivedMetric(
@@ -145,8 +163,8 @@ class CorrectedDeltaIExtractor(MetricExtractor):
             value_float=delta,
             value_json=value_json,
             unit="A",
-            extraction_method=f"drift_subtraction:{self.model}",
-            extraction_version=metadata.get("extraction_version", "1.0.0"),
+            extraction_method=f"drift_subtraction:{self.model}:{self.delta_mode}",
+            extraction_version=metadata.get("extraction_version", "2.0.0"),
             extraction_timestamp=datetime.now(timezone.utc),
             confidence=confidence,
             flags=",".join(flags) if flags else None,
@@ -163,8 +181,8 @@ class CorrectedDeltaIExtractor(MetricExtractor):
             metric_category=self.metric_category,
             value_float=float("nan"),
             unit="A",
-            extraction_method=f"drift_subtraction:{self.model}",
-            extraction_version=metadata.get("extraction_version", "1.0.0"),
+            extraction_method=f"drift_subtraction:{self.model}:{self.delta_mode}",
+            extraction_version=metadata.get("extraction_version", "2.0.0"),
             extraction_timestamp=datetime.now(timezone.utc),
             confidence=0.0,
             flags=flags,

@@ -17,6 +17,8 @@ pip install -e ".[dev]"       # Include pytest
 pip install -e ".[jupyter]"   # Include Jupyter/IPython
 ```
 
+**Running scripts/tests: use `.venv/bin/python` directly.** `source .venv/bin/activate && python ...` has failed repeatedly in this shell (PATH falls back to system python -> `command not found` / `ModuleNotFoundError`). The venv has no `pip` binary (uv); use `.venv/bin/python -m pip`.
+
 ## Entry Points
 
 The package provides one console entry point via `pyproject.toml`:
@@ -56,12 +58,10 @@ biotite list-plugins
 
 ### Testing
 
-Activate `.venv` first (`source .venv/bin/activate`).
-
 ```bash
-python3 -m pytest tests/ -v
-python3 -m pytest tests/test_config.py::test_function_name -v
-python3 -c "from src.cli.main import app; print('CLI imports OK')"
+.venv/bin/python -m pytest tests/ -v
+.venv/bin/python -m pytest tests/test_config.py::test_function_name -v
+.venv/bin/python -c "from src.cli.main import app; print('CLI imports OK')"
 ```
 
 ## Architecture
@@ -123,6 +123,16 @@ Never read CSV files directly in new code. Use `read_measurement_parquet()` from
 - `set_plot_style(theme_or_config)` is polymorphic: accepts a theme name string OR a `PlotConfig`. Pass the config to get `palette`, `font_family`, `font_weight`, `legend_*`, and `show_grid` wired into rcParams.
 - Add a new palette -> register it in `src/plotting/shared/styles.py::PALETTES` and add to `PlotConfig.palette` Literal. Add a new font family -> register the matplotlib name in `styles.py::_FONT_FAMILY_NAMES` and add to `PlotConfig.font_family` Literal. Bundled fonts: drop any `.ttf` under `assets/` (recursive); auto-registered via `_register_bundled_fonts`.
 - Forward a new field CLIConfig->PlotConfig: add an `Optional[T] = None` field on `CLIConfig` (prefix `plot_`) and one row in `PlotConfig._CLI_OVERRIDE_FIELDS`. None means "use PlotConfig default" -- avoids drift.
+- **After editing a plotting script, run it and visually verify the output** (render the PDF with `pdftoppm` and Read the image) before reporting done. The deliverable is the figure, not the diff.
+
+### Publication Figure Conventions (`scripts/`)
+- Legend: font +2 pt over theme size, `loc="best"`, no legend title unless asked. Chip labels as `67 (hBN)` -- material from `config/encap_characteristics.yaml`, never hardcoded
+- Axis labels: photocurrent as `$I_{ph}$` (not `I_corr`/`Δi_corr`); responsivity as plain `$R$ (A/W)` (no `\mathcal{R}`, parentheses not brackets)
+- Power axes/legends: irradiance or power density (W/m²), not raw LED power in µW
+- **No titles** on standalone figures (they are poster/paper assets)
+- **Never change an existing figure's rendered output** -- add a new figure or a flag defaulting to old behavior
+- "PNG version of X" means **add a PNG copy alongside the PDF for that one figure**; never replace the PDF or touch other outputs
+- Ad-hoc scripts write to a dedicated folder (e.g. `figs/power_sweeps/<analysis>/`), not the PlotConfig chip hierarchy
 
 ### Resistance/Conductance Transforms
 - `--resistance` flag on VVg/Vt plots (R = V/I, requires `ids_v` in metadata)

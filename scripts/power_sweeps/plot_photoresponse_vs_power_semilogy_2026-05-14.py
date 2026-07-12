@@ -10,9 +10,13 @@ Chips / fixed gate voltage (all 365 nm, powers 6, 12, 18, 24 µW):
     72  Vg = -0.35 V
 
 Correction: stretched-exponential fit on t ∈ [1, 60] s subtracted from the
-trace; Δi_corrected = I_corr(120 s) - I_corr(60 s). Absolute value taken so
-the response sits on a log y-axis. A linear fit in log P vs log |Δi| gives the
-power-law exponent γ with |Δi| ∝ P^γ; the fit curve is drawn on semilog-y axes.
+trace. The photoresponse Δi_corrected is the peak drift-corrected deviation
+over the illuminated window t ∈ [60, 120] s relative to the 60 s onset, i.e.
+max |I_corr(t) - I_corr(60 s)| (the "true" response, not the 120 s endpoint;
+see CorrectedDeltaIExtractor delta_mode="max_deviation"). Absolute value taken
+so the response sits on a log y-axis. A linear fit in log P vs log |Δi| gives
+the power-law exponent γ with |Δi| ∝ P^γ; the fit curve is drawn on semilog-y
+axes.
 
 NOTE: the 6-24 µW range is suspected to be in the channel-current saturation
 regime — the 2026-05-15 re-measurement at 1-6 µW was motivated by that. γ
@@ -20,7 +24,10 @@ values from this date may not reflect the linear-response exponent.
 
 Per chip: one sequential-It figure (raw traces + drift-corrected inset), one
 full-size drift-corrected overlay, and one photoresponse-vs-power figure. Plus
-one comparison figure overlaying all chips with γ annotations.
+two comparison figures overlaying all chips with γ annotations: |Δi| vs power,
+and responsivity R = |Δi| / P_incident vs power (A/W), where the incident power
+is the flake-area fraction of the beam, P_incident = P_LED · A_flake / A_beam
+with A_beam = 1.2e5 µm² and A_flake from the encap YAML.
 
 Run from repo root:
     python scripts/power_sweeps/plot_photoresponse_vs_power_semilogy_2026-05-14.py
@@ -32,7 +39,6 @@ import argparse
 from pathlib import Path
 
 import matplotlib as mpl
-import matplotlib.patheffects as path_effects
 import matplotlib.pyplot as plt
 import numpy as np
 import polars as pl
@@ -56,6 +62,17 @@ DATE = "2026-05-14"
 OUTPUT_DIR = Path("figs/photoresponse_power_law_365nm")
 ENCAP_YAML = Path("config/encap_characteristics.yaml")
 
+# Responsivity: R = |Δi| / P_incident, where P_incident is the fraction of the
+# LED beam that actually lands on the device flake, P_incident = P_LED ·
+# A_flake / A_beam. Flake areas come from `flake_area_um2` in the encap YAML.
+BEAM_AREA_UM2 = 1.2e5
+_BEAM_AREA_M2 = BEAM_AREA_UM2 * 1e-12  # 1 µm² = 1e-12 m²
+
+
+def irradiance_W_per_m2(p_uW: np.ndarray) -> np.ndarray:
+    """LED power (µW) -> beam irradiance (W/m²) over the full beam spot."""
+    return (np.asarray(p_uW, dtype=float) * 1e-6) / _BEAM_AREA_M2
+
 
 def _load_chip_materials() -> dict[int, str]:
     if not ENCAP_YAML.exists():
@@ -69,7 +86,21 @@ def _load_chip_materials() -> dict[int, str]:
     return out
 
 
+def _load_chip_flake_areas() -> dict[int, float]:
+    """Flake area (µm²) per chip from the encap YAML's `flake_area_um2` field."""
+    if not ENCAP_YAML.exists():
+        return {}
+    with ENCAP_YAML.open("r") as f:
+        data = yaml.safe_load(f) or {}
+    out: dict[int, float] = {}
+    for k, v in data.items():
+        if isinstance(k, int) and isinstance(v, dict) and v.get("flake_area_um2"):
+            out[k] = float(v["flake_area_um2"])
+    return out
+
+
 _CHIP_MATERIALS = _load_chip_materials()
+_CHIP_FLAKE_AREAS = _load_chip_flake_areas()
 
 # Abbreviations for the bottom dielectric in the stack tag. The top encapsulant
 # is always hBN (see config/encap_characteristics.yaml), so the tag is
@@ -163,6 +194,12 @@ CHIPS: list[dict] = [
         "gamma_xy_offset": (0, 0),
         "gamma_axes_xy": (0.75, 0.1),
     },
+    {
+        "chip": 80,
+        "vg_filter": -1.2,
+        "color": "#ff7f00",
+        "marker": "v",
+    },
 ]
 
 _EXTRACTORS: dict[float, CorrectedDeltaIExtractor] = {}
@@ -240,6 +277,29 @@ def curve_for_chip(hist: pl.DataFrame, chip: dict) -> tuple[np.ndarray, np.ndarr
         powers_uW.append(float(p) * 1e6)
         di_uA.append(abs(v) * 1e6)
     return np.asarray(powers_uW), np.asarray(di_uA)
+
+
+def responsivity_curve_for_chip(
+    hist: pl.DataFrame, chip: dict
+) -> tuple[np.ndarray, np.ndarray]:
+    """LED power (µW) and responsivity R = |Δi| / P_incident (A/W).
+
+    |Δi| is the peak drift-corrected deviation over the illuminated window
+    (delta_mode="max_deviation"; see module docstring). P_incident = P_LED ·
+    A_flake / A_beam. Returns empty arrays if the chip's flake area is unknown.
+    Since |Δi| and P_LED carry the same µ-prefix, the ratio |Δi[µA]| / P_LED[µW]
+    is already in A/W; dividing by the beam-fill fraction A_flake/A_beam gives
+    the on-flake responsivity.
+    """
+    flake_area = _CHIP_FLAKE_AREAS.get(chip["chip"])
+    if flake_area is None:
+        return np.array([]), np.array([])
+    p, di = curve_for_chip(hist, chip)
+    mask = p > 0
+    p, di = p[mask], di[mask]
+    fill_fraction = flake_area / BEAM_AREA_UM2
+    responsivity = (di / p) / fill_fraction
+    return p, responsivity
 
 
 def power_law_fit(
@@ -534,8 +594,6 @@ def plot_comparison(
     set_plot_style(config.theme)
     fig, ax = plt.subplots(figsize=(20, 20))
 
-    gamma_annotations: list[tuple[dict, float, np.ndarray, np.ndarray]] = []
-
     for chip in chips:
         p, di = curve_for_chip(histories[chip["chip"]], chip)
         if p.size == 0:
@@ -550,12 +608,10 @@ def plot_comparison(
             linestyle="none",
             color=chip["color"],
             markersize=25,
-            label=label_for_chip(chip, stack=True),
+            label=f"{label_for_chip(chip, stack=True)}, $\\gamma={gamma:.2f}$",
         )
         if p_fit.size:
             ax.plot(p_fit, di_fit, linestyle="-", color=chip["color"], linewidth=1.2)
-
-        gamma_annotations.append((chip, gamma, p, di))
 
     ax.set_yscale("log")
     ax.set_xlabel(r"LED power ($\mu$W)")
@@ -565,53 +621,66 @@ def plot_comparison(
     ax.set_yticks([5, 10, 20, 40])
     ax.set_yticklabels(["5", "10", "20", "40"])
     ax.yaxis.set_minor_locator(plt.NullLocator())
-    # Anchor by the legend's left edge so label width (e.g. the material tag)
-    # does not push the box off the y-axis.
-    ax.legend(
-        loc="center left",
-        bbox_to_anchor=(0.00, 0.45),
-        framealpha=0.9,
-    )
-
-    for chip, gamma, p, di in gamma_annotations:
-        axes_xy = chip.get("gamma_axes_xy")
-        if axes_xy is not None:
-            xy = axes_xy
-            xycoords = "axes fraction"
-            xytext = (0, 0)
-            textcoords = "offset points"
-            ha = "left"
-        else:
-            anchor = chip.get("gamma_anchor", "left")
-            idx = int(np.argmin(p)) if anchor == "left" else int(np.argmax(p))
-            xy = (p[idx], di[idx])
-            xycoords = "data"
-            xytext = chip.get("gamma_xy_offset", (-10, 0))
-            textcoords = "offset points"
-            ha = "right" if anchor == "left" else "left"
-        ann = ax.annotate(
-            f"$\\gamma={gamma:.2f}$",
-            xy=xy,
-            xycoords=xycoords,
-            xytext=xytext,
-            textcoords=textcoords,
-            ha=ha,
-            va="center",
-            color=chip["color"],
-            fontsize="large",
-            fontweight="bold",
-        )
-        ann.set_path_effects(
-            [
-                path_effects.Stroke(linewidth=3.0, foreground="white"),
-                path_effects.Normal(),
-            ]
-        )
+    ax.legend(loc="best", framealpha=0.9)
 
     plt.tight_layout()
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     out = OUTPUT_DIR / f"{filename}.{config.format}"
+    plt.savefig(out, dpi=config.dpi, bbox_inches="tight")
+    plt.close(fig)
+    print(f"saved {out}")
+
+
+def plot_responsivity_comparison(
+    config: PlotConfig,
+    histories: dict[int, pl.DataFrame],
+    chips: list[dict],
+    filename: str,
+    fmt: str | None = None,
+) -> None:
+    """Multi-chip responsivity (A/W) vs LED power on semilog-y axes.
+
+    Mirrors plot_comparison but plots R = |Δi| / P_incident, with P_incident the
+    flake-area fraction of the beam (A_flake / A_beam, beam = 1.2e5 µm²). Chips
+    without a known flake area are skipped with a warning.
+    """
+    set_plot_style(config.theme)
+    fig, ax = plt.subplots(figsize=(20, 20))
+
+    for chip in chips:
+        p, r = responsivity_curve_for_chip(histories[chip["chip"]], chip)
+        if p.size == 0:
+            print(f"[warn] no responsivity data for {label_for_chip(chip)}")
+            continue
+
+        ax.plot(
+            irradiance_W_per_m2(p),
+            r,
+            marker=chip["marker"],
+            linestyle="-",
+            color=chip["color"],
+            markersize=25,
+            label=label_for_chip(chip, stack=True),
+        )
+
+        print(
+            f"{label_for_chip(chip)}  A_flake={_CHIP_FLAKE_AREAS[chip['chip']]:g} µm²  "
+            f"R=[{r.min():.3g},{r.max():.3g}] A/W"
+        )
+
+    ax.set_yscale("log")
+    ax.set_xlabel(r"Irradiance (W/m$^2$)")
+    ax.set_ylabel(r"$R\ (\mathrm{A/W})$")
+    _phi = irradiance_W_per_m2([6, 12, 18, 24])
+    ax.set_xticks(_phi)
+    ax.set_xticklabels([f"{v:g}" for v in _phi])
+    ax.legend(loc="best", framealpha=0.9)
+
+    plt.tight_layout()
+
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    out = OUTPUT_DIR / f"{filename}.{fmt or config.format}"
     plt.savefig(out, dpi=config.dpi, bbox_inches="tight")
     plt.close(fig)
     print(f"saved {out}")
@@ -650,6 +719,14 @@ def main() -> None:
         CHIPS,
         filename=f"Alisson68_72_74_75_76_photoresponse_vs_power_semilogy_{DATE}_365nm",
         anchor_chip=68,
+    )
+
+    responsivity_filename = (
+        f"Alisson68_72_74_75_76_responsivity_vs_power_semilogy_{DATE}_365nm"
+    )
+    plot_responsivity_comparison(config, histories, CHIPS, filename=responsivity_filename)
+    plot_responsivity_comparison(
+        config, histories, CHIPS, filename=responsivity_filename, fmt="png"
     )
 
 

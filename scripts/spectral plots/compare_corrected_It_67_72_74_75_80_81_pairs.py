@@ -99,6 +99,19 @@ for _chip, _cfg in CHIPS.items():
 
 PAIRS = [(72, 67), (74, 75), (80, 81)]
 
+# Chip 80 responsivity re-measurement (2026-07-01): the 365-505 nm points were
+# re-taken at Vg = -2.0 V. Longer wavelengths (565-850 nm) are retained from the
+# original 2026-04-28 sweep (Vg = 0.0 V), so this curve mixes two gate voltages.
+# Repeat runs collapsed to the last (highest-seq) run per wavelength, except
+# 505 nm which uses seq 180 (It2026-07-01_11.csv).
+#   365:191  385:187  405:185  455:183  505:180  565:103  590:101  625:99
+#   680:97   850:95
+CHIP80_REMEASURED_SEQS = [95, 97, 99, 101, 103, 180, 183, 185, 187, 191]
+
+# July-only subset (365-505 nm, all Vg = -2.0 V) — single gate voltage, no
+# mixing with the retained April long-wavelength points.
+CHIP80_REMEASURED_SEQS_JULY_ONLY = [180, 183, 185, 187, 191]
+
 
 def load_history(chip_number: int) -> pl.DataFrame:
     path = ENRICHED_DIR / f"Alisson{chip_number}_history.parquet"
@@ -222,11 +235,14 @@ def light_window(meas, t: np.ndarray) -> tuple[float, float] | None:
     return (float(t[on_idx[0]]), float(t[on_idx[-1]]))
 
 
-def collect_chip_traces(chip_number: int) -> list[dict]:
-    """Returns list of per-wavelength dicts for one chip."""
+def collect_chip_traces(
+    chip_number: int, seqs: list[int] | None = None
+) -> list[dict]:
+    """Returns list of per-wavelength dicts for one chip. `seqs` overrides the
+    default seq selection from CHIPS (used for the chip-80 re-measurement)."""
     history = load_history(chip_number)
     chip_cfg = CHIPS[chip_number]
-    rows = select_its_rows(history, chip_cfg["seqs"])
+    rows = select_its_rows(history, seqs if seqs is not None else chip_cfg["seqs"])
     fit_t_start = float(chip_cfg.get("fit_t_start", DEFAULT_FIT_T_START))
 
     traces: list[dict] = []
@@ -439,14 +455,22 @@ EVAL_T_POST = 120.0
 
 
 def photoresponse_at_post(tr: dict) -> float:
-    """ΔI corrected = I_corr(EVAL_T_POST) − I_corr(EVAL_T_PRE).
-    Since i_corr is anchored at I_corr(EVAL_T_PRE)=0, this is i_corr at t=120 s."""
+    """ΔI corrected = peak drift-corrected deviation over the illuminated window
+    t ∈ [EVAL_T_PRE, EVAL_T_POST], relative to the EVAL_T_PRE onset — the "true"
+    photoresponse (matches CorrectedDeltaIExtractor delta_mode="max_deviation").
+    Since i_corr is anchored at I_corr(EVAL_T_PRE)=0, the deviation is i_corr
+    itself; this returns the signed value at the point of maximum |i_corr| in
+    the window."""
     t = tr["t"]
     y = tr["i_corr_uA"]
     if t.size == 0 or not np.any(np.isfinite(y)):
         return float("nan")
-    idx = int(np.argmin(np.abs(t - EVAL_T_POST)))
-    return float(y[idx])
+    win = (t >= EVAL_T_PRE) & (t <= EVAL_T_POST) & np.isfinite(y)
+    win_idx = np.flatnonzero(win)
+    if win_idx.size == 0:
+        return float("nan")
+    peak = win_idx[int(np.argmax(np.abs(y[win_idx])))]
+    return float(y[peak])
 
 
 def responsivity_at_post(tr: dict, area_um2: float | None) -> float:
@@ -503,6 +527,57 @@ def plot_responsivity_vs_wl(
     ax.set_ylabel(r"$R$ (A/W)")
     ax.set_box_aspect(box_aspect)
     ax.legend(loc="best", framealpha=0.9, ncol=2, fontsize=_legend_fontsize())
+
+    plt.tight_layout()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    plt.savefig(output_path, dpi=config.dpi, bbox_inches="tight")
+    plt.close(fig)
+    print(f"saved {output_path}")
+
+
+def plot_responsivity_old_vs_new_chip80(
+    config: PlotConfig,
+    output_path: Path,
+    *,
+    wl_max: float = 505.0,
+    logy: bool = False,
+    box_aspect: float = 1.0,
+) -> None:
+    """Chip-80 responsivity, old (2026-04-28, Vg = 0 V) vs re-measured
+    (2026-07-01, Vg = -2.0 V), restricted to the 365-505 nm range where the
+    device shows real above-noise response."""
+    set_plot_style(config.theme)
+    side = float(config.figsize_timeseries[1])
+    fig, ax = plt.subplots(1, 1, figsize=(side / box_aspect, side))
+
+    area = device_areas_um2().get(80)
+    series = [
+        ("old", collect_chip_traces(80), r"Old ($V_g = 0$ V)", "C3", "o"),
+        ("new", collect_chip_traces(80, seqs=CHIP80_REMEASURED_SEQS),
+         r"New ($V_g = -2$ V)", "C2", "s"),
+    ]
+
+    for _key, traces, label, color, marker in series:
+        pts = []
+        for tr in traces:
+            wl = tr["wavelength_nm"]
+            r = responsivity_at_post(tr, area)
+            if np.isfinite(wl) and wl <= wl_max and np.isfinite(r):
+                pts.append((wl, r))
+        if not pts:
+            print(f"  [chip 80 {_key}] no responsivity points <= {wl_max} nm")
+            continue
+        pts.sort()
+        wls = np.array([p[0] for p in pts])
+        rs = np.array([p[1] for p in pts])
+        ax.plot(wls, rs, color=color, marker=marker, linestyle="-", label=label)
+
+    if logy:
+        ax.set_yscale("log")
+    ax.set_xlabel(r"Wavelength (nm)")
+    ax.set_ylabel(r"$R$ (A/W)")
+    ax.set_box_aspect(box_aspect)
+    ax.legend(loc="best", framealpha=0.9, fontsize=_legend_fontsize())
 
     plt.tight_layout()
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -710,8 +785,77 @@ def main() -> None:
     plot_responsivity_vs_wl(
         traces_by_chip,
         config,
+        OUTPUT_DIR / "alisson67_72_74_75_80_81_responsivity_vs_wl.png",
+        chips=all_chips,
+    )
+    plot_responsivity_vs_wl(
+        traces_by_chip,
+        config,
         OUTPUT_DIR / "alisson67_72_74_75_80_81_responsivity_vs_wl_semilogy.pdf",
         chips=all_chips,
+        logy=True,
+    )
+
+    # Chip-80 re-measurement variant (2026-07-01): swap only chip 80's traces
+    # for the re-measured 365-505 nm points; all other chips and outputs are
+    # untouched. New files carry the "_80remeasured_2026-07-01" suffix.
+    traces_by_chip_v2 = dict(traces_by_chip)
+    traces_by_chip_v2[80] = collect_chip_traces(80, seqs=CHIP80_REMEASURED_SEQS)
+    plot_responsivity_vs_wl(
+        traces_by_chip_v2,
+        config,
+        OUTPUT_DIR
+        / "alisson67_72_74_75_80_81_responsivity_vs_wl_80remeasured_2026-07-01.pdf",
+        chips=all_chips,
+    )
+    plot_responsivity_vs_wl(
+        traces_by_chip_v2,
+        config,
+        OUTPUT_DIR
+        / "alisson67_72_74_75_80_81_responsivity_vs_wl_80remeasured_2026-07-01.png",
+        chips=all_chips,
+    )
+    plot_responsivity_vs_wl(
+        traces_by_chip_v2,
+        config,
+        OUTPUT_DIR
+        / "alisson67_72_74_75_80_81_responsivity_vs_wl_semilogy_80remeasured_2026-07-01.pdf",
+        chips=all_chips,
+        logy=True,
+    )
+
+    # Chip-80 It corrected overlay for the re-measured data (single chip only).
+    # (a) mixed: July 365-505 nm (Vg = -2 V) + retained April 565-850 nm (Vg = 0).
+    plot_single(
+        80, traces_by_chip_v2[80], config,
+        OUTPUT_DIR / "alisson80_It_corrected_overlay_remeasured_mixed_2026-07-01.pdf",
+        field="i_corr_uA",
+        ylabel=r"$I_{\mathrm{corr}}\ (\mu\mathrm{A})$",
+        plot_start=PLOT_START_TIME,
+    )
+    # (b) July-only: 365-505 nm at a single gate voltage (Vg = -2 V).
+    plot_single(
+        80, collect_chip_traces(80, seqs=CHIP80_REMEASURED_SEQS_JULY_ONLY), config,
+        OUTPUT_DIR / "alisson80_It_corrected_overlay_remeasured_365-505nm_2026-07-01.pdf",
+        field="i_corr_uA",
+        ylabel=r"$I_{\mathrm{corr}}\ (\mu\mathrm{A})$",
+        plot_start=PLOT_START_TIME,
+    )
+
+    # Chip-80 old-vs-new responsivity, 365-505 nm only (longer wavelengths sit
+    # at the noise floor, so no real response there regardless of power).
+    plot_responsivity_old_vs_new_chip80(
+        config,
+        OUTPUT_DIR / "alisson80_responsivity_old_vs_new_365-505nm_2026-07-01.pdf",
+    )
+    plot_responsivity_old_vs_new_chip80(
+        config,
+        OUTPUT_DIR / "alisson80_responsivity_old_vs_new_365-505nm_2026-07-01.png",
+    )
+    plot_responsivity_old_vs_new_chip80(
+        config,
+        OUTPUT_DIR
+        / "alisson80_responsivity_old_vs_new_365-505nm_semilogy_2026-07-01.pdf",
         logy=True,
     )
 

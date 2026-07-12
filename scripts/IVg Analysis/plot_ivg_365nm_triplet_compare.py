@@ -199,6 +199,20 @@ def _forward_sweep_slice(vg: np.ndarray) -> slice:
     return slice(i_min, i_min + i_max_rel + 1)
 
 
+def _backward_sweep_slice(vg: np.ndarray) -> slice:
+    """Monotonic descending leg V_max -> V_min that follows the forward leg.
+
+    Continues from the argmax found by `_forward_sweep_slice` to the next
+    argmin after it — i.e. the return leg from Vmax back down through 0 to
+    Vmin in the standard 0 -> Vmin -> 0 -> Vmax -> 0 -> Vmin -> 0 pattern.
+    """
+    i_min = int(np.argmin(vg))
+    i_max = i_min + int(np.argmax(vg[i_min:]))
+    after = vg[i_max:]
+    i_min_rel = int(np.argmin(after))
+    return slice(i_max, i_max + i_min_rel + 1)
+
+
 def _label(chip_number: int, materials: dict[int, str]) -> str:
     mat = materials.get(chip_number, "?")
     return f"{chip_number} ({mat})"
@@ -602,6 +616,7 @@ def _draw_wavelength_photocurrent_overlay_on_ax(
     linewidth: float = 3.7,
     responsivity: bool = False,
     device_area_um2: float | None = None,
+    show_backward: bool = False,
 ) -> None:
     """Overlay smoothed photocurrent (I_on - I_off) vs Vg for one chip across
     several wavelengths on a single axes. One smoothed curve per triplet,
@@ -611,7 +626,13 @@ def _draw_wavelength_photocurrent_overlay_on_ax(
 
     When ``responsivity`` is True the y-axis is responsivity R = I_ph / P_device
     in A/W, where P_device = irradiated_power_w * (device_area_um2 / BEAM_AREA_UM2).
-    The per-ON-seq optical power is read from the enriched chip history."""
+    The per-ON-seq optical power is read from the enriched chip history.
+
+    When ``show_backward`` is True the descending return leg (V_max -> V_min)
+    is also drawn, dashed and in the same color as the forward (solid) leg, so
+    the sweep-direction hysteresis is visible. The wavelength legend stays
+    clean (one entry per wavelength); a small forward/backward style legend is
+    added separately."""
     hist = pl.read_parquet(_history_path(chip_number))
     hist = hist.filter((pl.col("proc") == "IVg") & (pl.col("date") == date))
 
@@ -672,7 +693,7 @@ def _draw_wavelength_photocurrent_overlay_on_ax(
             p_device_w = power_w * (device_area_um2 / BEAM_AREA_UM2)
             i_photo = (i_photo * 1e-6) / p_device_w  # A/W
 
-        # Forward leg only (V_min -> V_max), not the full first-half sweep.
+        # Forward leg (V_min -> V_max), not the full first-half sweep.
         s = _forward_sweep_slice(vg)
         vg_fwd = vg[s]
         iph_fwd = i_photo[s]
@@ -692,6 +713,24 @@ def _draw_wavelength_photocurrent_overlay_on_ax(
             linewidth=linewidth,
         )
 
+        if show_backward:
+            # Return leg (V_max -> V_min), dashed, same color, no legend entry.
+            sb = _backward_sweep_slice(vg)
+            vg_bwd = vg[sb]
+            iph_bwd = i_photo[sb]
+            ax.plot(vg_bwd, iph_bwd, color=color, linewidth=0.6, alpha=0.3)
+            window_b, polyorder_b = auto_select_savgol_params(vg_bwd, iph_bwd, "auto")
+            iph_bwd_smooth = np.asarray(
+                savgol_filter(iph_bwd, window_length=window_b, polyorder=polyorder_b)
+            )
+            ax.plot(
+                vg_bwd,
+                iph_bwd_smooth,
+                color=color,
+                linewidth=linewidth,
+                linestyle="--",
+            )
+
     ax.axhline(0.0, color="k", linewidth=0.5, alpha=0.5)
     ax.set_xlabel("$\\rm{V_g\\ (V)}$")
     if responsivity:
@@ -699,7 +738,23 @@ def _draw_wavelength_photocurrent_overlay_on_ax(
     else:
         ax.set_ylabel("$\\rm{I_{ph}\\ (\\mu A)}$")
     if show_legend:
-        ax.legend(title="Wavelength", loc="best")
+        wl_legend = ax.legend(title="Wavelength", loc="best")
+        if show_backward:
+            # Keep the wavelength legend, add a separate solid/dashed style
+            # legend so the sweep direction is unambiguous.
+            from matplotlib.lines import Line2D
+
+            ax.add_artist(wl_legend)
+            style_handles = [
+                Line2D([0], [0], color="0.3", linewidth=linewidth, linestyle="-"),
+                Line2D([0], [0], color="0.3", linewidth=linewidth, linestyle="--"),
+            ]
+            ax.legend(
+                style_handles,
+                ["forward", "backward"],
+                title="Sweep",
+                loc="upper left",
+            )
 
 
 def plot_74_72_triplet_photocurrent_wavelength_3x2(
@@ -1047,6 +1102,101 @@ def plot_74_72_on_off_responsivity_2x2(
     plt.close(fig)
 
 
+def plot_74_72_on_off_responsivity_fwd_bwd_2x2(
+    triplets: list[Triplet], materials: dict[int, str], config: PlotConfig
+) -> None:
+    """Forward+backward twin of `plot_74_72_on_off_responsivity_2x2` — identical
+    top OFF/ON row, but the bottom responsivity row draws both sweep legs:
+    forward (V_min -> V_max) solid and backward (V_max -> V_min) dashed, same
+    color per wavelength. Written to a distinct filename; the original
+    responsivity 2x2 figure is left unchanged."""
+    by_chip = {t.chip_number: t for t in triplets}
+    chips = [72, 74]
+    missing = [c for c in chips if c not in by_chip]
+    if missing:
+        print(f"[warn] no 365 nm triplet for chips {missing}; skipping 2x2 grid")
+        return
+    wl_missing = [c for c in chips if c not in WAVELENGTH_TRIPLETS_BY_CHIP]
+    if wl_missing:
+        print(
+            f"[warn] no wavelength triplets configured for chips {wl_missing}; "
+            "skipping on/off+responsivity fwd/bwd 2x2 grid"
+        )
+        return
+    areas = _device_areas_um2()
+    area_missing = [c for c in chips if c not in areas]
+    if area_missing:
+        print(
+            f"[warn] no flake_area_um2 for chips {area_missing}; "
+            "skipping on/off+responsivity fwd/bwd 2x2 grid"
+        )
+        return
+
+    fig, axes = plt.subplots(
+        2,
+        2,
+        figsize=(40, 30),
+        gridspec_kw={"wspace": 0.28, "height_ratios": [2, 1]},
+    )
+
+    for col, chip in enumerate(chips):
+        t = by_chip[chip]
+        _draw_triplet_on_ax(
+            axes[0, col],
+            t,
+            materials,
+            show_legend=True,
+            show_title=False,
+            include_off_after=False,
+            legend_fontsize_delta=2,
+        )
+        wl_date, wl_triplets = WAVELENGTH_TRIPLETS_BY_CHIP[chip]
+        _draw_wavelength_photocurrent_overlay_on_ax(
+            axes[1, col],
+            chip,
+            wl_date,
+            wl_triplets,
+            show_legend=True,
+            linewidth=5.7,
+            responsivity=True,
+            device_area_um2=areas[chip],
+            show_backward=True,
+        )
+
+    # Share y across the bottom (responsivity) row: common limits, and drop the
+    # right panel's redundant y tick labels + label.
+    y_lo = min(axes[1, 0].get_ylim()[0], axes[1, 1].get_ylim()[0])
+    y_hi = max(axes[1, 0].get_ylim()[1], axes[1, 1].get_ylim()[1])
+    axes[1, 0].set_ylim(y_lo, y_hi)
+    axes[1, 1].set_ylim(y_lo, y_hi)
+    axes[1, 1].tick_params(labelleft=False)
+    axes[1, 1].set_ylabel("")
+
+    _annotate_panel_letters(axes, ["a", "b", "c", "d"])
+    fig.tight_layout()
+
+    filename = f"Compare_IVg_on_off_responsivity_fwd_bwd_2x2_7274_{WAVELENGTH_NM}nm"
+    out = config.get_output_path(
+        filename,
+        procedure="IVg",
+        special_type="triplets",
+        create_dirs=True,
+    )
+    fig.savefig(out, dpi=config.dpi)
+    print(f"saved {out}")
+
+    # Also emit a PNG alongside the default PDF for this figure.
+    out_png = config.get_output_path(
+        f"{filename}.png",
+        procedure="IVg",
+        special_type="triplets",
+        create_dirs=True,
+    )
+    fig.savefig(out_png, dpi=config.dpi)
+    print(f"saved {out_png}")
+    plt.close(fig)
+
+
 def plot_chip_photocurrent_wavelength(
     chip_number: int, materials: dict[int, str], config: PlotConfig
 ) -> None:
@@ -1140,6 +1290,7 @@ def main() -> None:
     plot_74_72_triplet_subs_2x2(triplets, materials, config)
     plot_74_72_on_off_wavelength_2x2(triplets, materials, config)
     plot_74_72_on_off_responsivity_2x2(triplets, materials, config)
+    plot_74_72_on_off_responsivity_fwd_bwd_2x2(triplets, materials, config)
     plot_74_72_photocurrent_wavelength_1x2(materials, config)
     for chip in (74, 72):
         plot_chip_photocurrent_wavelength(chip, materials, config)

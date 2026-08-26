@@ -499,18 +499,42 @@ def _enrich_metrics(
                 console.print(f"  [dim]{chip_name}: No metrics found[/dim]")
             return
 
-        # Load enriched history (may already have calibrations)
+        # Pick the join base. The Stage-3 file is preferred only when it is a
+        # current derivative of Stage 2 -- it carries the calibration columns
+        # added by _enrich_calibrations, which we must not drop.
+        #
+        # It goes stale when the calibration step did not rewrite it this run:
+        # chips with no light experiments return early from
+        # CalibrationMatcher.enrich_chip_history without writing. Reading a
+        # stale file back in would re-emit its rows forever, which is how
+        # foreign absolute `parquet_path` values from another machine's
+        # `dvc pull` survived repeated pipeline runs (and how row counts drifted
+        # out of sync with Stage 2). Fall back to Stage 2 whenever that happens.
+        from src.cli.main import get_config
+        config = get_config()
+        base_path = Path(config.history_dir) / f"{chip_name}_history.parquet"
+        if not base_path.exists():
+            console.print(f"[yellow]⚠[/yellow] History not found for {chip_name}")
+            return
+
         enriched_path = output_dir / f"{chip_name}_history.parquet"
-        if enriched_path.exists():
-            history = pl.read_parquet(enriched_path)
-        else:
-            # Load from base directory
-            from src.cli.main import get_config
-            config = get_config()
-            base_path = Path(config.history_dir) / f"{chip_name}_history.parquet"
-            if not base_path.exists():
-                console.print(f"[yellow]⚠[/yellow] History not found for {chip_name}")
-                return
+        history = None
+        if enriched_path.exists() and not force:
+            base_height = pl.scan_parquet(base_path).select(pl.len()).collect().item()
+            candidate = pl.read_parquet(enriched_path)
+            up_to_date = (
+                enriched_path.stat().st_mtime >= base_path.stat().st_mtime
+                and candidate.height == base_height
+            )
+            if up_to_date:
+                history = candidate
+            elif verbose:
+                console.print(
+                    f"  [dim]{chip_name}: Stage-3 file is stale "
+                    f"({candidate.height} rows vs {base_height} in Stage 2); "
+                    "rebuilding from Stage 2[/dim]"
+                )
+        if history is None:
             history = pl.read_parquet(base_path)
 
         # Pivot metrics to columns

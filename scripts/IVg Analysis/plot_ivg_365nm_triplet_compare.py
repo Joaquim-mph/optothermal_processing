@@ -34,6 +34,9 @@ from plot_ivg_photocurrent_triplets import (  # noqa: E402
 from src.core.utils import read_measurement_parquet  # noqa: E402
 from src.plotting.shared.config import PlotConfig  # noqa: E402
 from src.plotting.shared.styles import set_plot_style  # noqa: E402
+from src.plotting.shared.plot_utils import (  # noqa: E402
+    _savgol_derivative_corrected,
+)
 from src.plotting.transconductance import auto_select_savgol_params  # noqa: E402
 
 ENCAP_PATH = Path("config/encap_characteristics.yaml")
@@ -862,11 +865,20 @@ def plot_74_72_triplet_photocurrent_wavelength_2x3(
     print(f"saved {out}")
 
 
-def _annotate_panel_letters(axes, letters: list[str]) -> None:
-    """Stamp bold 'a', 'b', ... outside each axes, above the y-axis label."""
-    for ax, letter in zip(np.asarray(axes).ravel(), letters):
+def _annotate_panel_letters(
+    axes, letters: list[str], x: float | list[float] = -0.13
+) -> None:
+    """Stamp bold 'a', 'b', ... outside each axes, above the y-axis label.
+
+    `x` is the axes-fraction offset of the letter; pass a list to shift
+    individual panels (e.g. a panel whose y tick labels are still shown needs
+    more clearance than one where they were dropped).
+    """
+    flat = np.asarray(axes).ravel()
+    xs = [x] * len(flat) if isinstance(x, (int, float)) else list(x)
+    for ax, letter, x_off in zip(flat, letters, xs):
         ax.text(
-            -0.13,
+            x_off,
             1.0,
             f"{letter}",
             transform=ax.transAxes,
@@ -1268,6 +1280,133 @@ def plot_74_72_photocurrent_wavelength_1x2(
     print(f"saved {out}")
 
 
+def _draw_photocurrent_gm_on_ax(
+    ax,
+    triplet: Triplet,
+    *,
+    show_legend: bool = True,
+    linewidth: float = 5.7,
+    legend_fontsize_delta: int = 2,
+) -> None:
+    """Normalized 365 nm photocurrent and dark transconductance on one axes.
+
+    Both traces are taken on the forward leg (V_min -> V_max), Savitzky-Golay
+    smoothed with the same auto-selected window used elsewhere in this script,
+    and divided by their own peak absolute value so only the *shape* — and the
+    Vg positions of the extrema — are compared. I_ph is (I_on - I_off) at
+    365 nm; g_m = dI/dVg of the LED OFF (dark) sweep that precedes it.
+    """
+    hist = pl.read_parquet(_history_path(triplet.chip_number))
+    hist = hist.filter((pl.col("proc") == "IVg") & (pl.col("date") == triplet.date))
+
+    off = _load_seq(hist, triplet.off_before)
+    on = _load_seq(hist, triplet.on)
+
+    vg_off = off["Vg (V)"].to_numpy()
+    i_off = off["I (A)"].to_numpy()
+    vg_on = on["Vg (V)"].to_numpy()
+    i_on = on["I (A)"].to_numpy()
+
+    # --- photocurrent (forward leg, smoothed, normalized) ---
+    n = min(len(vg_off), len(vg_on))
+    if not np.allclose(vg_off[:n], vg_on[:n], atol=1e-6):
+        print(
+            f"[warn] Vg arrays not aligned for Alisson{triplet.chip_number} "
+            f"{WAVELENGTH_NM} nm; subtracting by sample index anyway"
+        )
+    vg = vg_on[:n]
+    i_photo = (i_on[:n] - i_off[:n]) * 1e6  # µA
+    s = _forward_sweep_slice(vg)
+    vg_fwd, iph_fwd = vg[s], i_photo[s]
+    window, polyorder = auto_select_savgol_params(vg_fwd, iph_fwd, "auto")
+    iph_smooth = np.asarray(
+        savgol_filter(iph_fwd, window_length=window, polyorder=polyorder)
+    )
+    iph_peak = float(np.max(np.abs(iph_smooth)))
+    if iph_peak <= 0:
+        print(f"[warn] flat photocurrent for Alisson{triplet.chip_number}; skipping")
+        return
+
+    # --- dark transconductance (same forward leg, normalized) ---
+    s_off = _forward_sweep_slice(vg_off)
+    vg_off_fwd, i_off_fwd = vg_off[s_off], i_off[s_off] * 1e6  # µA
+    window_g, polyorder_g = auto_select_savgol_params(vg_off_fwd, i_off_fwd, "auto")
+    gm = _savgol_derivative_corrected(
+        vg_off_fwd, i_off_fwd, window_length=window_g, polyorder=polyorder_g
+    )
+    gm_peak = float(np.max(np.abs(gm)))
+    if gm_peak <= 0:
+        print(f"[warn] flat transconductance for Alisson{triplet.chip_number}; skipping")
+        return
+
+    ax.plot(
+        vg_fwd,
+        iph_smooth / iph_peak,
+        linewidth=linewidth,
+        label=f"$\\rm{{I_{{ph}}}}$ ({WAVELENGTH_NM} nm)",
+    )
+    ax.plot(
+        vg_off_fwd,
+        gm / gm_peak,
+        linewidth=linewidth,
+        linestyle="--",
+        label="$\\rm{g_m}$ (LED OFF)",
+    )
+
+    ax.set_xlabel("$\\rm{V_g\\ (V)}$")
+    ax.set_ylabel("Normalized $\\rm{I_{ph}}$, $\\rm{g_m}$")
+    if show_legend:
+        legend_fontsize = plt.rcParams["legend.fontsize"] + legend_fontsize_delta
+        ax.legend(loc="best", fontsize=legend_fontsize)
+
+
+def plot_74_72_photocurrent_gm_1x2(
+    triplets: list[Triplet], materials: dict[int, str], config: PlotConfig
+) -> None:
+    """1x2 grid for chips 72 and 74: normalized 365 nm photocurrent overlaid on
+    the normalized dark transconductance, so the Vg positions of the I_ph and
+    g_m extrema can be compared directly."""
+    by_chip = {t.chip_number: t for t in triplets}
+    chips = [72, 74]
+    missing = [c for c in chips if c not in by_chip]
+    if missing:
+        print(f"[warn] no {WAVELENGTH_NM} nm triplet for chips {missing}; skipping 1x2 gm grid")
+        return
+
+    fig, axes = plt.subplots(1, 2, figsize=(36, 20), gridspec_kw={"wspace": 0.13})
+
+    for col, chip in enumerate(chips):
+        _draw_photocurrent_gm_on_ax(axes[col], by_chip[chip], show_legend=True)
+        # Square plot box, independent of the figure aspect / margins.
+        axes[col].set_box_aspect(1)
+
+    # Both panels are normalized to ±1 — share limits and drop the right
+    # panel's redundant y tick labels + label.
+    y_lo = min(axes[0].get_ylim()[0], axes[1].get_ylim()[0])
+    y_hi = max(axes[0].get_ylim()[1], axes[1].get_ylim()[1])
+    for ax in axes:
+        ax.set_ylim(y_lo, y_hi)
+    axes[1].tick_params(labelleft=False)
+    axes[1].set_ylabel("")
+
+    # Panel a keeps its y tick labels, so its letter needs more clearance;
+    # panel b has none and sits close to a, so its letter hugs its own spine.
+    _annotate_panel_letters(axes, ["a", "b"], x=[-0.20, -0.07])
+    fig.tight_layout(w_pad=0.9)
+
+    filename = f"Compare_IVg_photocurrent_gm_norm_1x2_7274_{WAVELENGTH_NM}nm"
+    out = config.get_output_path(
+        filename,
+        procedure="IVg",
+        metadata={"has_light": True},
+        special_type="photocurrent",
+        create_dirs=True,
+    )
+    fig.savefig(out, dpi=config.dpi)
+    plt.close(fig)
+    print(f"saved {out}")
+
+
 def main() -> None:
     config = PlotConfig()
     set_plot_style(config.theme)
@@ -1292,6 +1431,7 @@ def main() -> None:
     plot_74_72_on_off_responsivity_2x2(triplets, materials, config)
     plot_74_72_on_off_responsivity_fwd_bwd_2x2(triplets, materials, config)
     plot_74_72_photocurrent_wavelength_1x2(materials, config)
+    plot_74_72_photocurrent_gm_1x2(triplets, materials, config)
     for chip in (74, 72):
         plot_chip_photocurrent_wavelength(chip, materials, config)
 

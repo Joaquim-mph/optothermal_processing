@@ -1,6 +1,11 @@
 """
 Composite 3-panel figure for Alisson67 (hBN) and Alisson75 (Biotite), 365 nm.
 
+Same figures as plot_it_sequential_and_powerlaw_67_75_365nm.py, but the
+Alisson75 (Biotite) data comes from the 2026-05-14 run (seq 89-92, Vg = -0.5 V)
+instead of 2025-09-12, and the power-law panel is restricted to negative Vg
+(holes) for both chips: 67 at Vg = -0.4 V and 75 at Vg = -0.5 V.
+
 Left column (two stacked panels, shared x):
     Sequential raw It traces (4 segments stitched end-to-end) at negative Vg
     (holes), one material per panel. Biotite (chip 75) on top, hBN (chip 67)
@@ -8,8 +13,15 @@ Left column (two stacked panels, shared x):
 
 Right panel:
     |Δi_corrected| vs LED power on a semilog-y axis with independent power-law
-    fits, for holes (negative Vg) and electrons (positive Vg) of both
-    materials. γ is the power-law exponent (|Δi| ∝ P^γ).
+    fits, for holes (negative Vg) of both materials. γ is the power-law
+    exponent (|Δi| ∝ P^γ).
+
+Every figure whose x axis is power is also emitted in an ``_irradiance``
+variant, where the x axis is the beam irradiance Phi = P_LED / A_beam
+(mW/cm^2) instead of raw LED power in uW; the shaded LED-on annotations stay in
+uW in both variants. The 1x2 corrected-overlay figure, whose power appears only
+in its shared legend, gets the same pair of variants (legend in uW or in
+mW/cm^2).
 
 Selection and correction logic come from
 scripts/power_sweeps/plot_corrected_deltai_vs_power_67_75_vg_365nm.py.
@@ -17,7 +29,7 @@ scripts/power_sweeps/plot_corrected_deltai_vs_power_67_75_vg_365nm.py.
 Figure layout: 40x20 overall; each sequential panel 20x10, power-law 20x20.
 
 Run from repo root:
-    python scripts/power_sweeps/plot_it_sequential_and_powerlaw_67_75_365nm.py
+    python scripts/power_sweeps/plot_it_sequential_and_powerlaw_67_75may14_365nm.py
 """
 
 from __future__ import annotations
@@ -40,24 +52,64 @@ from src.derived.extractors.corrected_delta_i_extractor import CorrectedDeltaIEx
 from src.plotting.shared.config import PlotConfig
 from src.plotting.shared.styles import set_plot_style
 
-FIT_T_START = 20.0
+# Drift-fit window. FIT_T_START was scanned over 10/20/30/40/50 s against the
+# flatness of the drift-corrected trace before illumination. The binding case is
+# the chip-75 6 uW trace (seq 89), which is still charging at t = 60 s. A [50, 60]
+# window is the flattest immediately before turn-on (slope ~1e-4 uA/s over
+# [50, 60] s vs -0.09 at 20 s), at the cost of a larger excursion early in the
+# record, where the fit is extrapolated far outside its window.
+FIT_T_START = 50.0
 FIT_T_END = 60.0
 EVAL_T_PRE = 60.0
 EVAL_T_POST = 120.0
 WAVELENGTH_NM = 365.0
 
+# Beam spot area used to convert LED power into irradiance
+# (Phi = P_LED / A_beam). Same value as
+# scripts/power_sweeps/plot_photoresponse_vs_power_semilogy_2026-05-14.py.
+BEAM_AREA_UM2 = 1.2e5
+_BEAM_AREA_M2 = BEAM_AREA_UM2 * 1e-12  # 1 um^2 = 1e-12 m^2
+
+
+def irradiance_mW_per_cm2(p_uW) -> np.ndarray:
+    """LED power (uW) -> beam irradiance (mW/cm^2) over the full beam spot.
+
+    Phi[W/m^2] = P[W] / A[m^2]; 1 W/m^2 = 0.1 mW/cm^2.
+    """
+    return 0.1 * (np.asarray(p_uW, dtype=float) * 1e-6) / _BEAM_AREA_M2
+
+
+# X-axis ticks for the two modes: raw LED power (uW) and the same four points
+# expressed as irradiance (mW/cm^2).
+_POWER_TICKS = [6, 12, 18, 24]
+_IRRADIANCE_TICKS = irradiance_mW_per_cm2(_POWER_TICKS)
+
+
+def _x_axis(x_mode: str):
+    """Return (converter, ticks, xlabel) for an x axis in ``x_mode``.
+
+    "led_power" keeps the historical raw-power axis; "irradiance" divides by the
+    beam spot area. Only the x axis changes -- legends and the shaded LED-on
+    annotations stay in uW in both modes.
+    """
+    if x_mode == "led_power":
+        return np.asarray, _POWER_TICKS, r"LED power ($\mu$W)"
+    if x_mode == "irradiance":
+        return irradiance_mW_per_cm2, _IRRADIANCE_TICKS, r"Irradiance (mW/cm$^2$)"
+    raise ValueError(f"x_mode must be 'led_power' or 'irradiance', got {x_mode!r}")
+
 # All outputs of this script land in this dedicated folder under figs/, with no
 # chip/procedure/subcategory hierarchy (these comparisons span two chips).
-OUTPUT_SUBDIR = Path("figs/it_sequential_and_powerlaw_67_75_365nm")
+OUTPUT_SUBDIR = Path("figs/it_sequential_and_powerlaw_67_75may14_365nm")
 
 # Sequential It panels (holes / negative Vg), drawn top -> bottom.
 SEQUENTIAL: list[dict] = [
     {
         "chip": 75,
-        "label": r"Biotite, $V_g=-3.0$ V",
+        "label": r"Biotite, $V_g=-0.5$ V",
         "color": "#e41a1c",
-        "date": "2025-09-12",
-        "seqs": [5, 6, 7, 8],
+        "date": "2026-05-14",
+        "seqs": [89, 90, 91, 92],
     },
     {
         "chip": 67,
@@ -68,7 +120,7 @@ SEQUENTIAL: list[dict] = [
     },
 ]
 
-# Power-law panel: both gate polarities for both chips.
+# Power-law panel: negative Vg (holes) only, for both chips.
 CHIPS: list[dict] = [
     {
         "chip": 67,
@@ -77,17 +129,16 @@ CHIPS: list[dict] = [
         "date": "2025-10-14",
         "vg_groups": [
             {"vg_v": -0.4, "seqs": [41, 42, 43, 44]},
-            {"vg_v": 0.2, "seqs": [46, 47, 48, 49]},
         ],
     },
     {
         "chip": 75,
         "label": "75 Bio",
         "color": "#e41a1c",
-        "date": "2025-09-12",
+        "date": "2026-05-14",
+        # 2026-05-14 has holes only; no positive-Vg sweep exists that day.
         "vg_groups": [
-            {"vg_v": -3.0, "seqs": [5, 6, 7, 8]},
-            {"vg_v": 3.0, "seqs": [11, 12, 13, 14]},
+            {"vg_v": -0.5, "seqs": [89, 90, 91, 92]},
         ],
     },
 ]
@@ -244,8 +295,12 @@ def plot_sequential(
 
 
 def plot_power_law(
-    ax: plt.Axes, curves: list[tuple[dict, dict, np.ndarray, np.ndarray]]
+    ax: plt.Axes,
+    curves: list[tuple[dict, dict, np.ndarray, np.ndarray]],
+    *,
+    x_mode: str = "led_power",
 ) -> None:
+    to_x, xticks, xlabel = _x_axis(x_mode)
     for chip, group, p, di in curves:
         is_electrons = group["vg_v"] >= 0
         marker = "+" if is_electrons else "_"
@@ -253,7 +308,7 @@ def plot_power_law(
         gamma, p_fit, di_fit = power_law_fit(p, di_abs)
         label = f"{chip['label']}, $V_g$={group['vg_v']:+g} V, $\\gamma={gamma:.2f}$"
         ax.plot(
-            p,
+            to_x(p),
             di_abs,
             marker=marker,
             linestyle="none",
@@ -263,7 +318,9 @@ def plot_power_law(
             label=label,
         )
         if p_fit.size:
-            ax.plot(p_fit, di_fit, linestyle="-", color=chip["color"], linewidth=1.2)
+            ax.plot(
+                to_x(p_fit), di_fit, linestyle="-", color=chip["color"], linewidth=1.2
+            )
         print(
             f"Alisson{chip['chip']} Vg={group['vg_v']:+g} V  n={p.size}  "
             f"P=[{p.min():.2f},{p.max():.2f}] µW  "
@@ -271,8 +328,8 @@ def plot_power_law(
         )
 
     ax.set_yscale("log")
-    ax.set_xticks([6, 12, 18, 24])
-    ax.set_xlabel(r"LED power ($\mu$W)")
+    ax.set_xticks(xticks)
+    ax.set_xlabel(xlabel)
     ax.set_ylabel(r"$|\Delta i_{\mathrm{corr}}|$ ($\mu$A)")
     # Legend position in axes fraction (0,0 = bottom-left, 1,1 = top-right).
     ax.legend(
@@ -304,6 +361,7 @@ def build_figure(
     *,
     annotate_led: bool,
     filename: str,
+    x_mode: str = "led_power",
 ) -> None:
     fig = plt.figure(figsize=(40, 20))
     gs = fig.add_gridspec(2, 2, width_ratios=[1, 1], height_ratios=[1, 1])
@@ -323,7 +381,7 @@ def build_figure(
     ax_hbn.set_xlabel(r"t (s)")
     ax_bio.set_xlim(0.0, max([t for t in totals if t > 0], default=1.0))
 
-    plot_power_law(ax_pl, curves)
+    plot_power_law(ax_pl, curves, x_mode=x_mode)
 
     annotate_panel_letter(ax_bio, "a")
     annotate_panel_letter(ax_hbn, "b")
@@ -341,10 +399,11 @@ def build_powerlaw_only_figure(
     curves: list[tuple[dict, dict, np.ndarray, np.ndarray]],
     *,
     filename: str,
+    x_mode: str = "led_power",
 ) -> None:
-    """Standalone semilog-y |Δi_corr| vs LED power figure (panel c only)."""
+    """Standalone semilog-y |Δi_corr| vs power figure (panel c only)."""
     fig, ax = plt.subplots(figsize=(20, 20))
-    plot_power_law(ax, curves)
+    plot_power_law(ax, curves, x_mode=x_mode)
     plt.tight_layout()
     out = config.get_output_path(filename, create_dirs=True)
     plt.savefig(out, dpi=config.dpi, bbox_inches="tight")
@@ -353,11 +412,15 @@ def build_powerlaw_only_figure(
 
 
 def plot_responsivity(
-    ax: plt.Axes, curves: list[tuple[dict, dict, np.ndarray, np.ndarray]]
+    ax: plt.Axes,
+    curves: list[tuple[dict, dict, np.ndarray, np.ndarray]],
+    *,
+    x_mode: str = "led_power",
 ) -> None:
     """Responsivity R = |Delta i_corr| / P vs LED power, semilog-y, with
     independent power-law fits. Since |Delta i| ~ P^gamma, R ~ P^(gamma - 1);
     the fitted exponent is reported as gamma_R."""
+    to_x, xticks, xlabel = _x_axis(x_mode)
     for chip, group, p, di in curves:
         is_electrons = group["vg_v"] >= 0
         marker = "+" if is_electrons else "_"
@@ -368,7 +431,7 @@ def plot_responsivity(
         gamma_r, p_fit, r_fit = power_law_fit(p, resp)
         label = f"{chip['label']}, $V_g$={group['vg_v']:+g} V"
         ax.plot(
-            p,
+            to_x(p),
             resp,
             marker=marker,
             linestyle="none",
@@ -378,7 +441,9 @@ def plot_responsivity(
             label=label,
         )
         if p_fit.size:
-            ax.plot(p_fit, r_fit, linestyle="-", color=chip["color"], linewidth=1.2)
+            ax.plot(
+                to_x(p_fit), r_fit, linestyle="-", color=chip["color"], linewidth=1.2
+            )
         print(
             f"Alisson{chip['chip']} Vg={group['vg_v']:+g} V  n={p.size}  "
             f"P=[{p.min():.2f},{p.max():.2f}] \u00b5W  "
@@ -386,8 +451,8 @@ def plot_responsivity(
         )
 
     ax.set_yscale("log")
-    ax.set_xticks([6, 12, 18, 24])
-    ax.set_xlabel(r"LED power ($\mu$W)")
+    ax.set_xticks(xticks)
+    ax.set_xlabel(xlabel)
     ax.set_ylabel(r"$R$ (A/W)")
     # Legend inside the axes, same placement as the |delta i| vs power panel.
     ax.legend(
@@ -403,10 +468,11 @@ def build_responsivity_only_figure(
     curves: list[tuple[dict, dict, np.ndarray, np.ndarray]],
     *,
     filename: str,
+    x_mode: str = "led_power",
 ) -> None:
-    """Standalone semilog-y responsivity vs LED power figure."""
+    """Standalone semilog-y responsivity vs power figure."""
     fig, ax = plt.subplots(figsize=(20, 20))
-    plot_responsivity(ax, curves)
+    plot_responsivity(ax, curves, x_mode=x_mode)
     plt.tight_layout()
     out = config.get_output_path(filename, create_dirs=True)
     plt.savefig(out, dpi=config.dpi, bbox_inches="tight")
@@ -504,8 +570,18 @@ def plot_corrected_overlay(
 
 
 def build_overlay_figure(
-    config: PlotConfig, histories: dict[int, pl.DataFrame]
+    config: PlotConfig,
+    histories: dict[int, pl.DataFrame],
+    *,
+    filename: str,
+    power_mode: str = "led_power",
 ) -> None:
+    """1x2 drift-corrected I(t) overlay. ``power_mode`` only sets how the shared
+    legend labels each trace: raw LED power (uW) or irradiance (mW/cm^2)."""
+    if power_mode not in ("led_power", "irradiance"):
+        raise ValueError(
+            f"power_mode must be 'led_power' or 'irradiance', got {power_mode!r}"
+        )
     fig, (ax_a, ax_b) = plt.subplots(1, 2, figsize=(40, 20))
 
     legend_info: list[tuple[float, tuple]] = []
@@ -518,25 +594,32 @@ def build_overlay_figure(
     annotate_panel_letter(ax_b, "b")
 
     if legend_info:
+        if power_mode == "irradiance":
+            labels = [
+                f"{float(irradiance_mW_per_cm2(power)):.0f} mW/cm²"
+                for power, _ in legend_info
+            ]
+            legend_title = "Irradiance"
+        else:
+            labels = [f"{power:.0f} µW" for power, _ in legend_info]
+            legend_title = "LED power"
         handles = [
-            Line2D([0], [0], color=color, lw=10.0, label=f"{power:.0f} µW")
-            for power, color in legend_info
+            Line2D([0], [0], color=color, lw=13.0, label=label)
+            for (_, color), label in zip(legend_info, labels)
         ]
         fig.legend(
             handles=handles,
-            title="LED power",
+            title=legend_title,
             loc="lower center",
             bbox_to_anchor=(0.5, -0.04),
             ncol=len(handles),
             framealpha=0.9,
-            fontsize=34,
-            title_fontsize=38,
+            fontsize=42,
+            title_fontsize=46,
         )
     plt.tight_layout()
 
-    out = config.get_output_path(
-        "Alisson67_75_corrected_overlay_holes_365nm_1x2", create_dirs=True
-    )
+    out = config.get_output_path(filename, create_dirs=True)
     plt.savefig(out, dpi=config.dpi, bbox_inches="tight")
     plt.close(fig)
     print(f"saved {out}")
@@ -578,7 +661,7 @@ def main() -> None:
         histories,
         curves,
         annotate_led=False,
-        filename="Alisson67_75_It_sequential_holes_and_powerlaw_365nm",
+        filename="Alisson67_75may14_It_sequential_holes_and_powerlaw_365nm",
     )
     # Annotated version: shaded LED-on windows + per-segment power labels.
     build_figure(
@@ -586,22 +669,68 @@ def main() -> None:
         histories,
         curves,
         annotate_led=True,
-        filename="Alisson67_75_It_sequential_holes_and_powerlaw_365nm_led",
+        filename="Alisson67_75may14_It_sequential_holes_and_powerlaw_365nm_led",
     )
     # Standalone semilog-y power-law panel only (matches panel c of the composite).
     build_powerlaw_only_figure(
         config,
         curves,
-        filename="Alisson67_75_powerlaw_365nm",
+        filename="Alisson67_75may14_powerlaw_365nm",
     )
     # Standalone responsivity (R = |di_corr|/P) vs LED power.
     build_responsivity_only_figure(
         config,
         curves,
-        filename="Alisson67_75_responsivity_365nm",
+        filename="Alisson67_75may14_responsivity_365nm",
     )
-    # Standalone 1x2 drift-corrected I(t) overlay (a = Biotite, b = hBN).
-    build_overlay_figure(config, histories)
+    # Irradiance versions of every figure whose x axis is power: the x axis
+    # becomes Phi = P_LED / A_beam (W/m^2). Legends and the shaded LED-on
+    # annotations stay in uW.
+    build_figure(
+        config,
+        histories,
+        curves,
+        annotate_led=False,
+        filename=(
+            "Alisson67_75may14_It_sequential_holes_and_powerlaw_365nm_irradiance"
+        ),
+        x_mode="irradiance",
+    )
+    build_figure(
+        config,
+        histories,
+        curves,
+        annotate_led=True,
+        filename=(
+            "Alisson67_75may14_It_sequential_holes_and_powerlaw_365nm_led_irradiance"
+        ),
+        x_mode="irradiance",
+    )
+    build_powerlaw_only_figure(
+        config,
+        curves,
+        filename="Alisson67_75may14_powerlaw_365nm_irradiance",
+        x_mode="irradiance",
+    )
+    build_responsivity_only_figure(
+        config,
+        curves,
+        filename="Alisson67_75may14_responsivity_365nm_irradiance",
+        x_mode="irradiance",
+    )
+    # Standalone 1x2 drift-corrected I(t) overlay (a = Biotite, b = hBN), with
+    # the shared legend in LED power and in irradiance.
+    build_overlay_figure(
+        config,
+        histories,
+        filename="Alisson67_75may14_corrected_overlay_holes_365nm_1x2",
+    )
+    build_overlay_figure(
+        config,
+        histories,
+        filename="Alisson67_75may14_corrected_overlay_holes_365nm_1x2_irradiance",
+        power_mode="irradiance",
+    )
 
 
 if __name__ == "__main__":

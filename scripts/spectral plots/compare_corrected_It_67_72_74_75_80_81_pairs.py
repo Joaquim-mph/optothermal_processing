@@ -296,6 +296,32 @@ def _wavelength_color_map(traces: list[dict]) -> dict[float, str]:
     return {wl: PRISM_RAIN_PALETTE[idx % n] for idx, wl in enumerate(wls)}
 
 
+def _annotate_panel_letters(
+    axes, letters: list[str], x: float | list[float] = -0.13
+) -> None:
+    """Stamp bold 'a', 'b', ... outside each axes, above the y-axis label.
+
+    `x` is the axes-fraction offset of the letter; pass a list to shift
+    individual panels (a panel that still shows y tick labels needs more
+    clearance than one where they were dropped). Mirrors the helper in
+    scripts/IVg Analysis/plot_ivg_365nm_triplet_compare.py so multi-panel
+    figures across the two scripts carry the same panel labelling.
+    """
+    flat = np.asarray(axes).ravel()
+    xs = [x] * len(flat) if isinstance(x, (int, float)) else list(x)
+    for ax, letter, x_off in zip(flat, letters, xs):
+        ax.text(
+            x_off,
+            1.0,
+            f"{letter}",
+            transform=ax.transAxes,
+            ha="left",
+            va="bottom",
+            fontweight="bold",
+            fontsize=56,
+        )
+
+
 def plot_pair(
     pair: tuple[int, int],
     traces_by_chip: dict[int, list[dict]],
@@ -305,18 +331,25 @@ def plot_pair(
     field: str = "i_corr_uA",
     ylabel: str = r"$I_{\mathrm{corr}}\ (\mu\mathrm{A})$",
     plot_start: float = PLOT_START_TIME,
+    show_titles: bool = True,
+    panel_letters: list[str] | None = None,
+    share_y: bool = True,
+    box_aspect: float = 1.0,
+    legend_columnspacing: float | None = None,
 ) -> None:
     set_plot_style(config.theme)
     side = float(config.figsize_timeseries[1])
-    fig, axes = plt.subplots(1, 2, figsize=(2 * side, side), sharey=True)
+    fig, axes = plt.subplots(1, 2, figsize=(2 * side, side), sharey=share_y)
 
     all_traces = traces_by_chip[pair[0]] + traces_by_chip[pair[1]]
     color_for_wl = _wavelength_color_map(all_traces)
 
-    all_y: list[float] = []
+    # Visible y values, kept per panel so the limits can be set either
+    # jointly (share_y) or independently.
+    y_by_panel: list[list[float]] = [[], []]
     t_totals: list[float] = []
 
-    for ax, chip_num in zip(axes, pair):
+    for idx, (ax, chip_num) in enumerate(zip(axes, pair)):
         traces = traces_by_chip[chip_num]
         for tr in traces:
             color = color_for_wl.get(tr["wavelength_nm"], "k")
@@ -326,7 +359,7 @@ def plot_pair(
                 label=f"{tr['wavelength_nm']:.0f} nm",
             )
             visible = tr["t"] >= plot_start
-            all_y.extend(tr[field][visible])
+            y_by_panel[idx].extend(tr[field][visible])
             t_totals.append(float(tr["t"][-1]))
 
         spans = [tr["light_span"] for tr in traces if tr.get("light_span")]
@@ -342,10 +375,15 @@ def plot_pair(
             title = f"{title}, $V_g = {vg_repr:g}$ V"
 
         ax.set_xlabel(r"$t\ (\mathrm{s})$")
-        ax.set_title(title)
-        ax.set_box_aspect(1.0)
+        if show_titles:
+            ax.set_title(title)
+        ax.set_box_aspect(box_aspect)
 
-    axes[0].set_ylabel(ylabel)
+    if share_y:
+        axes[0].set_ylabel(ylabel)
+    else:
+        for ax in axes:
+            ax.set_ylabel(ylabel)
 
     if t_totals:
         T_total = float(np.median(t_totals))
@@ -357,17 +395,35 @@ def plot_pair(
     for ax in axes:
         ax.xaxis.set_major_locator(MultipleLocator(TICK_STEP))
 
-    if all_y:
-        y = np.array(all_y, dtype=float)
+    def _apply_ylim(ax, values: list[float]) -> None:
+        y = np.array(values, dtype=float)
         y = y[np.isfinite(y)]
-        if y.size:
-            y_min, y_max = float(y.min()), float(y.max())
-            if y_max > y_min:
-                pad = config.padding_fraction * (y_max - y_min)
-                axes[0].set_ylim(y_min - pad, y_max + pad)
+        if not y.size:
+            return
+        y_min, y_max = float(y.min()), float(y.max())
+        if y_max > y_min:
+            pad = config.padding_fraction * (y_max - y_min)
+            ax.set_ylim(y_min - pad, y_max + pad)
 
+    if share_y:
+        # sharey ties both axes together, so one call covers the figure.
+        _apply_ylim(axes[0], y_by_panel[0] + y_by_panel[1])
+    else:
+        for ax, values in zip(axes, y_by_panel):
+            _apply_ylim(ax, values)
+
+    legend_kw: dict = {}
+    if legend_columnspacing is not None:
+        legend_kw["columnspacing"] = legend_columnspacing
     axes[1].legend(title="Wavelength", loc="best", framealpha=0.9, ncol=2,
-                   fontsize=_legend_fontsize(), title_fontsize=_legend_fontsize())
+                   fontsize=_legend_fontsize(), title_fontsize=_legend_fontsize(),
+                   **legend_kw)
+
+    if panel_letters:
+        # With shared y the right panel has no tick labels, so its letter hugs
+        # its own spine; with independent y both panels need equal clearance.
+        letter_x = [-0.20, -0.07] if share_y else [-0.20, -0.20]
+        _annotate_panel_letters(axes, panel_letters, x=letter_x)
 
     plt.tight_layout()
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -756,6 +812,37 @@ def main() -> None:
             plot_start=PLOT_START_TIME,
         )
 
+    # Standalone 1x2 panel figure: 72 (left) | 75 (right), corrected It
+    # overlay. Styled after the 1x2 grids in
+    # scripts/IVg Analysis/plot_ivg_365nm_triplet_compare.py — no panel titles,
+    # bold 'a'/'b' panel letters, square boxes, shared y with the right panel's
+    # tick labels dropped.
+    plot_pair(
+        (72, 75), traces_by_chip, config,
+        OUTPUT_DIR / "alisson72_75_It_corrected_overlay_pair_panels.pdf",
+        field="i_corr_uA",
+        ylabel=r"$I_{\mathrm{corr}}\ (\mu\mathrm{A})$",
+        plot_start=40.0,
+        show_titles=False,
+        panel_letters=["a", "b"],
+        share_y=False,
+        box_aspect=6.0 / 7.0,  # 7:6 (width:height) panels
+        legend_columnspacing=0.8,  # default is 2.0 font-size units
+    )
+    # Same figure with chip 74 in place of 75.
+    plot_pair(
+        (72, 74), traces_by_chip, config,
+        OUTPUT_DIR / "alisson72_74_It_corrected_overlay_pair_panels.pdf",
+        field="i_corr_uA",
+        ylabel=r"$I_{\mathrm{corr}}\ (\mu\mathrm{A})$",
+        plot_start=40.0,
+        show_titles=False,
+        panel_letters=["a", "b"],
+        share_y=False,
+        box_aspect=6.0 / 7.0,  # 7:6 (width:height) panels
+        legend_columnspacing=0.8,  # default is 2.0 font-size units
+    )
+
     plot_photoresponse_vs_wl(
         traces_by_chip,
         config,
@@ -822,6 +909,15 @@ def main() -> None:
         / "alisson67_72_74_75_80_81_responsivity_vs_wl_semilogy_80remeasured_2026-07-01.pdf",
         chips=all_chips,
         logy=True,
+    )
+    # 4:3 (horizontal:vertical) aspect-ratio variant of the linear plot.
+    plot_responsivity_vs_wl(
+        traces_by_chip_v2,
+        config,
+        OUTPUT_DIR
+        / "alisson67_72_74_75_80_81_responsivity_vs_wl_80remeasured_2026-07-01_4x3.pdf",
+        chips=all_chips,
+        box_aspect=3.0 / 4.0,
     )
 
     # Chip-80 It corrected overlay for the re-measured data (single chip only).

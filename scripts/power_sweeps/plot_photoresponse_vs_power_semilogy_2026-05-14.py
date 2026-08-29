@@ -23,7 +23,9 @@ regime — the 2026-05-15 re-measurement at 1-6 µW was motivated by that. γ
 values from this date may not reflect the linear-response exponent.
 
 Per chip: one sequential-It figure (raw traces + drift-corrected inset), one
-full-size drift-corrected overlay, and one photoresponse-vs-power figure. Plus
+full-size drift-corrected overlay, one photoresponse-vs-power figure, and its
+responsivity twin (same data and same power-law fit, R = |Δi| / P_incident,
+without the γ annotation). Plus
 two comparison figures overlaying all chips with γ annotations: |Δi| vs power,
 and responsivity R = |Δi| / P_incident vs power (A/W), where the incident power
 is the flake-area fraction of the beam, P_incident = P_LED · A_flake / A_beam
@@ -72,6 +74,15 @@ _BEAM_AREA_M2 = BEAM_AREA_UM2 * 1e-12  # 1 µm² = 1e-12 m²
 def irradiance_W_per_m2(p_uW: np.ndarray) -> np.ndarray:
     """LED power (µW) -> beam irradiance (W/m²) over the full beam spot."""
     return (np.asarray(p_uW, dtype=float) * 1e-6) / _BEAM_AREA_M2
+
+
+# Beam area in cm² (1 µm² = 1e-8 cm²).
+_BEAM_AREA_CM2 = BEAM_AREA_UM2 * 1e-8
+
+
+def irradiance_mW_per_cm2(p_uW: np.ndarray) -> np.ndarray:
+    """LED power (µW) -> beam irradiance (mW/cm²) over the full beam spot."""
+    return (np.asarray(p_uW, dtype=float) * 1e-3) / _BEAM_AREA_CM2
 
 
 def _load_chip_materials() -> dict[int, str]:
@@ -584,6 +595,100 @@ def plot_photoresponse_vs_power(
     print(f"saved {out}")
 
 
+def plot_responsivity_vs_power(
+    config: PlotConfig,
+    hist: pl.DataFrame,
+    chip: dict,
+    x_mode: str = "irradiance",
+) -> None:
+    """Per-chip responsivity vs power, semilog-y.
+
+    Responsivity twin of plot_photoresponse_vs_power: same points and same
+    power-law fit, divided by P_incident (see responsivity_curve_for_chip).
+    The fit line is kept; γ is not annotated (dividing by P only shifts the
+    exponent by a constant -1, so the photocurrent figure already reports it).
+
+    x_mode selects the x axis: "irradiance" (default) plots beam irradiance in
+    mW/cm², "led_power" plots raw LED power in µW. Only the x scaling and the
+    filename differ -- same y data, same fit.
+    """
+    if x_mode not in ("irradiance", "led_power"):
+        raise ValueError(f"x_mode must be 'irradiance' or 'led_power', got {x_mode!r}")
+    to_x = irradiance_mW_per_cm2 if x_mode == "irradiance" else np.asarray
+    flake_area = _CHIP_FLAKE_AREAS.get(chip["chip"])
+    if flake_area is None:
+        print(f"[warn] no flake area for {label_for_chip(chip)}; skipping R")
+        return
+
+    p, r = responsivity_curve_for_chip(hist, chip)
+    if p.size == 0:
+        print(f"[warn] no responsivity data for {label_for_chip(chip)}")
+        return
+
+    set_plot_style(config.theme)
+    fig, ax = plt.subplots(figsize=(20, 20))
+
+    fill_fraction = flake_area / BEAM_AREA_UM2
+
+    ax.plot(
+        to_x(p),
+        r,
+        marker=chip["marker"],
+        linestyle="none",
+        color=chip["color"],
+        markersize=12,
+        label=label_for_chip(chip),
+    )
+
+    # Convert the |Δi| power-law fit into responsivity so the drawn curve is
+    # the same fit as on the photocurrent figure.
+    p_all, di_all = curve_for_chip(hist, chip)
+    _gamma, p_fit, di_fit = power_law_fit(p_all, di_all)
+    if p_fit.size:
+        r_fit = (di_fit / p_fit) / fill_fraction
+        ax.plot(
+            to_x(p_fit),
+            r_fit,
+            linestyle="-",
+            color=chip["color"],
+            linewidth=1.2,
+        )
+
+    ax.set_yscale("log")
+    # R spans well under a decade for some chips, so label the 1-2-5 log steps.
+    ax.yaxis.set_major_locator(mpl.ticker.LogLocator(base=10.0, subs=(1.0, 2.0, 5.0)))
+    ax.yaxis.set_minor_locator(plt.NullLocator())
+    ax.yaxis.set_major_formatter(mpl.ticker.FuncFormatter(lambda v, pos: f"{v:g}"))
+
+    _xt = to_x([6, 12, 18, 24])
+    ax.set_xticks(_xt)
+    ax.set_xticklabels([f"{v:g}" for v in _xt])
+
+    if x_mode == "irradiance":
+        ax.set_xlabel(r"Irradiance (mW/cm$^2$)")
+    else:
+        ax.set_xlabel(r"LED power ($\mu$W)")
+    ax.set_ylabel(r"$R$ (A/W)")
+    ax.legend()
+    plt.tight_layout()
+
+    print(
+        f"{label_for_chip(chip)}  A_flake={flake_area:g} µm²  "
+        f"R=[{r.min():.3g},{r.max():.3g}] A/W"
+    )
+
+    x_tag = "power" if x_mode == "irradiance" else "led_power"
+    filename = (
+        f"Alisson{chip['chip']}_responsivity_vs_{x_tag}_semilogy_{DATE}_365nm."
+        f"{config.format}"
+    )
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    out = OUTPUT_DIR / filename
+    plt.savefig(out, dpi=config.dpi, bbox_inches="tight")
+    plt.close(fig)
+    print(f"saved {out}")
+
+
 def plot_comparison(
     config: PlotConfig,
     histories: dict[int, pl.DataFrame],
@@ -712,6 +817,8 @@ def main() -> None:
             plot_it_overlay(config, hist, chip)
             plot_corrected_overlay_full(config, hist, chip)
             plot_photoresponse_vs_power(config, hist, chip)
+            plot_responsivity_vs_power(config, hist, chip)
+            plot_responsivity_vs_power(config, hist, chip, x_mode="led_power")
 
     plot_comparison(
         config,

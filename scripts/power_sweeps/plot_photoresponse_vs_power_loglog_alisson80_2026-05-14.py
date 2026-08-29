@@ -9,10 +9,12 @@ trace; Δi_corrected = I_corr(120 s) - I_corr(60 s). Absolute value taken so
 the response sits on log axes. A linear fit in log P vs log |Δi| gives the
 power-law exponent γ with |Δi| ∝ P^γ.
 
-Two outputs (style copied from
+Three outputs (style copied from
 plot_photoresponse_vs_power_loglog_alisson75_two_dates.py):
   1. Sequential raw I_ds vs t with a drift-corrected overlay inset.
   2. log-log photoresponse vs power.
+  3. log-log responsivity R = |Delta i_corr| / P_device vs power density, same
+     data and same power-law fit line, without the fit annotation.
 
 Run from repo root:
     python scripts/power_sweeps/plot_photoresponse_vs_power_loglog_alisson80_2026-05-14.py
@@ -48,6 +50,12 @@ FIT_T_END = 60.0
 EVAL_T_PRE = 60.0
 EVAL_T_POST = 120.0
 
+# Laser spot area (µm²). The measured `irradiated_power_w` is the total beam
+# power over this spot; the power on a device is scaled by A_device / A_beam.
+BEAM_AREA_UM2 = 1e5
+_BEAM_AREA_M2 = BEAM_AREA_UM2 * 1e-12
+ENCAP_YAML = Path("config/encap_characteristics.yaml")
+
 GROUP = {
     "label": rf"Alisson{CHIP}, $V_g={VG:g}$ V",
     "color": "#377eb8",
@@ -62,6 +70,32 @@ _EXTRACTOR = CorrectedDeltaIExtractor(
     eval_t_pre=EVAL_T_PRE,
     eval_t_post=EVAL_T_POST,
 )
+
+
+def device_area_um2(chip: int) -> float | None:
+    """Flake area (µm²) for a chip from config/encap_characteristics.yaml."""
+    import yaml
+
+    if not ENCAP_YAML.exists():
+        return None
+    data = yaml.safe_load(ENCAP_YAML.read_text()) or {}
+    entry = data.get(chip)
+    if not isinstance(entry, dict) or "flake_area_um2" not in entry:
+        return None
+    return float(entry["flake_area_um2"])
+
+
+def responsivity_A_per_W(
+    p_uW: np.ndarray, di_uA: np.ndarray, area_um2: float
+) -> np.ndarray:
+    """R = |Delta i_corr| / P_device, with P_device = P_beam * (A_dev / A_beam)."""
+    p_dev_w = (p_uW * 1e-6) * (area_um2 / BEAM_AREA_UM2)
+    return (di_uA * 1e-6) / p_dev_w
+
+
+def power_density_W_per_m2(p_uW: np.ndarray) -> np.ndarray:
+    """Incident power density Phi = P_beam / A_beam (W/m²)."""
+    return (p_uW * 1e-6) / _BEAM_AREA_M2
 
 
 def delta_i_for_row(row: dict) -> float | None:
@@ -259,6 +293,89 @@ def plot_it_overlay(config: PlotConfig, hist: pl.DataFrame, group: dict) -> None
     print(f"saved {out}")
 
 
+def plot_responsivity(
+    config: PlotConfig,
+    p_uW: np.ndarray,
+    di_uA: np.ndarray,
+    p_fit_uW: np.ndarray,
+    di_fit_uA: np.ndarray,
+) -> None:
+    """Log-log responsivity vs power density.
+
+    Same data and same power-law fit as the photoresponse figure, converted to
+    R = |Delta i_corr| / P_device. The fit line is kept; the exponent is not
+    annotated (it is unchanged by the constant P_device scaling).
+    """
+    area_um2 = device_area_um2(CHIP)
+    if area_um2 is None:
+        print(f"[warn] no flake_area_um2 for chip {CHIP}; skipping responsivity")
+        return
+
+    set_plot_style(config.theme)
+    fig, ax = plt.subplots(figsize=(20, 20))
+
+    r = responsivity_A_per_W(p_uW, di_uA, area_um2)
+    phi = power_density_W_per_m2(p_uW)
+
+    ax.plot(
+        phi,
+        r,
+        marker=GROUP["marker"],
+        linestyle="none",
+        color=GROUP["color"],
+        label=GROUP["label"],
+    )
+    if p_fit_uW.size:
+        ax.plot(
+            power_density_W_per_m2(p_fit_uW),
+            responsivity_A_per_W(p_fit_uW, di_fit_uA, area_um2),
+            linestyle="-",
+            color=GROUP["color"],
+            linewidth=1.2,
+        )
+
+    print(
+        f"{GROUP['label']}  A={area_um2:g} µm²  "
+        f"Phi=[{phi.min():.3g},{phi.max():.3g}] W/m²  "
+        f"R=[{r.min():.3g},{r.max():.3g}] A/W"
+    )
+
+    ax.set_xscale("log")
+    ax.set_yscale("log")
+
+    phi_ticks = power_density_W_per_m2(np.array([6.0, 12.0, 18.0, 24.0]))
+    ax.set_xticks(phi_ticks)
+    ax.set_xticks([], minor=True)
+
+    # R spans well under a decade here, so label the 1-2-5 log steps.
+    ax.yaxis.set_major_locator(ticker.LogLocator(base=10.0, subs=(1.0, 2.0, 5.0)))
+    ax.yaxis.set_minor_locator(ticker.NullLocator())
+
+    formatter = ticker.FuncFormatter(lambda x, pos: f"{x:g}")
+    ax.xaxis.set_major_formatter(formatter)
+    ax.yaxis.set_major_formatter(formatter)
+    ax.xaxis.set_minor_formatter(ticker.NullFormatter())
+    ax.yaxis.set_minor_formatter(ticker.NullFormatter())
+
+    ax.set_xlabel(r"$\Phi$ (W/m$^2$)")
+    ax.set_ylabel(r"$R$ (A/W)")
+    ax.legend()
+    plt.tight_layout()
+
+    filename = f"Alisson{CHIP}_responsivity_vs_power_loglog_{DATE}_365nm"
+    out = config.get_output_path(
+        filename,
+        chip_number=CHIP,
+        procedure="It",
+        metadata={"has_light": True},
+        special_type="photoresponse",
+        create_dirs=True,
+    )
+    plt.savefig(out, dpi=config.dpi, bbox_inches="tight")
+    plt.close(fig)
+    print(f"saved {out}")
+
+
 def main() -> None:
     config = PlotConfig()
     set_plot_style(config.theme)
@@ -269,12 +386,12 @@ def main() -> None:
 
     plot_it_overlay(config, hist, GROUP)
 
-    fig, ax = plt.subplots(figsize=(20, 20))
-
     p, di = curve_for_group(hist, GROUP)
     if p.size == 0:
         print(f"[warn] no data for {GROUP['label']}")
         return
+
+    fig, ax = plt.subplots(figsize=(20, 20))
 
     mask = (p > 0) & (di > 0) & np.isfinite(p) & np.isfinite(di)
     n_fit, log_a = np.polyfit(np.log10(p[mask]), np.log10(di[mask]), 1)
@@ -328,6 +445,8 @@ def main() -> None:
     plt.savefig(out, dpi=config.dpi, bbox_inches="tight")
     plt.close(fig)
     print(f"saved {out}")
+
+    plot_responsivity(config, p[mask], di[mask], p_fit, di_fit)
 
 
 if __name__ == "__main__":

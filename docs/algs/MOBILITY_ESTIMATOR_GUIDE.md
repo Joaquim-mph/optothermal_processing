@@ -1,11 +1,11 @@
 # Field-Effect Mobility Estimator
 
-**Last Updated:** 2026-05-11
+**Last Updated:** 2026-08-30
 **Status:** Production. Available as both a `DerivedMetric` extractor (`MobilityExtractor`, runs on every IVg measurement during `biotite derive-all-metrics`) and an ad-hoc script (`scripts/estimate_mobility.py`, summary figures + table). Both share pure-function primitives in `src/derived/algorithms/mobility.py`.
 
 ## Overview
 
-Produces a rough estimate of the graphene field-effect mobility μ_FE per chip from existing dark IVg sweeps and the per-device gate stack recorded in `config/encap_characteristics.yaml`. Intended as a sanity check / cross-chip comparison, not a publication-grade number — geometry is assumed (L/W ≈ 2 by default), peak-gm is taken from a single sweep, and contact resistance is ignored.
+Produces a rough estimate of the graphene field-effect mobility μ_FE per chip from existing dark IVg sweeps and the per-device gate stack recorded in `config/encap_characteristics.yaml`. Intended as a sanity check / cross-chip comparison, not a publication-grade number — L/W is measured per device for 8 chips and assumed (3.5) for the rest, peak-gm is taken from a single sweep, and contact resistance is ignored.
 
 ## Physics
 
@@ -40,23 +40,51 @@ C_ox = ε₀ / (t_top / ε_r,top  +  t_bot / ε_r,bot)         [F/m²]
 with ε₀ = 8.854 × 10⁻¹² F/m. Bottom dielectric is `hBN` or `biotite`, distinguished per chip in the YAML.
 
 ### Material constants (literature, out-of-plane)
-| Material | ε_r | Source |
-|---|---|---|
-| hBN | 3.5 | Laturia et al., *npj 2D Mater.* 2018 (out-of-plane) |
-| biotite | 6.0 | Mica-group phyllosilicate, typical perpendicular value |
+| Material | ε_r range | central ε_r | Source |
+|---|---|---|---|
+| hBN | [3.3, 3.7] | 3.5 | Laturia et al., *npj 2D Mater.* 2018 (out-of-plane) |
+| biotite | [5, 6] | 5.5 | Mica-group phyllosilicate, typical perpendicular value |
 
-Stored in the `materials:` block of `config/encap_characteristics.yaml`.
+Stored in the `materials:` block of `config/encap_characteristics.yaml`. The YAML
+declares only `epsilon_r_range`; the central value is **derived as the midpoint**
+of that range by `_resolve_central_range`. A bare `epsilon_r` is honoured only
+when no range is given, in which case the range collapses to that single value.
+
+> These are the values in the config as of 2026-08-30. The config is the source
+> of truth — it is tuned as new data arrives, so re-read it rather than quoting
+> this table in a methods section.
 
 ### Channel aspect ratio
 
-Per-device L/W is not measured yet. The script reads a global default from `config/encap_characteristics.yaml`:
+L/W is resolved per chip, with a global fallback in `config/encap_characteristics.yaml`:
 
 ```yaml
 geometry:
-  aspect_ratio_LW: 2.0
+  # Central is derived as the midpoint of `_range` (see _resolve_central_range).
+  aspect_ratio_LW_range: [3.0, 4.0]        # -> fallback central L/W = 3.5
 ```
 
-A chip can override by adding `aspect_ratio_LW: <value>` inside its own entry.
+A chip overrides it with `aspect_ratio_LW: <value>` (or `aspect_ratio_LW_range`)
+in its own entry. A bare scalar **pins** that chip: `_resolve_central_range`
+collapses its range to `(v, v)`, so L/W drops out of that chip's uncertainty box
+and only ε_r contributes to the bounds.
+
+**Measured per-device values** (as of 2026-08-30):
+
+| chip | L/W | | chip | L/W |
+|---|---|---|---|---|
+| 67 | 4/1 = 4 | | 68 | 3/1 = 3 |
+| 72 | 1/1 = 1 | | 74 | 2/1 = 2 |
+| 80 | 1/2 = 0.5 | | 75 | 5/4 = 1.25 |
+| 81 | 7/3 ≈ 2.3333333333 | | 76 | 7/4 = 1.75 |
+
+Chips **69, 71, 73, 79, 100, 101** have no measured L/W and still fall back to
+3.5 with range [3.0, 4.0] — their mobilities remain placeholder-scaled and are
+not comparable in absolute terms with the eight above.
+
+Because μ is linear in L/W, switching a chip from the 3.5 placeholder to its
+measured value rescales that chip's μ by `L/W_measured / 3.5` exactly — from
+0.14x (chip 80) to 1.14x (chip 67).
 
 ## Algorithm
 
@@ -73,10 +101,20 @@ For each chip in `config/encap_characteristics.yaml`:
 `segment_voltage_sweep` (in `src/plotting/plot_utils.py`) splits the sweep into monotonic sections. We keep only the **longest segment** — typically the forward branch, from `vg_start_v` to `vg_end_v` — to avoid the turnaround artifact at the sweep apex.
 
 ### 3. Compute |g_m| = |dI/dV_g|
-Savitzky-Golay derivative via `_savgol_derivative_corrected` (same routine used by `src/plotting/transconductance.py`):
+Two filters run in sequence, in `src/derived/algorithms/mobility.py::smoothed_gm_on_leg`:
+
+**3a. Derivative** — Savitzky-Golay via `_savgol_derivative_corrected` (same routine used by `src/plotting/transconductance.py`):
 - Median-spacing `Δ` (sign-preserved) so reverse sweeps wouldn't invert the derivative if encountered.
 - Auto-clamped window length (`9` default), polynomial order `3`.
 - `mode="interp"` so edge points are still defined.
+
+**3b. Edge trim** — the first and last `GM_EDGE_TRIM = 4` samples (half the derivative window) are dropped. There the derivative comes from a one-sided polynomial fit and undershoots toward zero on a curved trace.
+
+**3c. Smoothing** — the *signed* `g_m` is then Sav-Gol smoothed with the data-driven window/order from `auto_select_savgol_params(..., "auto")`, the same picker the IVg plotting code uses for `I_ph`. Raw peak `g_m` on a cusped graphene sweep sits on a single sample and is noise-sensitive; smoothing makes the reported peak reproducible and makes stored metrics equal what the mobility figures plot. Signed (not `|g_m|`) is smoothed so the hole branch stays negative and the electron branch positive through the CNP sign change.
+
+Smoothing lowers reported μ by ~2% on average (worst case ~7% on the noisiest legs). A leg whose CNP sits within 4 samples of the sweep edge now yields `None` for that branch instead of a peak read off a handful of one-sided edge points.
+
+`auto_select_savgol_params` lives in `src/plotting/shared/plot_utils.py` (matplotlib-free, so the derived pipeline can import it) and is re-exported from `src/plotting/transconductance.py` for existing callers.
 
 ### 4. Find CNP and split branches
 Coarse CNP: V_g at `argmin(|I|)`. This is intentionally simple — for a rough mobility number we don't need the full hysteresis-aware CNP extractor used elsewhere in the pipeline. We then take
@@ -96,16 +134,18 @@ The big sources of uncertainty are **not** the measured `gm` (clean Vg-resolutio
 
 ```yaml
 geometry:
-  aspect_ratio_LW: 2.0            # central
-  aspect_ratio_LW_range: [1.0, 3.0]
+  aspect_ratio_LW_range: [3.0, 4.0]     # central 3.5 = midpoint
 materials:
   hBN:
-    epsilon_r: 3.5
-    epsilon_r_range: [3.0, 4.0]
+    epsilon_r_range: [3.3, 3.7]         # central 3.5
   biotite:
-    epsilon_r: 6.0
-    epsilon_r_range: [6.0, 10.0]
+    epsilon_r_range: [5, 6]             # central 5.5
 ```
+
+For a chip with a **measured** L/W the range is pinned, so the band comes from
+ε_r alone: a 1.12-1.18x max/min span, roughly -8%/+8%. For a chip still on the
+**placeholder**, L/W adds its own 1.33x span and dominates, widening the band to
+roughly -19%/+21%.
 
 Because μ is monotonic in each input — linear in L/W, decreasing in both ε_r,top and ε_r,bot via `C_ox = ε₀/(t_top/ε_top + t_bot/ε_bot)` — the extremes within the parameter box are attained at corners, and we evaluate them analytically:
 
@@ -127,9 +167,9 @@ Returned per chip: `(mu_h, mu_e)` central plus min/max bounds. The CSV also incl
 | Assumption | Why it's fine for a rough estimate | When it breaks |
 |---|---|---|
 | Long-channel linear-regime FET model | Vds = 0.1 V on these devices is well below pinch-off | If Vds becomes a sizable fraction of (V_g − V_CNP) |
-| L/W ≈ 2, same for all chips | Lithography masks were nominally identical | Real per-device L/W not yet measured |
+| L/W measured for 8 chips; 3.5 placeholder for the other 6 | Measured devices carry no L/W assumption at all | The 6 unmeasured chips keep a placeholder — don't compare their absolute μ with the measured ones |
 | Top dielectric is always hBN | YAML stack convention | If a device uses a different top layer |
-| Out-of-plane ε_r literature values | Bounds propagated to μ: hBN ∈ [3, 4], biotite ∈ [6, 10] | If actual ε_r falls outside these ranges, widen `epsilon_r_range` in the YAML |
+| Out-of-plane ε_r literature values | Bounds propagated to μ: hBN ∈ [3.3, 3.7], biotite ∈ [5, 6] | If actual ε_r falls outside these ranges, widen `epsilon_r_range` in the YAML |
 | Plausible-range bounds on L/W and ε_r | μ is monotonic in each input, so reporting the [min, max] of μ over the parameter box is exact for the declared ranges | If a per-chip value of any input is measured, pin it in the YAML (only the unfixed inputs then contribute to the bounds) |
 | Contact resistance ignored | μ_FE peak-gm is conventional in the literature, even though it under-estimates true μ | When R_contact is a sizable fraction of R_channel |
 | First dark IVg is "representative" | One number per device for a comparison table | Device drift / history dependence (see [[project_alisson81_photoresponse_history_dependence]]) — use multiple sweeps then |
@@ -189,7 +229,7 @@ The full per-row breakdown lands in `value_json`:
     "top_hBN_nm": 54.0,
     "bottom_dielectric_nm": 43.0,
     "bottom_material": "hBN",
-    "aspect_ratio_LW": 2.0,
+    "aspect_ratio_LW": 4.0,
     "epsilon_top_central": 3.5,
     "epsilon_bot_central": 3.5
   }

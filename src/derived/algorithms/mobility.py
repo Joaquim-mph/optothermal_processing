@@ -19,11 +19,19 @@ import yaml
 
 from src.plotting.shared.plot_utils import (
     _savgol_derivative_corrected,
+    auto_select_savgol_params,
     segment_voltage_sweep,
 )
+from scipy.signal import savgol_filter
 
 
 EPS_0 = 8.8541878128e-12  # F / m
+
+# Half the 9-point Sav-Gol derivative window. At a leg's first/last few
+# samples the derivative comes from a one-sided polynomial fit, which
+# undershoots badly on a curved trace; those points are dropped before the
+# peak search.
+GM_EDGE_TRIM = 4
 
 
 # ── Capacitance & mobility ──────────────────────────────────────────────
@@ -82,6 +90,55 @@ _EMPTY_GM_RESULT = (
 )
 
 
+def smoothed_gm_on_leg(
+    vg_leg: np.ndarray,
+    i_leg: np.ndarray,
+    edge_trim: int = GM_EDGE_TRIM,
+    quality: str = "auto",
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Sort one monotonic leg ascending and return (vg, i, gm) with gm
+    edge-trimmed and Savitzky-Golay smoothed.
+
+    Two filters are involved and they do different jobs:
+
+    1. `_savgol_derivative_corrected` computes gm = dI/dVg (fixed 9-point
+       window, order 3) — the same derivative this module has always used.
+    2. The result is then smoothed with `auto_select_savgol_params(...,
+       quality)`, the data-driven window/order picker the IVg plotting code
+       uses for I_ph. Raw peak gm on a cusped graphene sweep sits on a
+       single sample and is noise-sensitive; smoothing makes the reported
+       peak reproducible and matches what the figures show.
+
+    The signed gm is smoothed (not |gm|), so the hole branch stays negative
+    and the electron branch positive through the CNP sign change.
+
+    Returns empty arrays if the leg is too short to differentiate.
+    """
+    if vg_leg.size < 3:
+        return np.array([]), np.array([]), np.array([])
+
+    order = np.argsort(vg_leg)
+    vg_s = vg_leg[order]
+    i_s = i_leg[order]
+
+    gm = _savgol_derivative_corrected(vg_s, i_s)
+    if gm.size == 0:
+        return vg_s, i_s, gm
+
+    if edge_trim > 0 and gm.size > 2 * edge_trim:
+        sl = slice(edge_trim, gm.size - edge_trim)
+        vg_s, i_s, gm = vg_s[sl], i_s[sl], gm[sl]
+
+    if gm.size >= 5:
+        window, polyorder = auto_select_savgol_params(vg_s, gm, quality)
+        if window <= gm.size:
+            gm = np.asarray(
+                savgol_filter(gm, window_length=window, polyorder=polyorder)
+            )
+
+    return vg_s, i_s, gm
+
+
 def peak_gm_on_leg(
     vg_leg: np.ndarray, i_leg: np.ndarray
 ) -> tuple[float, float, float, float, np.ndarray, np.ndarray, np.ndarray, float]:
@@ -91,18 +148,17 @@ def peak_gm_on_leg(
     for having already isolated one monotonic traversal (forward
     V_min→V_max or backward V_max→V_min). No internal segmentation is
     performed; the leg is sorted ascending in Vg, gm = dI/dVg is computed
-    via the Sav-Gol derivative, the coarse CNP (argmin|I|) splits hole
-    (Vg < CNP) and electron (Vg > CNP) branches, and the signed peak gm
-    on each branch is returned.
+    and smoothed via `smoothed_gm_on_leg`, the coarse CNP (argmin|I|)
+    splits hole (Vg < CNP) and electron (Vg > CNP) branches, and the
+    signed peak gm on each branch is returned.
+
+    The returned `vg_s`, `i_s` and `gm` are edge-trimmed (see
+    `GM_EDGE_TRIM`) and therefore shorter than the input leg.
     """
     if vg_leg.size < 3:
         return _EMPTY_GM_RESULT
 
-    order = np.argsort(vg_leg)
-    vg_s = vg_leg[order]
-    i_s = i_leg[order]
-
-    gm = _savgol_derivative_corrected(vg_s, i_s)
+    vg_s, i_s, gm = smoothed_gm_on_leg(vg_leg, i_leg)
     if gm.size == 0:
         return (
             float("nan"), float("nan"),

@@ -25,6 +25,13 @@ scripts/
 - `alisson{72,74,80}_IVg_first_with_Vg.png` (per chip).
 - `alisson80_74_72_IVg_first_row.png` (1×3 shared-y row, order 80|74|72).
 
+### `plot_first_ivg_transfer_mobility_hbn_vs_biotite.py`
+**Goal:** First-measured IVg (earliest dark sweep, seq 1) for two chip groups side by side — hBN 67/72/80/81 vs biotite 74/75/76/68 — as transfer curves and as gate-resolved field-effect mobility. Transfer panels draw both full-range legs in one style per chip (closed hysteresis loop); the partial 0 V ramps are dropped. Mobility panels draw the forward leg only, using the pipeline estimator (`peak_gm_on_leg` + `C_ox` from `config/encap_characteristics.yaml`) over the whole leg; edge-trim and Sav-Gol smoothing now live inside `peak_gm_on_leg`, so each curve's branch extrema equal that sweep's stored `mobility_fe_{holes,electrons}_forward` metrics exactly. mu_FE is drawn signed (hole branch negative, electron branch positive), crossing zero at the CNP. Chips are distinguished by color and by the `compare-first-ivg --linestyle mixed` style cycle. Note: the two gate Tenmas hand over at Vg = 0, putting a ~1-3 uA step in I there that the derivative smears across ±0.20 V — mu_FE inside that window is instrument-limited and is left in deliberately. No shared axes; panels are lettered a/b/c/d.
+**Input:** `data/03_derived/chip_histories_enriched/Alisson{67,68,72,74,75,76,80,81}_history.parquet`, `config/encap_characteristics.yaml`.
+**Output (all in `figs/first_ivg_transfer_mobility/`):**
+- `first_IVg_transfer_mobility_2x2.pdf` (row 1 transfer, row 2 mobility).
+- `first_IVg_transfer_1x2.pdf`, `first_IVg_mobility_1x2.pdf`.
+
 ### `compare_ivg_first_with_vg_lines.py`
 **Goal:** First-IVg overlay for six Alisson chips (67/72 hBN, 74/75/80/81 biotite), with the IVg picked from the same calendar day as that chip's wavelength-sweep It traces (seq lists from `compare_corrected_It_67_72_74_75_80_81_pairs.py`). Also emits a Sav-Gol dI/dVg derivative figure and per-pair panels (67|72, 74|75, 80|81).
 **Input:** `data/03_derived/chip_histories_enriched/Alisson{67,72,74,75,80,81}_history.parquet`.
@@ -235,6 +242,7 @@ Documentation for the LaTeX-related scripts (not executable).
 | Category | Scripts | Output target |
 |---|---|---|
 | Cross-chip IVg overlays | `compare_ivg_first_with_vg_lines`, `compare_ivg_first_72_74_80` | `figs/compare/alisson*_IVg_first*.png`, `*_dIdVg_first.png` |
+| First-IVg transfer + mobility grids | `plot_first_ivg_transfer_mobility_hbn_vs_biotite` | `figs/first_ivg_transfer_mobility/*.pdf` |
 | Cross-chip raw photoresponse | `compare_photoresponse_72_81`, `compare_photoresponse_72_74_75_81` | `figs/compare/*photoresponse*.png` |
 | Cross-chip corrected photoresponse | `compare_corrected_photoresponse_67_72_74_75`, `compare_80_81_ivg_and_corrected_photoresponse` | `figs/compare/*corrected*.png` |
 | Cross-chip corrected It | `compare_corrected_It_67_74_uv`, `compare_corrected_It_67_72_74_75_80_81_pairs`, `compare_corrected_It_72_74_80_385nm`, `compare_corrected_It_74_80_385nm` | `figs/compare/*.png` (+ LaTeX table for the 6-chip pairs script) |

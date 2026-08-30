@@ -38,6 +38,7 @@ from pathlib import Path
 
 import matplotlib as mpl
 import matplotlib.pyplot as plt
+import matplotlib.ticker as mticker
 import numpy as np
 import polars as pl
 from matplotlib.lines import Line2D
@@ -63,6 +64,22 @@ FIT_T_END = 60.0
 EVAL_T_PRE = 60.0
 EVAL_T_POST = 120.0
 WAVELENGTH_NM = 365.0
+
+# Power-law fit lines. Dash lengths are in points and get scaled by the line
+# width, so they are set explicitly to stay visible on these 20-inch panels.
+FIT_LINESTYLE = (0, (3.0, 1.5))
+FIT_LINEWIDTH = 3.5
+# Raw It traces in the sequential panels.
+TRACE_LINEWIDTH = 3.0
+# Filled round markers for the measured points (main panel / inset).
+MARKER = "o"
+MARKER_SIZE = 26.0
+INSET_MARKER_SIZE = 18.0
+INSET_FIT_LINEWIDTH = 3.0
+
+# Publication convention: legend font sits 2 pt above the theme size
+# (prism_rain legend.fontsize = 30 pt).
+LEGEND_FONTSIZE = 32.0
 
 # Beam spot area used to convert LED power into irradiance
 # (Phi = P_LED / A_beam). Same value as
@@ -105,18 +122,18 @@ OUTPUT_SUBDIR = Path("figs/it_sequential_and_powerlaw_67_75may14_365nm")
 # Sequential It panels (holes / negative Vg), drawn top -> bottom.
 SEQUENTIAL: list[dict] = [
     {
-        "chip": 75,
-        "label": r"Biotite, $V_g=-0.5$ V",
-        "color": "#e41a1c",
-        "date": "2026-05-14",
-        "seqs": [89, 90, 91, 92],
-    },
-    {
         "chip": 67,
         "label": r"hBN, $V_g=-0.4$ V",
         "color": "#377eb8",
         "date": "2025-10-14",
         "seqs": [41, 42, 43, 44],
+    },
+    {
+        "chip": 75,
+        "label": r"Biotite, $V_g=-0.5$ V",
+        "color": "#e41a1c",
+        "date": "2026-05-14",
+        "seqs": [89, 90, 91, 92],
     },
 ]
 
@@ -259,7 +276,7 @@ def plot_sequential(
             t_seg + time_offset,
             y_seg,
             color=line_color,
-            linewidth=2.0,
+            linewidth=TRACE_LINEWIDTH,
             label=group["label"] if not label_used else None,
         )
         label_used = True
@@ -267,7 +284,7 @@ def plot_sequential(
         time_offset += float(t_seg[-1])
 
     ax.set_ylabel(r"$I_{ds}\ (\mu\mathrm{A})$")
-    ax.legend(loc="best", framealpha=0.9)
+    ax.legend(loc="best", framealpha=0.9, fontsize=LEGEND_FONTSIZE)
 
     y = np.array([v for v in all_y if np.isfinite(v)], dtype=float)
     if y.size:
@@ -294,32 +311,81 @@ def plot_sequential(
     return time_offset
 
 
+def add_linear_inset(
+    ax: plt.Axes,
+    curves: list[tuple[dict, dict, np.ndarray, np.ndarray]],
+    *,
+    x_mode: str = "led_power",
+) -> plt.Axes:
+    """Inset replica of the |Delta i_corr| vs power panel on a *linear* y axis,
+    markers plus the same power-law fits. Placed in the empty mid-right band of
+    the log panel (below the legend, between the two chips' point clouds)."""
+    to_x, xticks, _ = _x_axis(x_mode)
+    axin = ax.inset_axes([0.55, 0.24, 0.42, 0.42])
+    axin.set_box_aspect(1.0)
+    for chip, group, p, di in curves:
+        di_abs = np.abs(di)
+        gamma, p_fit, di_fit = power_law_fit(p, di_abs)
+        axin.plot(
+            to_x(p),
+            di_abs,
+            marker=MARKER,
+            linestyle="none",
+            color=chip["color"],
+            markersize=INSET_MARKER_SIZE,
+        )
+        if p_fit.size:
+            # Extrapolate the same fit down to P = 0 (a*P^gamma -> 0 for
+            # gamma > 0) so the curve meets the inset's x = 0 edge.
+            a = float(di_fit[0]) / float(p_fit[0]) ** gamma
+            p_ext = np.linspace(0.0, float(p_fit[-1]), 400)
+            axin.plot(
+                to_x(p_ext),
+                a * p_ext**gamma,
+                linestyle=FIT_LINESTYLE,
+                color=chip["color"],
+                lw=INSET_FIT_LINEWIDTH,
+            )
+    axin.set_xticks(xticks)
+    axin.set_yticks([0, 20, 40])
+    axin.set_xlim(left=0.0)
+    axin.set_ylim(-5.0, 45.0)
+    for spine in axin.spines.values():
+        spine.set_linewidth(1.5)
+    axin.patch.set_alpha(0.9)
+    return axin
+
+
 def plot_power_law(
     ax: plt.Axes,
     curves: list[tuple[dict, dict, np.ndarray, np.ndarray]],
     *,
     x_mode: str = "led_power",
+    y_ticks: list[float] | None = None,
+    linear_inset: bool = False,
+    legend_fontsize: float | None = LEGEND_FONTSIZE,
 ) -> None:
     to_x, xticks, xlabel = _x_axis(x_mode)
     for chip, group, p, di in curves:
-        is_electrons = group["vg_v"] >= 0
-        marker = "+" if is_electrons else "_"
         di_abs = np.abs(di)
         gamma, p_fit, di_fit = power_law_fit(p, di_abs)
         label = f"{chip['label']}, $V_g$={group['vg_v']:+g} V, $\\gamma={gamma:.2f}$"
         ax.plot(
             to_x(p),
             di_abs,
-            marker=marker,
+            marker=MARKER,
             linestyle="none",
             color=chip["color"],
-            markersize=25,
-            markeredgewidth=9,
+            markersize=MARKER_SIZE,
             label=label,
         )
         if p_fit.size:
             ax.plot(
-                to_x(p_fit), di_fit, linestyle="-", color=chip["color"], linewidth=1.2
+                to_x(p_fit),
+                di_fit,
+                linestyle=FIT_LINESTYLE,
+                color=chip["color"],
+                linewidth=FIT_LINEWIDTH,
             )
         print(
             f"Alisson{chip['chip']} Vg={group['vg_v']:+g} V  n={p.size}  "
@@ -331,13 +397,23 @@ def plot_power_law(
     ax.set_xticks(xticks)
     ax.set_xlabel(xlabel)
     ax.set_ylabel(r"$|\Delta i_{\mathrm{corr}}|$ ($\mu$A)")
+    # Explicit decade-spaced labels instead of the default 10^n ticks. Minor
+    # ticks are dropped so the log formatter cannot relabel them.
+    if y_ticks is not None:
+        ax.set_yticks(list(y_ticks))
+        ax.set_yticklabels([f"{t:g}" for t in y_ticks])
+        ax.yaxis.set_minor_locator(mticker.NullLocator())
     # Legend position in axes fraction (0,0 = bottom-left, 1,1 = top-right).
+    # legend_fontsize=None falls back to the theme's rcParams size (30 pt).
     ax.legend(
         loc="upper left",
         bbox_to_anchor=(0.52, 0.8),
         bbox_transform=ax.transAxes,
         framealpha=0.9,
+        fontsize=legend_fontsize,
     )
+    if linear_inset:
+        add_linear_inset(ax, curves, x_mode=x_mode)
 
 
 def annotate_panel_letter(ax: plt.Axes, letter: str) -> None:
@@ -362,6 +438,9 @@ def build_figure(
     annotate_led: bool,
     filename: str,
     x_mode: str = "led_power",
+    powerlaw_y_ticks: list[float] | None = None,
+    powerlaw_linear_inset: bool = False,
+    powerlaw_legend_fontsize: float | None = LEGEND_FONTSIZE,
 ) -> None:
     fig = plt.figure(figsize=(40, 20))
     gs = fig.add_gridspec(2, 2, width_ratios=[1, 1], height_ratios=[1, 1])
@@ -381,7 +460,14 @@ def build_figure(
     ax_hbn.set_xlabel(r"t (s)")
     ax_bio.set_xlim(0.0, max([t for t in totals if t > 0], default=1.0))
 
-    plot_power_law(ax_pl, curves, x_mode=x_mode)
+    plot_power_law(
+        ax_pl,
+        curves,
+        x_mode=x_mode,
+        y_ticks=powerlaw_y_ticks,
+        linear_inset=powerlaw_linear_inset,
+        legend_fontsize=powerlaw_legend_fontsize,
+    )
 
     annotate_panel_letter(ax_bio, "a")
     annotate_panel_letter(ax_hbn, "b")
@@ -422,8 +508,6 @@ def plot_responsivity(
     the fitted exponent is reported as gamma_R."""
     to_x, xticks, xlabel = _x_axis(x_mode)
     for chip, group, p, di in curves:
-        is_electrons = group["vg_v"] >= 0
-        marker = "+" if is_electrons else "_"
         # p is in uW and di in uA, so the ratio is already in A/W.
         resp = np.abs(di) / p
         # Fit lines are still drawn; the exponent is reported to stdout only,
@@ -433,16 +517,19 @@ def plot_responsivity(
         ax.plot(
             to_x(p),
             resp,
-            marker=marker,
+            marker=MARKER,
             linestyle="none",
             color=chip["color"],
-            markersize=25,
-            markeredgewidth=9,
+            markersize=MARKER_SIZE,
             label=label,
         )
         if p_fit.size:
             ax.plot(
-                to_x(p_fit), r_fit, linestyle="-", color=chip["color"], linewidth=1.2
+                to_x(p_fit),
+                r_fit,
+                linestyle=FIT_LINESTYLE,
+                color=chip["color"],
+                linewidth=FIT_LINEWIDTH,
             )
         print(
             f"Alisson{chip['chip']} Vg={group['vg_v']:+g} V  n={p.size}  "
@@ -460,6 +547,7 @@ def plot_responsivity(
         bbox_to_anchor=(0.52, 0.8),
         bbox_transform=ax.transAxes,
         framealpha=0.9,
+        fontsize=LEGEND_FONTSIZE,
     )
 
 
@@ -705,6 +793,21 @@ def main() -> None:
             "Alisson67_75may14_It_sequential_holes_and_powerlaw_365nm_led_irradiance"
         ),
         x_mode="irradiance",
+    )
+    # Same composite as ..._365nm_irradiance, but panel c carries a linear-scale
+    # inset (same points + fits) and labelled 0.2/2/20 ticks in place of 10^n.
+    build_figure(
+        config,
+        histories,
+        curves,
+        annotate_led=False,
+        filename=(
+            "Alisson67_75may14_It_sequential_holes_and_powerlaw_365nm"
+            "_irradiance_inset"
+        ),
+        x_mode="irradiance",
+        powerlaw_y_ticks=[0.2, 2, 20],
+        powerlaw_linear_inset=True,
     )
     build_powerlaw_only_figure(
         config,

@@ -51,6 +51,25 @@ OUTPUT_DIR = Path("figs/photoresponse_power_law_365nm")
 ENCAP_YAML = Path("config/encap_characteristics.yaml")
 
 
+# Illuminated beam spot area (µm²); the flake covers only a fraction of it.
+BEAM_AREA_UM2 = 1.2e5
+_BEAM_AREA_M2 = BEAM_AREA_UM2 * 1e-12  # 1 µm² = 1e-12 m²
+
+
+def irradiance_W_per_m2(p_uW: np.ndarray) -> np.ndarray:
+    """LED power (µW) -> beam irradiance (W/m²) over the full beam spot."""
+    return (np.asarray(p_uW, dtype=float) * 1e-6) / _BEAM_AREA_M2
+
+
+# Beam area in cm² (1 µm² = 1e-8 cm²).
+_BEAM_AREA_CM2 = BEAM_AREA_UM2 * 1e-8
+
+
+def irradiance_mW_per_cm2(p_uW: np.ndarray) -> np.ndarray:
+    """LED power (µW) -> beam irradiance (mW/cm²) over the full beam spot."""
+    return (np.asarray(p_uW, dtype=float) * 1e-3) / _BEAM_AREA_CM2
+
+
 def _load_chip_materials() -> dict[int, str]:
     if not ENCAP_YAML.exists():
         return {}
@@ -63,13 +82,29 @@ def _load_chip_materials() -> dict[int, str]:
     return out
 
 
+def _load_chip_flake_areas() -> dict[int, float]:
+    """Flake area (µm²) per chip from the encap YAML's `flake_area_um2` field."""
+    if not ENCAP_YAML.exists():
+        return {}
+    with ENCAP_YAML.open("r") as f:
+        data = yaml.safe_load(f) or {}
+    out: dict[int, float] = {}
+    for k, v in data.items():
+        if isinstance(k, int) and isinstance(v, dict) and v.get("flake_area_um2"):
+            out[k] = float(v["flake_area_um2"])
+    return out
+
+
 _CHIP_MATERIALS = _load_chip_materials()
+_CHIP_FLAKE_AREAS = _load_chip_flake_areas()
 
 
-def label_for_chip(chip: dict, include_material: bool = True) -> str:
+def label_for_chip(
+    chip: dict, include_material: bool = True, include_vg: bool = True
+) -> str:
     n = chip["chip"]
     mat = _CHIP_MATERIALS.get(n) if include_material else None
-    vg = chip.get("vg_filter")
+    vg = chip.get("vg_filter") if include_vg else None
     mat_part = f" ({mat})" if mat else ""
     vg_part = f" $V_g={vg:g}$ V" if vg is not None else ""
     return f"{n}{mat_part}{vg_part}"
@@ -218,6 +253,24 @@ def curve_for_chip(hist: pl.DataFrame, chip: dict) -> tuple[np.ndarray, np.ndarr
         powers_uW.append(float(p) * 1e6)
         di_uA.append(abs(v) * 1e6)
     return np.asarray(powers_uW), np.asarray(di_uA)
+
+
+def responsivity_curve_for_chip(
+    hist: pl.DataFrame, chip: dict
+) -> tuple[np.ndarray, np.ndarray]:
+    """LED power (µW) and responsivity R = |Δi| / P_incident (A/W).
+
+    P_incident = P_LED · A_flake / A_beam. Since |Δi| and P_LED carry the same
+    µ-prefix, |Δi[µA]| / P_LED[µW] is already in A/W; dividing by the beam-fill
+    fraction gives the on-flake responsivity. Empty arrays if A_flake unknown.
+    """
+    flake_area = _CHIP_FLAKE_AREAS.get(chip["chip"])
+    if flake_area is None:
+        return np.array([]), np.array([])
+    p, di = curve_for_chip(hist, chip)
+    mask = p > 0
+    p, di = p[mask], di[mask]
+    return p, (di / p) / (flake_area / BEAM_AREA_UM2)
 
 
 def power_law_fit(
@@ -592,6 +645,100 @@ def plot_comparison(
     print(f"saved {out}")
 
 
+def plot_responsivity_comparison(
+    config: PlotConfig,
+    histories: dict[int, pl.DataFrame],
+    chips: list[dict],
+    filename: str,
+    fmt: str | None = None,
+) -> None:
+    """Multi-chip responsivity (A/W) vs beam irradiance on semilog-y axes.
+
+    Mirrors plot_comparison but plots R = |Δi| / P_incident, with P_incident the
+    flake-area fraction of the beam (A_flake / A_beam, beam = 1.2e5 µm²). Chips
+    without a known flake area are skipped with a warning.
+    """
+    set_plot_style(config.theme)
+    fig, ax = plt.subplots(figsize=(21, 15))
+
+    for chip in chips:
+        flake_area = _CHIP_FLAKE_AREAS.get(chip["chip"])
+        if flake_area is None:
+            print(f"[warn] no flake area for {label_for_chip(chip)}; skipping R")
+            continue
+        p, di = curve_for_chip(histories[chip["chip"]], chip)
+        mask = p > 0
+        p, di = p[mask], di[mask]
+        if p.size == 0:
+            print(f"[warn] no responsivity data for {label_for_chip(chip)}")
+            continue
+        fill_fraction = flake_area / BEAM_AREA_UM2
+        r = (di / p) / fill_fraction
+
+        # The power law is fitted on the photoresponse itself,
+        # |Δi_corr| ∝ P^gamma, exactly as on the sibling photoresponse figures;
+        # the fitted curve is then divided by P (and the beam-fill fraction) to
+        # be drawn in responsivity units.
+        gamma, p_fit, di_fit = power_law_fit(p, di)
+        if abs(gamma) < 5e-3:  # avoid printing "-0.00"
+            gamma = 0.0
+        r_fit = (di_fit / p_fit) / fill_fraction if p_fit.size else di_fit
+
+        ax.plot(
+            irradiance_mW_per_cm2(p),
+            r,
+            marker=chip["marker"],
+            linestyle="none",
+            color=chip["color"],
+            markersize=25,
+            label=f"{label_for_chip(chip, include_vg=False)}, $\\gamma={gamma:.2f}$",
+        )
+        if p_fit.size:
+            # Same line weight as the connecting lines this figure used before
+            # the fit replaced them (theme default).
+            ax.plot(
+                irradiance_mW_per_cm2(p_fit),
+                r_fit,
+                linestyle="-",
+                color=chip["color"],
+            )
+
+        print(
+            f"{label_for_chip(chip)}  A_flake={flake_area:g} µm²  "
+            f"R=[{r.min():.3g},{r.max():.3g}] A/W  gamma={gamma:.3f}"
+        )
+
+    ax.set_yscale("log")
+    # Breathing room under the lowest curve: extend the (log) y-range 5% down.
+    _lo, _hi = ax.get_ylim()
+    ax.set_ylim(10 ** (np.log10(_lo) - 0.05 * (np.log10(_hi) - np.log10(_lo))), _hi)
+    # R spans well under a decade: label the 1-2-4 kA/W steps as bare mantissas
+    # and carry the shared 10^3 once, as an offset text above the axis.
+    ax.set_yticks([1e3, 2e3, 4e3])
+    ax.set_yticklabels(["1", "2", "4"])
+    ax.yaxis.set_minor_locator(mpl.ticker.NullLocator())
+    ax.text(
+        0.0,
+        1.01,
+        r"$\times 10^{3}$",
+        transform=ax.transAxes,
+        ha="left",
+        va="bottom",
+        fontsize=mpl.rcParams["ytick.labelsize"],
+    )
+    ax.set_xlabel(r"Irradiance (mW/cm$^2$)")
+    ax.set_ylabel(r"$R\ (\mathrm{A/W})$")
+    ax.legend(loc="best", framealpha=0.9)
+
+    plt.tight_layout()
+
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    out = OUTPUT_DIR / f"{filename}.{fmt or config.format}"
+    plt.savefig(out, dpi=config.dpi, bbox_inches="tight")
+    plt.close(fig)
+    print(f"saved {out}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -638,6 +785,17 @@ def main() -> None:
         chips_no_72,
         filename=f"Alisson68_74_75_76_photoresponse_vs_power_semilogy_{DATE}_365nm",
         anchor_chip=68,
+    )
+
+    # Responsivity vs irradiance for the four biotite chips (PDF + PNG).
+    responsivity_filename = (
+        f"Alisson68_74_75_76_responsivity_vs_power_semilogy_{DATE}_365nm"
+    )
+    plot_responsivity_comparison(
+        config, histories, chips_no_72, filename=responsivity_filename
+    )
+    plot_responsivity_comparison(
+        config, histories, chips_no_72, filename=responsivity_filename, fmt="png"
     )
 
 

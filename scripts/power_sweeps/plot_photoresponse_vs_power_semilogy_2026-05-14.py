@@ -129,10 +129,13 @@ def material_stack_for_chip(chip_number: int) -> str | None:
 
 
 def label_for_chip(
-    chip: dict, include_material: bool = True, stack: bool = False
+    chip: dict,
+    include_material: bool = True,
+    stack: bool = False,
+    include_vg: bool = True,
 ) -> str:
     n = chip["chip"]
-    vg = chip.get("vg_filter")
+    vg = chip.get("vg_filter") if include_vg else None
     if stack:
         if include_material:
             mat = _CHIP_MATERIALS.get(n)
@@ -744,43 +747,81 @@ def plot_responsivity_comparison(
     filename: str,
     fmt: str | None = None,
 ) -> None:
-    """Multi-chip responsivity (A/W) vs LED power on semilog-y axes.
+    """Multi-chip responsivity (A/W) vs beam irradiance on semilog-y axes.
 
     Mirrors plot_comparison but plots R = |Δi| / P_incident, with P_incident the
     flake-area fraction of the beam (A_flake / A_beam, beam = 1.2e5 µm²). Chips
     without a known flake area are skipped with a warning.
     """
     set_plot_style(config.theme)
-    fig, ax = plt.subplots(figsize=(20, 20))
+    fig, ax = plt.subplots(figsize=(21, 15))
+
+    # (material, handle) per plotted chip, for the hBN-first legend below.
+    entries: list[tuple[str | None, mpl.lines.Line2D]] = []
 
     for chip in chips:
-        p, r = responsivity_curve_for_chip(histories[chip["chip"]], chip)
+        flake_area = _CHIP_FLAKE_AREAS.get(chip["chip"])
+        if flake_area is None:
+            print(f"[warn] no flake area for {label_for_chip(chip)}; skipping R")
+            continue
+        p, di = curve_for_chip(histories[chip["chip"]], chip)
+        mask = p > 0
+        p, di = p[mask], di[mask]
         if p.size == 0:
             print(f"[warn] no responsivity data for {label_for_chip(chip)}")
             continue
+        fill_fraction = flake_area / BEAM_AREA_UM2
+        r = (di / p) / fill_fraction
 
-        ax.plot(
-            irradiance_W_per_m2(p),
+        # The power law is fitted on the photoresponse itself,
+        # |Δi_corr| ∝ P^gamma, exactly as on the sibling photoresponse figures;
+        # the fitted curve is then divided by P (and the beam-fill fraction) to
+        # be drawn in responsivity units.
+        gamma, p_fit, di_fit = power_law_fit(p, di)
+        if abs(gamma) < 5e-3:  # avoid printing "-0.00"
+            gamma = 0.0
+        r_fit = (di_fit / p_fit) / fill_fraction if p_fit.size else di_fit
+
+        (handle,) = ax.plot(
+            irradiance_mW_per_cm2(p),
             r,
             marker=chip["marker"],
-            linestyle="-",
+            linestyle="none",
             color=chip["color"],
             markersize=25,
-            label=label_for_chip(chip, stack=True),
+            label=f"{label_for_chip(chip, include_vg=False)}, $\\gamma={gamma:.2f}$",
         )
+        entries.append((_CHIP_MATERIALS.get(chip["chip"]), handle))
+        if p_fit.size:
+            # Same line weight as the connecting lines this figure used before
+            # the fit replaced them (theme default).
+            ax.plot(
+                irradiance_mW_per_cm2(p_fit),
+                r_fit,
+                linestyle="-",
+                color=chip["color"],
+            )
 
         print(
-            f"{label_for_chip(chip)}  A_flake={_CHIP_FLAKE_AREAS[chip['chip']]:g} µm²  "
-            f"R=[{r.min():.3g},{r.max():.3g}] A/W"
+            f"{label_for_chip(chip)}  A_flake={flake_area:g} µm²  "
+            f"R=[{r.min():.3g},{r.max():.3g}] A/W  gamma={gamma:.3f}"
         )
 
     ax.set_yscale("log")
-    ax.set_xlabel(r"Irradiance (W/m$^2$)")
+    # Breathing room under the lowest curve: extend the (log) y-range 10% down.
+    _lo, _hi = ax.get_ylim()
+    ax.set_ylim(10 ** (np.log10(_lo) - 0.10 * (np.log10(_hi) - np.log10(_lo))), _hi)
+    ax.set_xlabel(r"Irradiance (mW/cm$^2$)")
     ax.set_ylabel(r"$R\ (\mathrm{A/W})$")
-    _phi = irradiance_W_per_m2([6, 12, 18, 24])
+    _phi = irradiance_mW_per_cm2([6, 12, 18, 24])
     ax.set_xticks(_phi)
     ax.set_xticklabels([f"{v:g}" for v in _phi])
-    ax.legend(loc="best", framealpha=0.9)
+    ax.set_xlim(left=4)
+
+    # hBN references first, then the biotite devices, each in CHIPS order.
+    handles = [h for mat, h in entries if mat == "hBN"]
+    handles += [h for mat, h in entries if mat != "hBN"]
+    ax.legend(handles=handles, loc="best", framealpha=0.9)
 
     plt.tight_layout()
 

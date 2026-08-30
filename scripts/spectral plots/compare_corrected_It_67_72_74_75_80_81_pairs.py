@@ -49,6 +49,20 @@ def _legend_fontsize(relative: str = "small") -> float:
     from matplotlib.font_manager import font_scalings
     return plt.rcParams["font.size"] * font_scalings[relative] + LEGEND_FONTSIZE_BUMP
 
+
+# Line/marker weights, matching the heavier styling of
+# scripts/power_sweeps/plot_it_sequential_and_powerlaw_67_75may14_365nm.py.
+# The theme defaults are lw 4.0 / markersize 22.
+TRACE_LINEWIDTH = 5.5      # It(t) overlays
+LINE_WIDTH = 5.5           # vs-wavelength curves
+MARKER_SIZE = 30.0         # vs-wavelength points (filled, material-coded)
+
+# Shared legend placed under a 1x2 panel figure, styled like the 1x2 overlay in
+# the power-sweep script (large type, one row, hung just below the axes).
+BELOW_LEGEND_FONTSIZE = 42.0
+BELOW_LEGEND_TITLE_FONTSIZE = 46.0
+BELOW_LEGEND_HANDLE_LW = 13.0
+
 # Responsivity: R = |ΔI_corr| / P_device, P_device = P_beam · (A_device / A_beam).
 # Beam spot area (µm²) is per-chip: chips 67 and 81 were measured with a 1e5 µm²
 # spot, the rest with 1.2e5 µm².
@@ -336,6 +350,7 @@ def plot_pair(
     share_y: bool = True,
     box_aspect: float = 1.0,
     legend_columnspacing: float | None = None,
+    legend_below: bool = False,
 ) -> None:
     set_plot_style(config.theme)
     side = float(config.figsize_timeseries[1])
@@ -355,7 +370,7 @@ def plot_pair(
             color = color_for_wl.get(tr["wavelength_nm"], "k")
             ax.plot(
                 tr["t"], tr[field],
-                color=color, linestyle="-",
+                color=color, linestyle="-", linewidth=TRACE_LINEWIDTH,
                 label=f"{tr['wavelength_nm']:.0f} nm",
             )
             visible = tr["t"] >= plot_start
@@ -415,9 +430,32 @@ def plot_pair(
     legend_kw: dict = {}
     if legend_columnspacing is not None:
         legend_kw["columnspacing"] = legend_columnspacing
-    axes[1].legend(title="Wavelength", loc="best", framealpha=0.9, ncol=2,
-                   fontsize=_legend_fontsize(), title_fontsize=_legend_fontsize(),
-                   **legend_kw)
+    if legend_below:
+        # One shared row of wavelength swatches hung under both panels, in
+        # place of the in-axes legend.
+        from matplotlib.lines import Line2D
+
+        handles = [
+            Line2D([0], [0], color=color_for_wl[wl], lw=BELOW_LEGEND_HANDLE_LW,
+                   label=f"{wl:.0f} nm")
+            for wl in sorted(color_for_wl)
+        ]
+        fig.legend(
+            handles=handles,
+            title="Wavelength",
+            loc="lower center",
+            bbox_to_anchor=(0.5, -0.04),
+            ncol=len(handles),
+            framealpha=0.9,
+            fontsize=BELOW_LEGEND_FONTSIZE,
+            title_fontsize=BELOW_LEGEND_TITLE_FONTSIZE,
+            **legend_kw,
+        )
+    else:
+        axes[1].legend(title="Wavelength", loc="best", framealpha=0.9, ncol=2,
+                       fontsize=_legend_fontsize(),
+                       title_fontsize=_legend_fontsize(),
+                       **legend_kw)
 
     if panel_letters:
         # With shared y the right panel has no tick labels, so its letter hugs
@@ -455,7 +493,7 @@ def plot_single(
         color = color_for_wl.get(tr["wavelength_nm"], "k")
         ax.plot(
             tr["t"], tr[field],
-            color=color, linestyle="-",
+            color=color, linestyle="-", linewidth=TRACE_LINEWIDTH,
             label=f"{tr['wavelength_nm']:.0f} nm",
         )
         visible = tr["t"] >= plot_start
@@ -573,7 +611,9 @@ def plot_responsivity_vs_wl(
             wls, rs,
             color=CHIP_COLORS.get(chip_num, "k"),
             marker=chip_marker(chip_num),
+            markersize=MARKER_SIZE,
             linestyle="-",
+            linewidth=LINE_WIDTH,
             label=CHIPS[chip_num]["label"],
         )
 
@@ -626,7 +666,10 @@ def plot_responsivity_old_vs_new_chip80(
         pts.sort()
         wls = np.array([p[0] for p in pts])
         rs = np.array([p[1] for p in pts])
-        ax.plot(wls, rs, color=color, marker=marker, linestyle="-", label=label)
+        ax.plot(
+            wls, rs, color=color, marker=marker, markersize=MARKER_SIZE,
+            linestyle="-", linewidth=LINE_WIDTH, label=label,
+        )
 
     if logy:
         ax.set_yscale("log")
@@ -667,7 +710,9 @@ def plot_photoresponse_vs_wl(
             wls, dis,
             color=CHIP_COLORS.get(chip_num, "k"),
             marker=chip_marker(chip_num),
+            markersize=MARKER_SIZE,
             linestyle="-",
+            linewidth=LINE_WIDTH,
             label=CHIPS[chip_num]["label"],
         )
 
@@ -828,6 +873,7 @@ def main() -> None:
         share_y=False,
         box_aspect=6.0 / 7.0,  # 7:6 (width:height) panels
         legend_columnspacing=0.8,  # default is 2.0 font-size units
+        legend_below=True,
     )
     # Same figure with chip 74 in place of 75.
     plot_pair(
@@ -841,6 +887,7 @@ def main() -> None:
         share_y=False,
         box_aspect=6.0 / 7.0,  # 7:6 (width:height) panels
         legend_columnspacing=0.8,  # default is 2.0 font-size units
+        legend_below=True,
     )
 
     plot_photoresponse_vs_wl(

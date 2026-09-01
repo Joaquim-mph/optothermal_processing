@@ -183,13 +183,16 @@ def plot_panel(
     ax.set_box_aspect(1)  # 1:1 panel
     ax.set_xlabel(r"Irradiance (mW/cm$^2$)")
 
-    # hBN references first, then the biotite devices, each in session order.
-    handles = [h for mat, h in entries if mat == "hBN"]
-    handles += [h for mat, h in entries if mat != "hBN"]
+    # Biotite devices first, then the hBN references, each in session order.
+    # The legend fills column-major, so with two columns this keeps all four
+    # biotite devices together in the left column of the high-irradiance panel
+    # (the low-irradiance panel is biotite-only, so the order is moot there).
+    handles = [h for mat, h in entries if mat != "hBN"]
+    handles += [h for mat, h in entries if mat == "hBN"]
     ax.legend(
         handles=handles,
         loc="upper center",
-        bbox_to_anchor=(0.5, -0.13),
+        bbox_to_anchor=(0.5, -0.15),
         ncol=legend_ncol,
         framealpha=0.9,
         fontsize=LEGEND_FONTSIZE,
@@ -211,11 +214,13 @@ def annotate_panel_letter(ax: plt.Axes, letter: str) -> None:
 
 
 def build_figure(config: PlotConfig, quantity: str, filename: str) -> None:
-    # 40 x 20: at 1:1 box aspect each panel comes out ~14.3 in square. Narrowing
-    # the figure to close the gap between the panels also shrinks them, because
-    # tight_layout then has to squeeze the axes to fit the legend under it
-    # (29 in -> 10.2 in panels), so the width stays at 40.
-    fig, axes = plt.subplots(1, 2, figsize=(40, 20), sharey=True)
+    # 34 x 20. At 1:1 box aspect the panel size is capped by the figure height,
+    # but tight_layout counts each panel's legend as part of that panel, and the
+    # two-column legend is wider than the box -- so narrowing the figure to close
+    # the gap eventually squeezes the axes instead (29 in -> 10.2 in panels).
+    # 34 in is where that trade-off sits best: panels 13.6 in square (95% of the
+    # 40 in version) with the gap between them cut from 5.0 to 2.8 in.
+    fig, axes = plt.subplots(1, 2, figsize=(34, 20), sharey=True)
 
     for ax, (session, letter, power_ticks, exclude_chips, legend_ncol) in zip(
         axes, PANELS

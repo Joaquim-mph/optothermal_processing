@@ -11,6 +11,12 @@ casing. When the photocurrent sustains a sign reversal within a phase, the
 phase is split at its first peak and a response time is computed for each of
 the two sections.
 
+With ``corrected=True`` the same 10-90 geometry is applied to the
+drift-corrected trace instead of the raw current: a slow-drift model (stretched
+exponential by default) is fitted on the pre-illumination window and subtracted
+over the whole trace, exactly as for ``delta_i_corrected``. The metric is then
+named ``t_rise_corrected`` / ``t_fall_corrected``.
+
 See docs/superpowers/specs/2026-05-14-its-rise-fall-time-extractor-design.md
 """
 
@@ -24,6 +30,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 import polars as pl
 
+from src.derived.algorithms.drift_correction import fit_drift_baseline
 from src.models.derived_metrics import DerivedMetric, MetricCategory
 from .base import MetricExtractor
 
@@ -44,9 +51,16 @@ class ITSRiseFallExtractor(MetricExtractor):
         smooth_window: int = 5,
         min_reversal_run: int = 15,
         min_points_per_phase: int = 10,
+        corrected: bool = False,
+        drift_model: str = "stretched_exponential",
+        fit_t_start: float = 20.0,
+        fit_t_end: float = 60.0,
+        low_r_squared: float = 0.8,
     ):
         if mode not in ("rise", "fall"):
             raise ValueError(f"mode must be 'rise' or 'fall', got: {mode}")
+        if drift_model not in ("stretched_exponential", "linear"):
+            raise ValueError(f"unknown drift_model: {drift_model!r}")
         self.mode = mode
         self.vl_threshold = vl_threshold
         self.low_frac = low_frac
@@ -56,6 +70,11 @@ class ITSRiseFallExtractor(MetricExtractor):
         self.smooth_window = smooth_window
         self.min_reversal_run = min_reversal_run
         self.min_points_per_phase = min_points_per_phase
+        self.corrected = corrected
+        self.drift_model = drift_model
+        self.fit_t_start = fit_t_start
+        self.fit_t_end = fit_t_end
+        self.low_r_squared = low_r_squared
 
     @property
     def applicable_procedures(self) -> List[str]:
@@ -63,7 +82,15 @@ class ITSRiseFallExtractor(MetricExtractor):
 
     @property
     def metric_name(self) -> str:
-        return "t_rise" if self.mode == "rise" else "t_fall"
+        base = "t_rise" if self.mode == "rise" else "t_fall"
+        return f"{base}_corrected" if self.corrected else base
+
+    @property
+    def extraction_method(self) -> str:
+        base = "ten_ninety_rise" if self.mode == "rise" else "ten_ninety_fall"
+        if self.corrected:
+            return f"{base}_drift_corrected:{self.drift_model}"
+        return base
 
     @property
     def metric_category(self) -> MetricCategory:
@@ -194,6 +221,104 @@ class ITSRiseFallExtractor(MetricExtractor):
                 run = 0
         return None
 
+    def _correct_drift(
+        self,
+        t: np.ndarray,
+        i: np.ndarray,
+        light_start: int,
+        run_id: Any,
+    ) -> Optional[Tuple[np.ndarray, Dict[str, Any], List[str], float]]:
+        """
+        Subtract a fitted slow-drift baseline from `i`.
+
+        The fit runs on [fit_t_start, fit_t_end] and is evaluated over the whole
+        time axis, so the returned array has the same length as `i` and every
+        index used downstream still refers to the same sample as in raw mode.
+        If illumination starts before `fit_t_end`, the window is clamped to the
+        last pre-dark sample so the drift is never fitted through the
+        illuminated phase.
+
+        Returns (i_corrected, drift_details, flags, confidence_factor), or None
+        if the fit could not be made.
+        """
+        flags: List[str] = []
+
+        fit_t_end = self.fit_t_end
+        last_pre_dark_t = float(t[light_start - 1])
+        if last_pre_dark_t < fit_t_end:
+            fit_t_end = last_pre_dark_t
+            flags.append("FIT_WINDOW_TRUNCATED")
+
+        try:
+            drift = fit_drift_baseline(
+                t,
+                i,
+                model=self.drift_model,
+                fit_t_start=self.fit_t_start,
+                fit_t_end=fit_t_end,
+            )
+        except ValueError as exc:
+            reason = (
+                "INSUFFICIENT_FIT_POINTS"
+                if "insufficient fit points" in str(exc)
+                else "FIT_FAILED"
+            )
+            logger.debug(
+                f"Extractor {self.metric_name} skipped: {reason} ({exc})",
+                extra={"run_id": run_id, "reason": reason},
+            )
+            return None
+        except RuntimeError as exc:
+            logger.debug(
+                f"Extractor {self.metric_name} skipped: FIT_FAILED ({exc})",
+                extra={"run_id": run_id, "reason": "FIT_FAILED"},
+            )
+            return None
+
+        r_squared = drift["r_squared"]
+        converged = drift["converged"]
+        if not converged:
+            flags.append("FIT_DID_NOT_CONVERGE")
+        if r_squared < self.low_r_squared:
+            flags.append("LOW_R_SQUARED")
+
+        confidence_factor = 0.0 if not converged else max(0.0, min(1.0, r_squared))
+
+        details = {
+            "model": drift["model"],
+            "fit_params": drift["fit_params"],
+            "r_squared": r_squared,
+            "converged": converged,
+            "fit_window_s": drift["fit_window_s"],
+            "n_fit_points": drift["n_fit_points"],
+        }
+        return i - drift["fit_full"], details, flags, confidence_factor
+
+    def corrected_current(
+        self,
+        t: np.ndarray,
+        i: np.ndarray,
+        vl: np.ndarray,
+        run_id: Any = None,
+    ) -> Optional[np.ndarray]:
+        """
+        Return the drift-corrected current this extractor operates on.
+
+        Visualisation helper: exposes exactly the trace `extract()` measures the
+        10-90 crossings on, so a plot can show the same signal. Returns None if
+        the extractor is not in corrected mode, if there is no usable pre-dark
+        phase, or if the drift fit fails.
+        """
+        if not self.corrected:
+            return None
+        seg = self._find_led_segment(np.asarray(vl))
+        if seg is None or seg[0] == 0:
+            return None
+        correction = self._correct_drift(
+            np.asarray(t), np.asarray(i), seg[0], run_id
+        )
+        return None if correction is None else correction[0]
+
     def extract(
         self, measurement: pl.DataFrame, metadata: Dict[str, Any]
     ) -> Optional[DerivedMetric]:
@@ -226,6 +351,18 @@ class ITSRiseFallExtractor(MetricExtractor):
             )
             return None
 
+        flags: List[str] = []
+        confidence = 1.0
+        drift_details: Optional[Dict[str, Any]] = None
+
+        if self.corrected:
+            correction = self._correct_drift(t, i, light_start, run_id)
+            if correction is None:
+                return None
+            i, drift_details, drift_flags_, drift_confidence = correction
+            flags.extend(drift_flags_)
+            confidence *= drift_confidence
+
         pre_baseline = self._phase_baseline(i, 0, light_start)
         illum_extremum_idx = self._extremum_idx(i, light_start, light_end, pre_baseline)
         illum_extremum = float(i[illum_extremum_idx])
@@ -237,8 +374,6 @@ class ITSRiseFallExtractor(MetricExtractor):
             )
             return None
 
-        flags: List[str] = []
-        confidence = 1.0
         post_baseline: Optional[float] = None
 
         if self.mode == "rise":
@@ -347,6 +482,9 @@ class ITSRiseFallExtractor(MetricExtractor):
                 {"section": k, **sec} for k, sec in enumerate(sections)
             ],
         }
+        if drift_details is not None:
+            details["corrected"] = True
+            details["drift_correction"] = drift_details
         if post_baseline is not None:
             details["post_baseline"] = post_baseline
         if boundary_idx is not None:
@@ -363,9 +501,7 @@ class ITSRiseFallExtractor(MetricExtractor):
             value_float=sections[0]["response_time"],
             value_json=json.dumps(details),
             unit="s",
-            extraction_method=(
-                "ten_ninety_rise" if self.mode == "rise" else "ten_ninety_fall"
-            ),
+            extraction_method=self.extraction_method,
             extraction_version=metadata.get("extraction_version", "unknown"),
             extraction_timestamp=datetime.now(timezone.utc),
             confidence=max(0.0, min(1.0, confidence)),

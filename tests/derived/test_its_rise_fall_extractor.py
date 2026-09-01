@@ -8,6 +8,7 @@ from pathlib import Path
 project_root = Path(__file__).resolve().parent.parent.parent
 sys.path.append(str(project_root))
 
+from src.derived.algorithms.stretched_exponential import stretched_exponential
 from src.derived.extractors.its_rise_fall_extractor import ITSRiseFallExtractor
 
 
@@ -47,6 +48,27 @@ class TestSkeleton:
         assert rise.metric_name == "t_rise"
         assert fall.metric_name == "t_fall"
         assert rise.metric_category == "photoresponse"
+        assert rise.extraction_method == "ten_ninety_rise"
+        assert fall.extraction_method == "ten_ninety_fall"
+        assert rise.corrected is False
+
+    def test_corrected_properties(self):
+        rise = ITSRiseFallExtractor(mode="rise", corrected=True)
+        fall = ITSRiseFallExtractor(mode="fall", corrected=True)
+        assert rise.metric_name == "t_rise_corrected"
+        assert fall.metric_name == "t_fall_corrected"
+        assert rise.applicable_procedures == ["It"]
+        assert rise.metric_category == "photoresponse"
+        assert rise.extraction_method == (
+            "ten_ninety_rise_drift_corrected:stretched_exponential"
+        )
+        assert ITSRiseFallExtractor(
+            mode="fall", corrected=True, drift_model="linear"
+        ).extraction_method == "ten_ninety_fall_drift_corrected:linear"
+
+    def test_invalid_drift_model_raises(self):
+        with pytest.raises(ValueError, match="unknown drift_model"):
+            ITSRiseFallExtractor(mode="rise", drift_model="quadratic")
 
     def test_find_led_segment_basic(self):
         ext = ITSRiseFallExtractor(mode="rise")
@@ -383,3 +405,197 @@ class TestRegistration:
         it_extractors = pipeline.extractor_map.get("It", [])
         it_names = {e.metric_name for e in it_extractors}
         assert {"t_rise", "t_fall"} <= it_names
+
+    def test_corrected_registered_in_default_extractors(self):
+        from src.derived.metric_pipeline import MetricPipeline
+        pipeline = MetricPipeline(base_dir=Path("."))
+        it_names = {e.metric_name for e in pipeline.extractor_map.get("It", [])}
+        assert {"t_rise_corrected", "t_fall_corrected"} <= it_names
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Drift-corrected mode (t_rise_corrected / t_fall_corrected)
+# ══════════════════════════════════════════════════════════════════════
+
+def _response_trace(n_pre=150, n_light=200, n_decay=100, n_flat=150, amp=2e-6):
+    """
+    Clean OFF -> ON -> OFF response with an exactly known 10-90 geometry:
+    linear ramp up over the light phase, linear ramp down over the first
+    `n_decay` post-dark samples, then flat.
+    """
+    resp = np.concatenate([
+        np.zeros(n_pre),
+        np.linspace(0.0, amp, n_light),
+        np.linspace(amp, 0.0, n_decay),
+        np.zeros(n_flat),
+    ])
+    t = np.arange(len(resp), dtype=float)
+    vl = np.concatenate([
+        np.zeros(n_pre),
+        np.full(n_light, 5.0),
+        np.zeros(n_decay + n_flat),
+    ])
+    return t, resp, vl
+
+
+def _frame(t, i, vl):
+    return pl.DataFrame({"t (s)": t, "I (A)": i, "VL (V)": vl})
+
+
+class TestCorrectedMode:
+    def test_no_op_on_drift_free_trace(self):
+        """A flat baseline leaves the 10-90 geometry untouched."""
+        t, resp, vl = _response_trace()
+        df = _frame(t, resp + 30e-6, vl)
+        for mode in ("rise", "fall"):
+            raw = ITSRiseFallExtractor(mode=mode).extract(df, _meta())
+            corr = ITSRiseFallExtractor(
+                mode=mode, corrected=True, drift_model="linear"
+            ).extract(df, _meta())
+            assert raw is not None and corr is not None
+            assert corr.value_float == pytest.approx(raw.value_float, abs=1e-9)
+
+    @pytest.mark.parametrize("mode", ["rise", "fall"])
+    def test_linear_drift_recovers_drift_free_time(self, mode):
+        """
+        A linear drift is removed exactly, so the corrected response time
+        matches the one measured on the same trace without drift. Raw does not.
+        """
+        t, resp, vl = _response_trace()
+        clean = _frame(t, resp + 30e-6, vl)
+        dirty = _frame(t, resp + 30e-6 + 2e-8 * t, vl)
+
+        truth = ITSRiseFallExtractor(mode=mode).extract(clean, _meta())
+        raw = ITSRiseFallExtractor(mode=mode).extract(dirty, _meta())
+        corrected = ITSRiseFallExtractor(
+            mode=mode, corrected=True, drift_model="linear"
+        ).extract(dirty, _meta())
+
+        assert truth is not None and raw is not None and corrected is not None
+        assert corrected.value_float == pytest.approx(truth.value_float, abs=1e-9)
+        assert raw.value_float != pytest.approx(truth.value_float, abs=1e-9)
+
+    def test_stretched_exponential_drift_improves_rise(self):
+        """
+        A relaxing dark baseline drags the raw rise time well off the
+        drift-free value; subtracting the fitted drift recovers most of it.
+        """
+        t, resp, vl = _response_trace()
+        drift = stretched_exponential(t, 30e-6, 8e-6, 60.0, 0.6)
+        clean = _frame(t, resp + 30e-6, vl)
+        dirty = _frame(t, resp + drift, vl)
+
+        truth = ITSRiseFallExtractor(mode="rise").extract(clean, _meta())
+        raw = ITSRiseFallExtractor(mode="rise").extract(dirty, _meta())
+        corrected = ITSRiseFallExtractor(mode="rise", corrected=True).extract(
+            dirty, _meta()
+        )
+        assert truth is not None and raw is not None and corrected is not None
+        raw_err = abs(raw.value_float - truth.value_float)
+        corr_err = abs(corrected.value_float - truth.value_float)
+        assert corr_err < 0.5 * raw_err
+
+    def test_details_carry_the_drift_fit(self):
+        t, resp, vl = _response_trace()
+        dirty = _frame(t, resp + stretched_exponential(t, 30e-6, 8e-6, 60.0, 0.6), vl)
+        m = ITSRiseFallExtractor(mode="rise", corrected=True).extract(dirty, _meta())
+        assert m is not None
+        d = json.loads(m.value_json)
+        assert d["corrected"] is True
+        dc = d["drift_correction"]
+        assert dc["model"] == "stretched_exponential"
+        assert dc["fit_window_s"] == [20.0, 60.0]
+        assert dc["n_fit_points"] == 41
+        assert dc["converged"] is True
+        assert dc["r_squared"] > 0.9
+        assert set(dc["fit_params"]) == {"baseline", "amplitude", "tau", "beta"}
+        # the raw metric's payload is untouched
+        assert set(d) >= {"mode", "n_sections", "sections", "pre_baseline"}
+
+    def test_raw_details_have_no_drift_section(self):
+        t, resp, vl = _response_trace()
+        df = _frame(t, resp + 30e-6, vl)
+        m = ITSRiseFallExtractor(mode="rise").extract(df, _meta())
+        assert m is not None
+        d = json.loads(m.value_json)
+        assert "drift_correction" not in d
+        assert "corrected" not in d
+
+    def test_confidence_scaled_by_fit_quality(self):
+        t, resp, vl = _response_trace()
+        rng = np.random.default_rng(0)
+        noisy = resp + 30e-6 + rng.normal(0.0, 3e-6, size=len(t))
+        m = ITSRiseFallExtractor(
+            mode="rise", corrected=True, drift_model="linear"
+        ).extract(_frame(t, noisy, vl), _meta())
+        assert m is not None
+        assert 0.0 <= m.confidence < 1.0
+        assert "LOW_R_SQUARED" in (m.flags or "")
+
+    def test_fit_window_truncated_when_light_starts_early(self):
+        """LED on at t = 40 s -> the 20-60 s window is clipped to the pre-dark."""
+        t, resp, vl = _response_trace(n_pre=40)
+        df = _frame(t, resp + 30e-6 + 2e-8 * t, vl)
+        m = ITSRiseFallExtractor(
+            mode="rise", corrected=True, drift_model="linear"
+        ).extract(df, _meta())
+        assert m is not None
+        assert "FIT_WINDOW_TRUNCATED" in (m.flags or "")
+        dc = json.loads(m.value_json)["drift_correction"]
+        assert dc["fit_window_s"] == [20.0, 39.0]
+
+    def test_too_short_pre_dark_returns_none(self):
+        """Not enough pre-dark samples in the window for a fit."""
+        t, resp, vl = _response_trace(n_pre=25)
+        df = _frame(t, resp + 30e-6, vl)
+        assert ITSRiseFallExtractor(mode="rise", corrected=True).extract(
+            df, _meta()
+        ) is None
+
+    def test_indices_stay_comparable_with_raw(self):
+        """Correction must not resample: details indices address the same samples."""
+        t, resp, vl = _response_trace()
+        df = _frame(t, resp + 30e-6 + 2e-8 * t, vl)
+        corrected = ITSRiseFallExtractor(
+            mode="rise", corrected=True, drift_model="linear"
+        ).extract(df, _meta())
+        assert corrected is not None
+        sec = json.loads(corrected.value_json)["sections"][0]
+        assert 0 <= sec["idx_10"] < len(t)
+        assert 0 <= sec["idx_90"] < len(t)
+        assert sec["t_10"] == pytest.approx(float(t[sec["idx_10"]]))
+        assert sec["t_90"] == pytest.approx(float(t[sec["idx_90"]]))
+
+    def test_corrected_current_matches_extract_trace(self):
+        """The viz helper returns exactly the trace extract() measures on."""
+        t, resp, vl = _response_trace()
+        i = resp + 30e-6 + 2e-8 * t
+        ext = ITSRiseFallExtractor(mode="rise", corrected=True, drift_model="linear")
+        i_corr = ext.corrected_current(t, i, vl)
+        assert i_corr is not None and i_corr.shape == i.shape
+        # drift removed -> the pre-dark baseline sits at ~0
+        assert abs(float(np.mean(i_corr[:150]))) < 1e-9
+        # the 10/90 crossings from extract() land on this trace's levels
+        m = ext.extract(_frame(t, i, vl), _meta())
+        sec = json.loads(m.value_json)["sections"][0]
+        assert i_corr[sec["idx_10"]] == pytest.approx(sec["level_10"], abs=1e-8)
+
+    def test_corrected_current_none_in_raw_mode(self):
+        t, resp, vl = _response_trace()
+        ext = ITSRiseFallExtractor(mode="rise")
+        assert ext.corrected_current(t, resp + 30e-6, vl) is None
+
+    def test_corrected_current_none_without_pre_dark(self):
+        t, resp, vl = _response_trace()
+        ext = ITSRiseFallExtractor(mode="rise", corrected=True)
+        assert ext.corrected_current(t, resp + 30e-6, np.full_like(vl, 5.0)) is None
+
+    def test_validate_accepts_corrected_result(self):
+        t, resp, vl = _response_trace()
+        df = _frame(t, resp + 30e-6 + 2e-8 * t, vl)
+        ext = ITSRiseFallExtractor(mode="fall", corrected=True, drift_model="linear")
+        m = ext.extract(df, _meta())
+        assert m is not None
+        assert ext.validate(m) is True
+        assert m.metric_name == "t_fall_corrected"
+        assert m.unit == "s"

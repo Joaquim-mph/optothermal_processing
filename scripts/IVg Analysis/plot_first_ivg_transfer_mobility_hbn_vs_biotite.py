@@ -267,6 +267,7 @@ def draw_mobility_panel(
     chips: list[ChipCurves],
     *,
     chip_loc: str = "upper left",
+    box_aspect: float = 1.0,
 ) -> None:
     """mu_FE vs Vg for the forward leg only, one color+style per chip.
 
@@ -300,7 +301,7 @@ def draw_mobility_panel(
     ax.set_xlabel("$\\rm{V_g\\ (V)}$")
     ax.set_ylabel("$\\rm{\\mu_{FE}\\ (10^4\\ cm^2\\,V^{-1}\\,s^{-1})}$")
     ax.legend(loc=chip_loc, framealpha=0.9, fontsize=_legend_fontsize())
-    ax.set_box_aspect(1)
+    ax.set_box_aspect(box_aspect)
 
 
 def _annotate_panel_letters(
@@ -364,9 +365,10 @@ def plot_transfer_1x2(
 def plot_mobility_1x2(
     left: list[ChipCurves], right: list[ChipCurves], config: PlotConfig
 ) -> None:
-    fig, axes = plt.subplots(1, 2, figsize=(40, 20), gridspec_kw={"wspace": 0.28})
-    draw_mobility_panel(axes[0], left)
-    draw_mobility_panel(axes[1], right)
+    # Standalone mobility figure uses 4:3 panels (height/width = 3/4).
+    fig, axes = plt.subplots(1, 2, figsize=(40, 17), gridspec_kw={"wspace": 0.28})
+    draw_mobility_panel(axes[0], left, box_aspect=3 / 4)
+    draw_mobility_panel(axes[1], right, box_aspect=3 / 4)
 
     _annotate_panel_letters(axes, ["a", "b"])
     fig.tight_layout()

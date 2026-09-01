@@ -12,6 +12,9 @@ Available extractors:
 - ITSThreePhaseFitExtractor: Three-phase relaxation fitting (PRE-DARK, LIGHT, POST-DARK)
 - DriftExtractor: Linear drift rate from time-series measurements (ITS, Vt, Tt)
 - MobilityExtractor: Peak-gm field-effect mobility per branch from IVg sweeps
+- ITSRiseFallExtractor: 10%-90% rise/fall times from light It measurements
+  (corrected=True -> t_rise_corrected / t_fall_corrected, computed on the
+  drift-subtracted trace)
 
 Pairwise extractors:
 - ConsecutiveSweepDifferenceExtractor: Differences between consecutive IVg/VVg sweeps

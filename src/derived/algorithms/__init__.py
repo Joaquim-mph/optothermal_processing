@@ -17,6 +17,11 @@ from .linear_fit import (
     linear_model,
 )
 
+from .drift_correction import (
+    fit_drift_baseline,
+    drift_flags,
+)
+
 __all__ = [
     'fit_stretched_exponential',
     'fit_multiple_its_measurements',
@@ -24,4 +29,6 @@ __all__ = [
     'fit_linear',
     'fit_multiple_linear',
     'linear_model',
+    'fit_drift_baseline',
+    'drift_flags',
 ]

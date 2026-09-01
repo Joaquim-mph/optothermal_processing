@@ -1373,12 +1373,12 @@ def plot_74_72_photocurrent_gm_1x2(
         print(f"[warn] no {WAVELENGTH_NM} nm triplet for chips {missing}; skipping 1x2 gm grid")
         return
 
-    fig, axes = plt.subplots(1, 2, figsize=(36, 20), gridspec_kw={"wspace": 0.13})
+    fig, axes = plt.subplots(1, 2, figsize=(36, 16), gridspec_kw={"wspace": 0.13})
 
     for col, chip in enumerate(chips):
         _draw_photocurrent_gm_on_ax(axes[col], by_chip[chip], show_legend=True)
-        # Square plot box, independent of the figure aspect / margins.
-        axes[col].set_box_aspect(1)
+        # 4:3 (width:height) plot box, independent of the figure aspect / margins.
+        axes[col].set_box_aspect(3 / 4)
 
     # Both panels are normalized to ±1 — share limits and drop the right
     # panel's redundant y tick labels + label.

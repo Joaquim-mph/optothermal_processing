@@ -26,7 +26,19 @@ Per-chip fit window (fit_t_start):
             still on its stable plateau — starts >=45 s begin eating the small
             (405/455 nm) signals.
 
+Responsivity R = |ΔI| / P_device, with P_device = P_beam · (A_flake / A_beam)
+and A_beam = 1.0 mm² (1e6 µm²), except 280 nm which is a double beam and so
+covers 2.0 mm² -- this session used different optics from the 2026-05-14/15 power
+sweeps and the 67/72/74/75/80/81 spectral runs, whose 1e5/1.2e5 µm² spot
+constants do NOT apply here. P_beam comes from the enriched history
+(`irradiated_power_w`), falling back to `CalibrationMatcher` -- the same path
+`biotite enrich-history` uses. The sweep is constant-irradiance at ~18.3 W/m²
+(1.83 mW/cm²) for every wavelength: 280 nm is calibrated at ~36.6 µW but spread
+over the doubled spot, the rest at ~18.3 µW over 1.0 mm², with the per-wavelength
+laser voltage set to match.
+
 Outputs (figs/uva-uvb/):
+  - uva_uvb_68_75_responsivity_vs_wl_4x3.pdf       (68 + 75 only, 4:3 aspect)
   - uva_uvb_68_75_80_corrected_deltaI_vs_wl.png    (without 76)
   - uva_uvb_68_75_76_80_corrected_deltaI_vs_wl.png (with 76; its truncated
                                                     300 nm point auto-omitted)
@@ -47,6 +59,7 @@ import polars as pl
 import yaml
 
 from src.core.utils import read_measurement_parquet
+from src.derived.extractors.calibration_matcher import CalibrationMatcher
 from src.derived.algorithms.stretched_exponential import (
     fit_stretched_exponential,
     stretched_exponential,
@@ -55,8 +68,40 @@ from src.plotting.shared.config import PlotConfig
 from src.plotting.shared.styles import PRISM_RAIN_PALETTE, set_plot_style
 
 HISTORY_DIR = Path("data/02_stage/chip_histories")
+ENRICHED_DIR = Path("data/03_derived/chip_histories_enriched")
+MANIFEST_PATH = Path("data/02_stage/raw_measurements/_manifest/manifest.parquet")
 OUTPUT_DIR = Path("figs/uva-uvb")
 ENCAP_YAML = Path("config/encap_characteristics.yaml")
+
+# Responsivity: R = |ΔI_corr| / P_device, P_device = P_beam · (A_device / A_beam).
+# This session used a different optical path from the 2026-05-14/15 power sweeps
+# and the 67/72/74/75/80/81 spectral runs: the spot here is 1.0 mm² = 1e6 µm²,
+# not the 1e5/1.2e5 µm² spots those scripts assume. Do not copy their constant.
+BEAM_AREA_UM2_DEFAULT = 1e6  # 1.0 mm²
+
+# The 280 nm path is a double beam: the calibrated power is spread over twice the
+# spot, so its effective area is 2.0 mm². Without this the 280 nm point would be
+# charged double the power density it actually delivers, halving its R. With it,
+# every wavelength in the session sits at the same ~18.3 W/m² irradiance.
+BEAM_AREA_UM2_BY_WL = {280.0: 2e6}
+
+
+def beam_area_um2(wavelength_nm: float) -> float:
+    return BEAM_AREA_UM2_BY_WL.get(float(wavelength_nm), BEAM_AREA_UM2_DEFAULT)
+
+# vs-wavelength curve weights, matching the responsivity figures produced by
+# `compare_corrected_It_67_72_74_75_80_81_pairs.py` (theme defaults are lw 4.0 /
+# markersize 22).
+LINE_WIDTH = 5.5
+MARKER_SIZE = 30.0
+LEGEND_FONTSIZE_BUMP = 2.0
+
+
+def _legend_fontsize(relative: str = "small") -> float:
+    """Legend size 2 pt above the "small" relative size of the active theme."""
+    from matplotlib.font_manager import font_scalings
+
+    return plt.rcParams["font.size"] * font_scalings[relative] + LEGEND_FONTSIZE_BUMP
 
 
 def _load_chip_materials() -> dict[int, str]:
@@ -186,6 +231,7 @@ def collect_chip_traces(chip_number: int) -> list[dict]:
     chip_cfg = CHIPS[chip_number]
     rows = select_its_rows(history, chip_cfg["date"])
     fit_t_start = float(chip_cfg.get("fit_t_start", DEFAULT_FIT_T_START))
+    powers = power_by_wavelength(chip_number, chip_cfg["date"])
 
     traces: list[dict] = []
     for row in rows.iter_rows(named=True):
@@ -203,15 +249,24 @@ def collect_chip_traces(chip_number: int) -> list[dict]:
         fit = fit_stretched(t, i, fit_t_start)
         i_corr = corrected_trace(fit)
 
+        wl_f = float(wl) if wl is not None else float("nan")
         traces.append({
             "chip": chip_number,
-            "wavelength_nm": float(wl) if wl is not None else float("nan"),
+            "wavelength_nm": wl_f,
             "vg_v": (float(row.get("vg_fixed_v"))
                      if row.get("vg_fixed_v") is not None else None),
             "t": fit["t_full"],
             "i_corr_uA": i_corr * 1e6,
             "light_span": light_window(meas, fit["t_full"]),
+            # Responsivity inputs (unused by the |ΔI| figures).
+            "power_w": powers.get(wl_f),
+            "start_time_utc": row.get("start_time_utc"),
+            "laser_voltage_v": row.get("laser_voltage_v"),
         })
+
+    filled = backfill_power(traces)
+    if filled:
+        print(f"  [chip {chip_number}] backfilled power for {filled}/{len(traces)} traces")
     return traces
 
 
@@ -294,6 +349,85 @@ def plot_single(
     print(f"saved {output_path}")
 
 
+def device_areas_um2() -> dict[int, float]:
+    """Per-chip flake area (µm²) from config/encap_characteristics.yaml."""
+    if not ENCAP_YAML.exists():
+        return {}
+    data = yaml.safe_load(ENCAP_YAML.read_text()) or {}
+    return {
+        int(k): float(v["flake_area_um2"])
+        for k, v in data.items()
+        if isinstance(k, int) and isinstance(v, dict) and "flake_area_um2" in v
+    }
+
+
+def power_by_wavelength(chip_number: int, date: str) -> dict[float, float]:
+    """Beam power (W) per wavelength, read from the enriched history.
+
+    Returns {} when the enriched history (or its `irradiated_power_w` column) is
+    missing; `backfill_power` then resolves the power from the calibration files.
+    """
+    path = ENRICHED_DIR / f"Alisson{chip_number}_history.parquet"
+    if not path.exists():
+        return {}
+    df = pl.read_parquet(path)
+    if "irradiated_power_w" not in df.columns:
+        return {}
+    rows = select_its_rows(df, date)
+    return {
+        float(r["wavelength_nm"]): float(r["irradiated_power_w"])
+        for r in rows.iter_rows(named=True)
+        if r.get("wavelength_nm") is not None
+        and r.get("irradiated_power_w") is not None
+    }
+
+
+def backfill_power(traces: list[dict], stale_threshold_hours: float = 24.0) -> int:
+    """Fill `power_w` for traces the enriched history did not cover, using the
+    same CalibrationMatcher path as `biotite enrich-history`. Returns the count."""
+    missing = [tr for tr in traces if tr.get("power_w") is None]
+    if not missing:
+        return 0
+    if not MANIFEST_PATH.exists():
+        print(f"  [warn] manifest missing ({MANIFEST_PATH}); cannot backfill power")
+        return 0
+
+    matcher = CalibrationMatcher(MANIFEST_PATH)
+    filled = 0
+    for tr in missing:
+        start = tr.get("start_time_utc")
+        wl = tr.get("wavelength_nm")
+        vl = tr.get("laser_voltage_v")
+        if start is None or vl is None or wl is None or not np.isfinite(wl):
+            continue
+        match = matcher.find_calibration(start, float(wl), stale_threshold_hours)
+        if match.calibration_path is None:
+            print(f"  [chip {tr['chip']}] {wl:.0f} nm: {match.warning}")
+            continue
+        power = matcher.get_power_from_calibration(match.calibration_path, float(vl))
+        if power is None or not np.isfinite(power) or power <= 0:
+            continue
+        tr["power_w"] = float(power)
+        filled += 1
+    return filled
+
+
+def responsivity_at_post(tr: dict, area_um2: float | None) -> float:
+    """R = |ΔI_corr(120 s)| / P_device (A/W); P_device = P_beam · A_device/A_beam.
+
+    ΔI is the same quantity the |ΔI| vs wavelength figures plot, so the two
+    describe identical traces.
+    """
+    di_uA = photoresponse_at_post(tr)
+    p_w = tr.get("power_w")
+    if area_um2 is None or p_w is None or not np.isfinite(p_w) or p_w <= 0:
+        return float("nan")
+    if not np.isfinite(di_uA):
+        return float("nan")
+    p_dev_w = p_w * (area_um2 / beam_area_um2(tr["wavelength_nm"]))
+    return (di_uA * 1e-6) / p_dev_w
+
+
 def photoresponse_at_post(tr: dict) -> float:
     """|ΔI corrected| = |I_corr(120 s)| (anchored at I_corr(60 s)=0).
     Returns NaN if the trace died before reaching EVAL_T_POST."""
@@ -305,6 +439,54 @@ def photoresponse_at_post(tr: dict) -> float:
         return float("nan")
     idx = int(np.argmin(np.abs(t - EVAL_T_POST)))
     return abs(float(y[idx]))
+
+
+def plot_responsivity_vs_wl(
+    chip_nums: list[int],
+    traces_by_chip: dict[int, list[dict]],
+    config: PlotConfig,
+    output_path: Path,
+    *,
+    box_aspect: float = 0.75,
+) -> None:
+    """R vs wavelength. `box_aspect` is height/width (0.75 -> 4:3 landscape)."""
+    set_plot_style(config.theme)
+    side = float(config.figsize_timeseries[1])
+    fig, ax = plt.subplots(1, 1, figsize=(side / box_aspect, side))
+
+    areas = device_areas_um2()
+    for chip_num in chip_nums:
+        area = areas.get(chip_num)
+        pts = []
+        for tr in traces_by_chip[chip_num]:
+            wl = tr["wavelength_nm"]
+            r = responsivity_at_post(tr, area)
+            if np.isfinite(wl) and np.isfinite(r):
+                pts.append((wl, r))
+        if not pts:
+            print(f"  [chip {chip_num}] no responsivity points (area={area})")
+            continue
+        pts.sort()
+        ax.plot(
+            [p[0] for p in pts], [p[1] for p in pts],
+            color=CHIP_COLORS.get(chip_num, "k"),
+            marker=CHIP_MARKERS.get(chip_num, "o"),
+            markersize=MARKER_SIZE,
+            linestyle="-",
+            linewidth=LINE_WIDTH,
+            label=CHIPS[chip_num]["label"],
+        )
+
+    ax.set_xlabel(r"Wavelength (nm)")
+    ax.set_ylabel(r"$R$ (A/W)")
+    ax.set_box_aspect(box_aspect)
+    ax.legend(loc="best", framealpha=0.9, fontsize=_legend_fontsize())
+
+    plt.tight_layout()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    plt.savefig(output_path, dpi=config.dpi, bbox_inches="tight")
+    plt.close(fig)
+    print(f"saved {output_path}")
 
 
 def plot_photoresponse_vs_wl(
@@ -358,6 +540,10 @@ def main() -> None:
         print(f"[chip {chip_num}] collecting traces…")
         traces_by_chip[chip_num] = collect_chip_traces(chip_num)
 
+    plot_responsivity_vs_wl(
+        [68, 75], traces_by_chip, config,
+        OUTPUT_DIR / "uva_uvb_68_75_responsivity_vs_wl_4x3.pdf",
+    )
     plot_photoresponse_vs_wl(
         [68, 75, 80], traces_by_chip, config,
         OUTPUT_DIR / "uva_uvb_68_75_80_corrected_deltaI_vs_wl.png",

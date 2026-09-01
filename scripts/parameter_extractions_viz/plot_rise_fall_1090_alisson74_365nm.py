@@ -13,12 +13,20 @@ the illuminated-phase maximum current I_max. When the photocurrent sustains a
 sign reversal within a phase, the phase is split in two and each section gets
 its own response time.
 
+With --corrected the same extraction is run on the drift-corrected trace
+(t_rise_corrected / t_fall_corrected): a stretched exponential fitted on the
+pre-illumination window (20-60 s) is subtracted over the whole trace, as for
+delta_i_corrected. The corrected figure is written to a separate file; the
+default output is unchanged.
+
 Run from repo root:
-    python scripts/plot_rise_fall_1090_alisson74_365nm.py
+    python scripts/parameter_extractions_viz/plot_rise_fall_1090_alisson74_365nm.py
+    python scripts/parameter_extractions_viz/plot_rise_fall_1090_alisson74_365nm.py --corrected
 """
 
 from __future__ import annotations
 
+import argparse
 import json
 from pathlib import Path
 
@@ -39,9 +47,6 @@ OUTPUT_DIR = Path("figs/compare")
 
 RISE_COLOR = "#377eb8"
 FALL_COLOR = "#e41a1c"
-
-rise_extractor = ITSRiseFallExtractor(mode="rise")
-fall_extractor = ITSRiseFallExtractor(mode="fall")
 
 
 def _metadata(row: dict) -> dict:
@@ -89,7 +94,10 @@ def _draw_metric(ax, t, i, metric, color, name):
     ax.plot([], [], "o", color=color, label=f"{name} = {times} s{suffix}")
 
 
-def main() -> None:
+def main(corrected: bool = False) -> None:
+    rise_extractor = ITSRiseFallExtractor(mode="rise", corrected=corrected)
+    fall_extractor = ITSRiseFallExtractor(mode="fall", corrected=corrected)
+
     config = PlotConfig()
     set_plot_style(config.theme)
     # The project theme sizes fonts for its 35-inch publication figures;
@@ -147,11 +155,21 @@ def main() -> None:
         t, i, vl = t[finite], i[finite], vl[finite]
 
         meta = _metadata(row)
+        if corrected:
+            # extract on the finite-filtered frame so the reported indices
+            # address the same samples as the trace drawn below
+            meas = pl.DataFrame({"t (s)": t, "I (A)": i, "VL (V)": vl})
+            i_corr = rise_extractor.corrected_current(t, i, vl, meta["run_id"])
+            if i_corr is None:
+                raise RuntimeError(f"drift fit failed for seq {row['seq']}")
+            i = i_corr
         rise = rise_extractor.extract(meas, meta)
         fall = fall_extractor.extract(meas, meta)
 
-        # raw trace
-        ax.plot(t, i * 1e6, color="0.25", linewidth=1.0, label="I(t)")
+        trace_label = r"$I_{corr}(t)$" if corrected else "I(t)"
+        ax.plot(t, i * 1e6, color="0.25", linewidth=1.0, label=trace_label)
+        if corrected:
+            ax.axhline(0.0, color="0.6", linewidth=0.6, linestyle="--", zorder=0)
 
         # illuminated window
         on_idx = np.where(vl > 0.1)[0]
@@ -184,20 +202,36 @@ def main() -> None:
             rf"$V_g={row['vg_fixed_v']:+g}$ V, $V_{{ds}}={row['vds_v']:g}$ V)",
             fontsize=9,
         )
-        ax.set_ylabel(r"$I\ (\mu\mathrm{A})$")
+        ax.set_ylabel(
+            r"$I_{corr}\ (\mu\mathrm{A})$" if corrected
+            else r"$I\ (\mu\mathrm{A})$"
+        )
         ax.legend(loc="upper right", framealpha=0.9, ncol=1)
         T_total = float(t[-1])
         if np.isfinite(T_total) and T_total > 0:
             ax.set_xlim(float(t[0]), T_total)
+        if corrected:
+            # The subtracted drift model is only meaningful from the start of
+            # its fit window; the extrapolated transient before it would
+            # otherwise swamp the y-scale.
+            settled = t >= rise_extractor.fit_t_start
+            lo, hi = float(np.min(i[settled])), float(np.max(i[settled]))
+            pad = 0.08 * max(hi - lo, 1e-12)
+            ax.set_ylim((lo - pad) * 1e6, (hi + pad) * 1e6)
 
     axes[-1].set_xlabel(r"$t\ (\mathrm{s})$")
+    suffix = " (drift-corrected)" if corrected else ""
     fig.suptitle(
-        rf"Alisson{CHIP} It @ {WAVELENGTH_NM:.0f} nm — 10–90% rise/fall extraction",
+        rf"Alisson{CHIP} It @ {WAVELENGTH_NM:.0f} nm — 10–90% rise/fall extraction"
+        + suffix,
         fontsize=11,
     )
 
+    name = f"Alisson{CHIP}_It_365nm_rise_fall_1090"
+    if corrected:
+        name += "_corrected"
     out = config.get_output_path(
-        f"Alisson{CHIP}_It_365nm_rise_fall_1090",
+        name,
         chip_number=CHIP,
         procedure="It",
         metadata={"has_light": True},
@@ -210,4 +244,12 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--corrected",
+        action="store_true",
+        help="run the extraction on the drift-corrected trace and write a "
+             "separate *_corrected figure (default: raw current)",
+    )
+    args = parser.parse_args()
+    main(corrected=args.corrected)

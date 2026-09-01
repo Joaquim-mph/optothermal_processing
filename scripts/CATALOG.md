@@ -80,6 +80,27 @@ scripts/
 **Method:** Stretched-exp fit on t ∈ [30, 60] s; baseline anchored so I_corr(60 s) = 0; plotted from t = 20 s.
 **Output:** Pair figures in `figs/compare/`, LaTeX comparison table on disk, markdown summary printed to stdout.
 
+### `spectral plots/plot_eqe_vs_wl_67_72_74_75_80_81.py`
+**Goal:** External quantum efficiency vs wavelength for chips 67/72/74/75/80/81 — the EQE companion to the responsivity-vs-λ figure from `compare_corrected_It_67_72_74_75_80_81_pairs.py`, replicating its chip-80-re-measured 4:3 variant.
+**Method:** Imports the reference script by path and reuses its trace collection, drift correction and `responsivity_at_post`, then converts EQE = R·(hc/q)/λ = R[A/W]·1239.84/λ[nm]. `irradiated_power_w` is read from the enriched history when present, else resolved on the fly with `CalibrationMatcher` (same code path as `biotite enrich-history`).
+**Note:** The response is photogating-dominated, so EQE ≫ 100% — it is a photoconductive gain (e⁻ per incident photon), not a photodiode efficiency. Absolute values scale as 1/`flake_area_um2`, which is approximate in `config/encap_characteristics.yaml`.
+**Output (all in `figs/eqe_spectral/`):**
+- `alisson67_72_74_75_80_81_eqe_vs_wl_80remeasured_2026-07-01_4x3.pdf` (linear).
+- `alisson67_72_74_75_80_81_eqe_vs_wl_semilogy_80remeasured_2026-07-01_4x3.pdf` (log y — far more legible, spans ~3 decades).
+- Markdown table of P_dev, |ΔI|, R, EQE and gain per chip × λ printed to stdout.
+
+### `spectral plots/plot_rise_fall_vs_wl_67_72_74_75_80_81.py`
+**Goal:** 10–90% rise time and fall time vs wavelength for chips 67/72/74/75/80/81 — the response-time companion to the responsivity-vs-λ figure from `compare_corrected_It_67_72_74_75_80_81_pairs.py`, replicating its chip-80-re-measured 4:3 variant (same chips, seqs, colors, markers and legend labels). Two figures: t_rise and t_fall.
+**Method:** Imports the reference script by path for chip/seq selection and styling. Response times are `t_rise_corrected` / `t_fall_corrected` (`ITSRiseFallExtractor` 10–90 rule on the drift-corrected current), read from the enriched history, or extracted from the staged parquet if those columns are absent. `--raw` plots the uncorrected `t_rise` / `t_fall` to separate files.
+**Range:** 365–455 nm only — beyond 455 nm these devices show no above-noise photoresponse, so a response time there is fitted to noise. Wavelengths with no measurable transition are omitted from the curve rather than plotted as zero.
+**Diagnostics:** a third figure plots every point the curves could not show or had to show with a caveat — one panel per case with the measured trace, light window and 10–90 overlay, titled with the extractor's own reason. Skip reasons are captured from the extractor's debug log records (`extra={"reason": ...}`), so the panel says `NEGLIGIBLE_RECOVERY` rather than just "missing".
+**Output (all in `figs/rise_fall_spectral/`):**
+- `alisson67_72_74_75_80_81_t_rise_corrected_vs_wl_80remeasured_2026-07-01_4x3.pdf`
+- `alisson67_72_74_75_80_81_t_fall_corrected_vs_wl_80remeasured_2026-07-01_4x3.pdf`
+- `alisson67_72_74_75_80_81_t_rise_fall_corrected_problem_cases_80remeasured_2026-07-01.pdf` (3×3 diagnostic grid)
+- `..._t_{rise,fall}_raw_vs_wl_...` and `..._raw_problem_cases_...` with `--raw`.
+- Markdown table of t_rise / t_fall per chip × λ, annotated with the geometric flags (`SIGN_SWITCH`, `*_ONSET_CLAMPED`) that mark a questionable 10–90 crossing, plus a printed list of the problem cases.
+
 ### `compare_corrected_It_72_74_80_385nm.py`
 **Goal:** Drift-corrected It overlay at 385 nm for three chips: 72 (hBN), 74, 80 (biotite) — one trace per chip on a single figure. Picks the seq with `wavelength_nm == 385` automatically from candidate seqs.
 **Output:** PNG in `figs/compare/`.
@@ -124,6 +145,29 @@ scripts/
 **Prereq:** `biotite enrich-history 81`.
 **Output:** PNG of |Δi_corrected| vs iteration, one curve per Vg cluster.
 
+### `plot_iteration_decay_hbn_vs_biotite.py`
+**Goal:** Cross-material generalization of `plot_iteration_decay_alisson81.py` — does the iteration decay depend on the bottom dielectric? Compares four clusters of consecutive It runs at fixed (λ, P, Vg), all at P ≈ 6 µW / Φ ≈ 60 W/m², across both measurement protocols: **Vg held** (455 nm) and **Vg reset** (365 nm). Result: the decay tracks the *material*, not the protocol — hBN 80/81 collapse 12–14× over 7 iterations while biotite 75 stays within 1.1× (365 nm) / 1.6× (455 nm). Every cluster is trimmed to **7 iterations** so the x-axes are directly comparable (chip 81's 8th run, seq 139, is dropped).
+**Clusters (verified by scanning every enriched history for runs of ≥ 4 consecutive It rows at fixed λ/VL/Vg/date):**
+
+| chip | material | date | λ | protocol | Vg | seqs |
+|---|---|---|---|---|---|---|
+| 80 | hBN | 2026-08-28 | 365 nm | Vg reset | −0.5 V | 196–202 |
+| 75 | biotite | 2026-07-08 | 365 nm | Vg reset | −1.0 V | 200–206 |
+| 81 | hBN | 2025-10-28 | 455 nm | Vg held | −1.7 V | 132–138 |
+| 75 | biotite | 2026-08-28 | 455 nm | Vg held | −0.4 V | 229–235 |
+
+**Notes:** Material tags read from `config/encap_characteristics.yaml` (81 and 80 are **hBN** — several older scripts in §2 mislabel them as biotite). `DROP_FIRST_ITERATION = True` re-plots every cluster from its second iteration. Chip 68's 2026-08-28 It runs are a separate experiment (Vg changes between runs) and are excluded.
+**Drift-fit retry:** I_ph is recomputed in-script rather than read from `delta_i_corrected`, because the pipeline's fixed [20, 60] s window fails on a run that is still settling at t = 20 s — it then sees only the flat tail of the ramp, leaving τ/β unidentified, and the drift model diverges once extrapolated past 60 s. `drift_fit()` accepts the [20, 60] fit only if it converged with β ≥ 0.2, else retries from t = 1 s, else keeps the original. This reproduces the stored `delta_i_corrected` **exactly on 27 of 28 traces**; the one refit is chip 75 seq 229 (455 nm, first run after gate turn-on), where the pipeline recorded `FIT_DID_NOT_CONVERGE` with β = 0.095 and returned −6.45 µA — the retry converges at β = 0.84 and gives **−1.96 µA**, in family with its six siblings (shape correlation 0.996). Refits are reported on stdout as a `[refit]` line; they are drawn like any other point, since the recomputed value is a sound fit. A start-time sweep over 0–50 s showed a sharp cliff between 5 s and 6 s: every start ≤ 5 s converges, every start ≥ 6 s diverges. Note the earlier window is *not* a safe global default — on chip 75's 365 nm cluster it makes all 7 fits degenerate, which is why the retry is conditional.
+**Prereq:** `biotite derive-all-metrics && biotite enrich-history 75 && biotite enrich-history 80 && biotite enrich-history 81`.
+**Responsivity:** R = I_ph / P_device with P_device = P_beam · (A_flake / A_beam), A_flake from `config/encap_characteristics.yaml` and P_beam interpolated from the nearest-date `LaserCalibration` sweep at that wavelength (same recipe as `scripts/power_sweeps/*`). Beam area is per-chip: 1e5 µm² by default, **1.2e5 µm² for chip 81**, which was measured on the older setup with a slightly larger spot. Chip 81's 2025-10-28 cluster falls back to the 2025-10-21 calibration; a `[note]` is printed when that happens.
+**Output (all in `figs/iteration_decay_hbn_vs_biotite/`) — one figure per protocol, never mixed:**
+- `iteration_photocurrent_vg_hold_455nm.pdf`, `iteration_photocurrent_vg_reset_365nm.pdf` — |I_ph| (µA) vs iteration.
+- `iteration_responsivity_vg_hold_455nm.pdf`, `iteration_responsivity_vg_reset_365nm.pdf` — |R| (A/W) vs iteration.
+- `it_corrected_overlay_vg_hold_455nm.pdf`, `it_corrected_overlay_vg_reset_365nm.pdf` — drift-corrected I_corr(t), all 7 iterations overlaid on a shared time axis colored by iteration (viridis, early=dark → late=bright), light window shaded. Figure formatting follows `plot_iteration_decay_alisson81.py` (square 20×20 panels, `marker="o"`, `set_plot_style(config.theme)`); line/marker/legend weights follow `spectral plots/compare_corrected_It_67_72_74_75_80_81_pairs.py` (`TRACE_LINEWIDTH`/`LINE_WIDTH` 5.5, `MARKER_SIZE` 30, and a theme-relative `_legend_fontsize()`; the bump is raised from the pairs script's +2 pt to +8 pt, putting legends at ~37 pt against 55 pt axis labels). Inset axis labels and ticks are left at the host axes' size. Correction is the `CorrectedDeltaIExtractor` recipe verbatim (stretched-exp on t ∈ [20, 60] s, anchored to I_corr(60 s) = 0), so these overlays and the I_ph values above come from the same numbers.
+- `it_sequential_vg_hold_455nm.pdf` — raw I_ds(t), segments stitched end-to-end, hBN 81 | biotite 75. No light-window shading, no segment-boundary lines, no iteration numbers — the periodic structure of the trace marks the iterations on its own.
+- `it_sequential_vg_reset_365nm.pdf` — same for the 365 nm / Vg-reset protocol, hBN 80 | biotite 75.
+- `it_sequential_with_overlay_inset_vg_hold_455nm.pdf`, `it_sequential_with_overlay_inset_vg_reset_365nm.pdf` — the same sequential panels with the drift-corrected overlay inset at `[0.5, 0.16, 0.40, 0.40]` (the placement used by `plot_iteration_It_overlays_alisson81.py`); the inset keeps its light-window shading and is raised above the host axes (zorder 5, opaque patch) so the host trace does not show through.
+
 ### `plot_raw_vs_corrected_it_encap75_seq85.py`
 **Goal:** Diagnostic figure showing raw I(t), the stretched-exp drift fit, and the corrected trace for Encap75 / seq 85, illustrating the `delta_i_corrected` correction recipe on one example.
 **Output:** PNG in `figs/compare/`.
@@ -142,7 +186,8 @@ scripts/
 
 ### `plot_rise_fall_1090_alisson74_365nm.py`
 **Goal:** 10%–90% rise/fall time visualization for Alisson74 365 nm It (seq 28 on 2026-04-16; seq 43, 53 on 2026-04-21). Runs `ITSRiseFallExtractor` in rise and fall mode and overlays the 10/90 threshold levels, first-crossing points, shaded 10-90 interval, and the resulting response time on the raw trace. One panel per seq.
-**Output:** PNG in `figs/compare/`.
+**Flags:** `--corrected` runs the same extraction on the drift-corrected trace (`t_rise_corrected` / `t_fall_corrected`: stretched-exp fitted on 20–60 s and subtracted, as for `delta_i_corrected`) and writes a separate `..._corrected` figure. Default output is unchanged.
+**Output:** PDF in `figs/It/photoresponse/` (`..._rise_fall_1090[_corrected]`).
 
 ### `plot_photoresponse_vs_power_loglog_alisson75_two_dates.py`
 **Goal:** Photoresponse |Δi_corrected| vs laser power on log-log axes for Alisson75 at 365 nm, with independent power-law fits for two sessions (2025-09-12 seq 5-9, Vg = −3.0 V; 2025-09-15 seq 52-56, Vg = −3.87 V). Fit gives the exponent n in ΔI ∝ P^n.
@@ -153,6 +198,12 @@ scripts/
 **Goal:** Photoresponse |Δi_corrected| vs laser power on semilog-y axes for the 2026-05-14 365 nm "power law" sweeps across five chips (68, 74, 75, 76, 72, each at a fixed Vg; powers 6/12/18/24 µW). Per chip: a sequential-It figure (raw + drift-corrected inset) and a photoresponse-vs-power figure; plus one all-chip comparison overlay. Power-law exponent γ from a log-log linear fit.
 **Method:** Stretched-exp fit on t ∈ [1, 60] s; `Δi_corrected = I_corr(120) − I_corr(60)`, absolute value taken.
 **Output:** PNGs in `figs/compare/`.
+
+### `plot_rise_fall_vs_power_semilogy_2026-05-14.py`
+**Goal:** 10–90% rise time and fall time vs laser power for the same 2026-05-14 365 nm sweeps — the response-time companion to `plot_photoresponse_vs_power_semilogy_2026-05-14.py`, reusing its `CHIPS` table, `rows_for_chip`, colors, markers, Vg filters, irradiance axis and `power_law_fit`, so both families of figures describe the same traces. Two figures (t_rise, t_fall) on semilog-y vs irradiance with the power-law exponent γ in the legend, plus a "problem cases" diagnostic grid.
+**Method:** `t_rise_corrected` / `t_fall_corrected` from `ITSRiseFallExtractor(corrected=True)`, drift-fit window 20–60 s by default (matches the enriched-history columns and the spectral rise/fall figures); `--fit-t-start 1` matches the sibling photoresponse figures' window, `--raw` plots the uncorrected metric. Diagnostic panels are rendered by `plot_problem_cases` imported from the spectral rise/fall script.
+**Note:** Chip 80's rise points at 6/12/18 µW are all `SIGN_SWITCH` — its current drops at LED-on then recovers upward, so `value_float` is the fast first section (1–7 s), a different quantity from the other chips' single-section rise. Its γ is not comparable.
+**Output (all in `figs/rise_fall_power_law_365nm/`):** `Alisson68_74_75_76_72_80_t_{rise,fall}_corrected_vs_power_semilogy_2026-05-14_365nm.pdf`, `..._t_rise_fall_corrected_problem_cases_...pdf`, plus a markdown table of t_rise / t_fall per chip × power with geometric flags.
 
 ---
 
@@ -246,8 +297,10 @@ Documentation for the LaTeX-related scripts (not executable).
 | Cross-chip raw photoresponse | `compare_photoresponse_72_81`, `compare_photoresponse_72_74_75_81` | `figs/compare/*photoresponse*.png` |
 | Cross-chip corrected photoresponse | `compare_corrected_photoresponse_67_72_74_75`, `compare_80_81_ivg_and_corrected_photoresponse` | `figs/compare/*corrected*.png` |
 | Cross-chip corrected It | `compare_corrected_It_67_74_uv`, `compare_corrected_It_67_72_74_75_80_81_pairs`, `compare_corrected_It_72_74_80_385nm`, `compare_corrected_It_74_80_385nm` | `figs/compare/*.png` (+ LaTeX table for the 6-chip pairs script) |
+| Spectral response vs λ | `spectral plots/plot_eqe_vs_wl_67_72_74_75_80_81`, `spectral plots/plot_rise_fall_vs_wl_67_72_74_75_80_81` | `figs/eqe_spectral/*.pdf`, `figs/rise_fall_spectral/*.pdf` |
+| Response time vs power | `power_sweeps/plot_rise_fall_vs_power_semilogy_2026-05-14` | `figs/rise_fall_power_law_365nm/*.pdf` |
 | Per-chip IVg photocurrent / triplets | `plot_ivg_photocurrent_triplets`, `plot_ivg_photocurrent_alisson{72,74,80}_*`, `plot_ivg_365nm_triplet_compare` | `figs/compare/*.png` |
-| Single-chip Δi / It analyses | `plot_corrected_deltai_*`, `plot_iteration_decay_alisson81`, `plot_iteration_It_overlays_alisson81`, `plot_raw_vs_corrected_it_encap75_seq85`, `plot_light_dark_it_pairs_67_81`, `compare_dark_relaxation_67_81`, `plot_rise_fall_1090_alisson74_365nm`, `plot_photoresponse_vs_power_*` | `figs/compare/*.png`, `figs/Alisson81_iteration_decay/*.png` |
+| Single-chip Δi / It analyses | `plot_corrected_deltai_*`, `plot_iteration_decay_alisson81`, `plot_iteration_decay_hbn_vs_biotite`, `plot_iteration_It_overlays_alisson81`, `plot_raw_vs_corrected_it_encap75_seq85`, `plot_light_dark_it_pairs_67_81`, `compare_dark_relaxation_67_81`, `plot_rise_fall_1090_alisson74_365nm`, `plot_photoresponse_vs_power_*` | `figs/compare/*.png`, `figs/Alisson81_iteration_decay/*.png`, `figs/iteration_decay_hbn_vs_biotite/*.pdf` |
 | Mobility & trapping-hypothesis | `estimate_mobility`, `analyze_mobility_fwd_vs_back`, `correlate_hysteresis_mobility_deficit`, `encap74_context_split_and_cross_chip_responsivity`, `plot_mobility_distribution`, `plot_mobility_history_chip`, `plot_mobility_time_stability` | `figs/mobility/**`, `figs/cross_chip/mobility_deficit_vs_hysteresis/**`, console |
 | CNP / mobility IVg overlays | `chip_utilities/plot_cnp`, `visualize_ivg_cnp_alisson74`, `visualize_ivg_cnp_mobility_alisson74` | `figs/cnp_analysis/*.png` (with `--save`), `figs/Encap74/IVg/CNP_*overlay/*.png` |
 | Dev utilities | `benchmarks/benchmark_consecutive_sweep_diff`, `chip_utilities/list_chip_combinations` | console |

@@ -241,5 +241,71 @@ Class `ITSRiseFallExtractor(MetricExtractor)`.
 - Linear interpolation between samples (definition is explicitly "first data point
   reaching" a threshold).
 - More than two sections per phase (the sign-switch model is explicitly two sections).
-- Drift correction of the `It` trace before extraction — the extractor works on the
-  raw staged current; baseline referencing absorbs a constant offset but not curvature.
+- ~~Drift correction of the `It` trace before extraction~~ — implemented 2026-08-31,
+  see the addendum below.
+
+
+---
+
+# Addendum — drift-corrected variant (2026-08-31)
+
+**Status:** Implemented.
+
+## Why
+
+Baseline referencing absorbs a *constant* dark-current offset but not curvature within
+a phase. On these devices the pre-illumination current is still relaxing when the LED
+turns on, so the tail-mean baselines the 10/90 levels hang off are themselves drifting.
+`delta_i_corrected` already solves this for the photoresponse amplitude by fitting and
+subtracting a drift model; the rise/fall times had no equivalent.
+
+## What was added
+
+`ITSRiseFallExtractor(corrected=True)` emits `t_rise_corrected` / `t_fall_corrected`.
+The 10-90 geometry is byte-for-byte the same code — only the current it runs on
+changes. Both variants are registered in `MetricPipeline._default_extractors()`, so a
+light `It` file now yields up to four response-time metrics.
+
+- **Drift model:** stretched exponential (`drift_model="linear"` also available),
+  fitted on **20-60 s** and evaluated over the whole time axis, then subtracted.
+  Identical window and model to `CorrectedDeltaIExtractor`, so `t_*_corrected` and
+  `delta_i_corrected` describe the same corrected trace.
+- **Shared implementation:** `src/derived/algorithms/drift_correction.py::fit_drift_baseline`,
+  extracted from `CorrectedDeltaIExtractor` and now used by both. Verified to leave
+  `delta_i_corrected` bit-identical across all 660 staged `It` runs.
+- **No resampling.** Non-finite samples are excluded from the fit window only; the
+  model is evaluated over the full `t`, so every index in `value_json["sections"]`
+  still addresses the same sample as in raw mode and raw/corrected results are
+  directly comparable.
+- **Fit-window guard.** If illumination starts before 60 s the window is clipped to the
+  last pre-dark sample and `FIT_WINDOW_TRUNCATED` is flagged, so the drift is never
+  fitted through the illuminated phase. Under 10 usable points → `None`.
+- **Provenance.** `value_json` gains `"corrected": true` and a `"drift_correction"`
+  block (model, fit params, r², converged, window, point count). `extraction_method`
+  becomes `ten_ninety_{mode}_drift_corrected:{model}`. Fit-quality flags
+  (`FIT_DID_NOT_CONVERGE`, `LOW_R_SQUARED`) join the geometric ones and `confidence` is
+  multiplied by r².
+
+## Known limitation
+
+The fixed 20-60 s window can only constrain drift whose timescale is resolvable inside
+those 40 s. Against a synthetic drift with τ ≈ 200 s the fit is under-determined and
+the correction does not improve the response times. Traces dominated by very slow
+relaxation should be read with the `r_squared` / `converged` fields in mind — about 70%
+of staged `It` runs carry `LOW_R_SQUARED`, the same rate `delta_i_corrected` has always
+had, since it is the same fit.
+
+## Effect on real data (all staged `It`, 2026-08-31)
+
+- `t_rise`: 591 paired runs, median 44.5 s raw vs 45.7 s corrected; 33% move by >1 s.
+- `t_fall`: 443 paired runs, median 24.1 s raw vs 22.2 s corrected; 29% move by >1 s.
+- 15 runs gain a `t_fall_corrected` that raw could not measure; 18 lose one
+  (`NEGLIGIBLE_RECOVERY` once the drift is gone).
+- Largest observed swing: Alisson74 seq 53 rise, 56.7 s (`RISE_ONSET_CLAMPED`, i.e. the
+  drift had already carried the trace past the 10% level at LED-on) → 5.6 s corrected.
+
+## Visualisation
+
+`ITSRiseFallExtractor.corrected_current(t, i, vl)` returns exactly the trace
+`extract()` measures on. `scripts/parameter_extractions_viz/plot_rise_fall_1090_alisson74_365nm.py --corrected`
+uses it; the default (raw) figure is unchanged.

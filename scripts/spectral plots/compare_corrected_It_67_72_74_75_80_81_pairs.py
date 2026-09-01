@@ -351,6 +351,9 @@ def plot_pair(
     box_aspect: float = 1.0,
     legend_columnspacing: float | None = None,
     legend_below: bool = False,
+    legend_below_ncol: int | None = None,
+    light_span_color: str | None = None,
+    legend_below_pad: float | None = None,
 ) -> None:
     set_plot_style(config.theme)
     side = float(config.figsize_timeseries[1])
@@ -381,7 +384,9 @@ def plot_pair(
         if spans:
             s = float(np.median([sp[0] for sp in spans]))
             e = float(np.median([sp[1] for sp in spans]))
-            ax.axvspan(s, e, alpha=config.light_window_alpha)
+            span_kw = ({"color": light_span_color, "lw": 0}
+                       if light_span_color else {})
+            ax.axvspan(s, e, alpha=config.light_window_alpha, **span_kw)
 
         vgs = [tr["vg_v"] for tr in traces if tr.get("vg_v") is not None]
         title = CHIPS[chip_num]["label"]
@@ -431,8 +436,9 @@ def plot_pair(
     if legend_columnspacing is not None:
         legend_kw["columnspacing"] = legend_columnspacing
     if legend_below:
-        # One shared row of wavelength swatches hung under both panels, in
-        # place of the in-axes legend.
+        # One shared block of wavelength swatches hung under both panels, in
+        # place of the in-axes legend. Defaults to a single row;
+        # legend_below_ncol wraps it onto several.
         from matplotlib.lines import Line2D
 
         handles = [
@@ -440,12 +446,21 @@ def plot_pair(
                    label=f"{wl:.0f} nm")
             for wl in sorted(color_for_wl)
         ]
-        fig.legend(
+        if legend_below_ncol and len(handles) % legend_below_ncol == 0:
+            # Matplotlib fills legend cells column-major; transpose the handle
+            # order so the labels read left-to-right along each row instead.
+            ncol = legend_below_ncol
+            nrow = len(handles) // ncol
+            handles = [handles[r * ncol + c]
+                       for c in range(ncol) for r in range(nrow)]
+        below_legend = fig.legend(
             handles=handles,
             title="Wavelength",
-            loc="lower center",
+            # When re-anchored below the axes the anchor is the legend's *top*
+            # edge, so it grows downward instead of back over the x labels.
+            loc="upper center" if legend_below_pad is not None else "lower center",
             bbox_to_anchor=(0.5, -0.04),
-            ncol=len(handles),
+            ncol=legend_below_ncol if legend_below_ncol else len(handles),
             framealpha=0.9,
             fontsize=BELOW_LEGEND_FONTSIZE,
             title_fontsize=BELOW_LEGEND_TITLE_FONTSIZE,
@@ -464,6 +479,22 @@ def plot_pair(
         _annotate_panel_letters(axes, panel_letters, x=letter_x)
 
     plt.tight_layout()
+
+    if legend_below and legend_below_pad is not None:
+        # The fixed -0.04 figure-fraction anchor assumes the axes reach the
+        # bottom of the figure; with a forced box aspect they don't, and the
+        # legend lands on top of the x labels. Re-anchor it legend_below_pad
+        # below whatever the axes (ticks + xlabel included) actually occupy.
+        fig.canvas.draw()
+        renderer = fig.canvas.get_renderer()
+        inv = fig.transFigure.inverted()
+        axes_bottom = min(
+            inv.transform_bbox(ax.get_tightbbox(renderer)).y0 for ax in axes
+        )
+        below_legend.set_bbox_to_anchor(
+            (0.5, axes_bottom - legend_below_pad), transform=fig.transFigure
+        )
+
     output_path.parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(output_path, dpi=config.dpi, bbox_inches="tight")
     plt.close(fig)
@@ -539,6 +570,9 @@ def plot_single(
 
 CHIP_COLORS = {67: "C0", 72: "C4", 74: "C3", 75: "C1", 80: "C2", 81: "C5"}
 
+# Legend reading order for the 3x2 chip legends: biotite devices first.
+LEGEND_ROW_ORDER = [74, 75, 67, 72, 80, 81]
+
 # Marker by material (from encap config), so each material shares one marker.
 MATERIAL_MARKERS = {"hBN": "o", "biotite": "s"}
 
@@ -577,6 +611,81 @@ def responsivity_at_post(tr: dict, area_um2: float | None) -> float:
     return (di_uA * 1e-6) / p_dev_w
 
 
+# Square |I_ph| inset dropped into the R vs wavelength panel: box, marker and
+# line sizes relative to the main axes (fonts stay at the theme size).
+INSET_HEIGHT = 0.44   # fraction of the host axes height
+INSET_RIGHT = 0.97    # right edge, in host-axes fraction
+INSET_TOP = 0.97      # top edge, in host-axes fraction
+INSET_MARKER_SIZE = MARKER_SIZE * 0.6
+INSET_LINE_WIDTH = LINE_WIDTH * 0.6
+
+
+def _square_inset_rect(ax: plt.Axes) -> list[float]:
+    """[x0, y0, w, h] in host-axes fraction for a box that renders 1:1.
+
+    set_box_aspect() is useless on an inset: its locator rewrites the position
+    on every draw and undoes the aspect adjustment. So the width is scaled by
+    the host axes' own drawn aspect (height/width) instead."""
+    host_aspect = ax.get_box_aspect()
+    if host_aspect is None:
+        pos = ax.get_position()
+        fig_w, fig_h = ax.figure.get_size_inches()
+        host_aspect = (pos.height * fig_h) / (pos.width * fig_w)
+    w = INSET_HEIGHT * float(host_aspect)
+    return [INSET_RIGHT - w, INSET_TOP - INSET_HEIGHT, w, INSET_HEIGHT]
+
+
+def add_photocurrent_inset(
+    ax: plt.Axes,
+    traces_by_chip: dict[int, list[dict]],
+    chips: list[int],
+    *,
+    wl_max: float = 505.0,
+) -> plt.Axes:
+    """Square (1:1) inset: |I_ph| vs wavelength over the short-wavelength range
+    only (365 nm to wl_max), same chip colors/markers as the host panel."""
+    axin = ax.inset_axes(_square_inset_rect(ax))
+    for chip_num in chips:
+        pts = []
+        for tr in traces_by_chip.get(chip_num, []):
+            wl = tr["wavelength_nm"]
+            di = photoresponse_at_post(tr)
+            if np.isfinite(wl) and wl <= wl_max and np.isfinite(di):
+                pts.append((wl, abs(di)))
+        if not pts:
+            continue
+        pts.sort()
+        axin.plot(
+            [p[0] for p in pts], [p[1] for p in pts],
+            color=CHIP_COLORS.get(chip_num, "k"),
+            marker=chip_marker(chip_num),
+            markersize=INSET_MARKER_SIZE,
+            linestyle="-",
+            linewidth=INSET_LINE_WIDTH,
+        )
+    axin.set_xlabel(r"Wavelength (nm)")
+    axin.set_ylabel(r"$|I_{ph}|\ (\mu\mathrm{A})$")
+    axin.set_xticks([400, 500])
+    axin.patch.set_alpha(0.9)
+    return axin
+
+
+def _legend_entries_by_row(
+    handle_by_chip: dict[int, object], row_order: list[int], ncol: int
+) -> tuple[list, list]:
+    """Order (handles, labels) so a legend with `ncol` columns reads
+    left-to-right along each row in `row_order`. Matplotlib fills legend cells
+    column-major, so the row-major grid is transposed here."""
+    order = [c for c in row_order if c in handle_by_chip]
+    order += [c for c in handle_by_chip if c not in order]
+    nrow = -(-len(order) // ncol)
+    seq = [order[r * ncol + c]
+           for c in range(ncol) for r in range(nrow)
+           if r * ncol + c < len(order)]
+    return ([handle_by_chip[c] for c in seq],
+            [CHIPS[c]["label"] for c in seq])
+
+
 def plot_responsivity_vs_wl(
     traces_by_chip: dict[int, list[dict]],
     config: PlotConfig,
@@ -585,6 +694,12 @@ def plot_responsivity_vs_wl(
     chips: list[int] | None = None,
     logy: bool = False,
     box_aspect: float = 1.0,
+    legend_chip_order: list[int] | None = None,
+    iph_inset: bool = False,
+    iph_inset_wl_max: float = 505.0,
+    legend_loc: str = "best",
+    legend_bbox_to_anchor: tuple[float, float] | None = None,
+    legend_fontsize_extra: float = 0.0,
 ) -> None:
     set_plot_style(config.theme)
     side = float(config.figsize_timeseries[1])
@@ -592,6 +707,7 @@ def plot_responsivity_vs_wl(
 
     chips = chips if chips is not None else RESPONSIVITY_CHIPS
     areas = device_areas_um2()
+    handle_by_chip: dict[int, object] = {}
     for chip_num in chips:
         traces = traces_by_chip.get(chip_num, [])
         area = areas.get(chip_num)
@@ -607,7 +723,7 @@ def plot_responsivity_vs_wl(
         pts.sort()
         wls = np.array([p[0] for p in pts])
         rs = np.array([p[1] for p in pts])
-        ax.plot(
+        line, = ax.plot(
             wls, rs,
             color=CHIP_COLORS.get(chip_num, "k"),
             marker=chip_marker(chip_num),
@@ -616,18 +732,69 @@ def plot_responsivity_vs_wl(
             linewidth=LINE_WIDTH,
             label=CHIPS[chip_num]["label"],
         )
+        handle_by_chip[chip_num] = line
 
     if logy:
         ax.set_yscale("log")
     ax.set_xlabel(r"Wavelength (nm)")
     ax.set_ylabel(r"$R$ (A/W)")
     ax.set_box_aspect(box_aspect)
-    ax.legend(loc="best", framealpha=0.9, ncol=2, fontsize=_legend_fontsize())
+    legend_args = ()
+    if legend_chip_order is not None:
+        legend_args = _legend_entries_by_row(handle_by_chip, legend_chip_order, 2)
+    legend_kw: dict = {}
+    if legend_bbox_to_anchor is not None:
+        legend_kw["bbox_to_anchor"] = legend_bbox_to_anchor
+        legend_kw["bbox_transform"] = ax.transAxes
+    ax.legend(*legend_args, loc=legend_loc, framealpha=0.9, ncol=2,
+              fontsize=_legend_fontsize() + legend_fontsize_extra, **legend_kw)
+
+    if iph_inset:
+        add_photocurrent_inset(
+            ax, traces_by_chip, chips, wl_max=iph_inset_wl_max
+        )
 
     plt.tight_layout()
     output_path.parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(output_path, dpi=config.dpi, bbox_inches="tight")
     plt.close(fig)
+    print(f"saved {output_path}")
+
+
+def write_responsivity_csv(
+    traces_by_chip: dict[int, list[dict]],
+    output_path: Path,
+    *,
+    chips: list[int] | None = None,
+) -> None:
+    """Write the responsivity-vs-wavelength points as CSV (same data the
+    matching figure plots): one row per wavelength, one column per chip."""
+    chips = chips if chips is not None else RESPONSIVITY_CHIPS
+    areas = device_areas_um2()
+
+    by_chip: dict[int, dict[float, float]] = {}
+    for chip_num in chips:
+        area = areas.get(chip_num)
+        pts = {}
+        for tr in traces_by_chip.get(chip_num, []):
+            wl = tr["wavelength_nm"]
+            r = responsivity_at_post(tr, area)
+            if np.isfinite(wl) and np.isfinite(r):
+                pts[float(wl)] = float(r)
+        if not pts:
+            print(f"  [chip {chip_num}] no responsivity points for CSV (area={area})")
+            continue
+        by_chip[chip_num] = pts
+
+    wls = sorted({wl for pts in by_chip.values() for wl in pts})
+    table = {"wavelength_nm": wls}
+    for chip_num, pts in by_chip.items():
+        material = _MATERIALS.get(chip_num, "").replace(" ", "_")
+        col = f"R_A_per_W_{chip_num}" + (f"_{material}" if material else "")
+        table[col] = [pts.get(wl, float("nan")) for wl in wls]
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    pl.DataFrame(table).write_csv(output_path)
     print(f"saved {output_path}")
 
 
@@ -689,12 +856,21 @@ def plot_photoresponse_vs_wl(
     traces_by_chip: dict[int, list[dict]],
     config: PlotConfig,
     output_path: Path,
+    *,
+    chips: list[int] | None = None,
+    ylabel: str = r"$|\Delta I_{\mathrm{corr}}|\ (\mu\mathrm{A})$",
+    logy: bool = False,
+    box_aspect: float = 1.0,
+    legend_chip_order: list[int] | None = None,
 ) -> None:
     set_plot_style(config.theme)
     side = float(config.figsize_timeseries[1])
-    fig, ax = plt.subplots(1, 1, figsize=(side, side))
+    fig, ax = plt.subplots(1, 1, figsize=(side / box_aspect, side))
 
-    for chip_num, traces in traces_by_chip.items():
+    chips = chips if chips is not None else list(traces_by_chip)
+    handle_by_chip: dict[int, object] = {}
+    for chip_num in chips:
+        traces = traces_by_chip.get(chip_num, [])
         pts = []
         for tr in traces:
             wl = tr["wavelength_nm"]
@@ -706,7 +882,7 @@ def plot_photoresponse_vs_wl(
         pts.sort()
         wls = np.array([p[0] for p in pts])
         dis = np.abs(np.array([p[1] for p in pts]))
-        ax.plot(
+        line, = ax.plot(
             wls, dis,
             color=CHIP_COLORS.get(chip_num, "k"),
             marker=chip_marker(chip_num),
@@ -715,13 +891,18 @@ def plot_photoresponse_vs_wl(
             linewidth=LINE_WIDTH,
             label=CHIPS[chip_num]["label"],
         )
+        handle_by_chip[chip_num] = line
 
+    if logy:
+        ax.set_yscale("log")
     ax.set_xlabel(r"Wavelength (nm)")
-    ax.set_ylabel(
-        r"$|\Delta I_{\mathrm{corr}}|\ (\mu\mathrm{A})$"
-    )
-    ax.set_box_aspect(1.0)
-    ax.legend(loc="best", framealpha=0.9, ncol=2, fontsize=_legend_fontsize())
+    ax.set_ylabel(ylabel)
+    ax.set_box_aspect(box_aspect)
+    legend_args = ()
+    if legend_chip_order is not None:
+        legend_args = _legend_entries_by_row(handle_by_chip, legend_chip_order, 2)
+    ax.legend(*legend_args, loc="best", framealpha=0.9, ncol=2,
+              fontsize=_legend_fontsize())
 
     plt.tight_layout()
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -881,13 +1062,18 @@ def main() -> None:
         OUTPUT_DIR / "alisson72_74_It_corrected_overlay_pair_panels.pdf",
         field="i_corr_uA",
         ylabel=r"$I_{\mathrm{corr}}\ (\mu\mathrm{A})$",
-        plot_start=40.0,
+        plot_start=50.0,
         show_titles=False,
         panel_letters=["a", "b"],
         share_y=False,
-        box_aspect=6.0 / 7.0,  # 7:6 (width:height) panels
+        box_aspect=1.0,  # square panels
         legend_columnspacing=0.8,  # default is 2.0 font-size units
         legend_below=True,
+        legend_below_ncol=5,  # 10 wavelengths -> 2 rows
+        # Same neutral gray as the LED-on bands in
+        # scripts/power_sweeps/plot_it_sequential_and_powerlaw_67_75may14_365nm.py
+        light_span_color="0.7",
+        legend_below_pad=-0.01,  # negative: tuck it up closer to the x labels
     )
 
     plot_photoresponse_vs_wl(
@@ -941,6 +1127,7 @@ def main() -> None:
         OUTPUT_DIR
         / "alisson67_72_74_75_80_81_responsivity_vs_wl_80remeasured_2026-07-01.pdf",
         chips=all_chips,
+        legend_chip_order=LEGEND_ROW_ORDER,
     )
     plot_responsivity_vs_wl(
         traces_by_chip_v2,
@@ -948,6 +1135,7 @@ def main() -> None:
         OUTPUT_DIR
         / "alisson67_72_74_75_80_81_responsivity_vs_wl_80remeasured_2026-07-01.png",
         chips=all_chips,
+        legend_chip_order=LEGEND_ROW_ORDER,
     )
     plot_responsivity_vs_wl(
         traces_by_chip_v2,
@@ -956,6 +1144,7 @@ def main() -> None:
         / "alisson67_72_74_75_80_81_responsivity_vs_wl_semilogy_80remeasured_2026-07-01.pdf",
         chips=all_chips,
         logy=True,
+        legend_chip_order=LEGEND_ROW_ORDER,
     )
     # 4:3 (horizontal:vertical) aspect-ratio variant of the linear plot.
     plot_responsivity_vs_wl(
@@ -965,6 +1154,52 @@ def main() -> None:
         / "alisson67_72_74_75_80_81_responsivity_vs_wl_80remeasured_2026-07-01_4x3.pdf",
         chips=all_chips,
         box_aspect=3.0 / 4.0,
+        legend_chip_order=LEGEND_ROW_ORDER,
+    )
+    # Plotted values as a table, alongside the figure.
+    write_responsivity_csv(
+        traces_by_chip_v2,
+        OUTPUT_DIR
+        / "alisson67_72_74_75_80_81_responsivity_vs_wl_80remeasured_2026-07-01.csv",
+        chips=all_chips,
+    )
+    # Photocurrent twin of the same figure: |I_ph| instead of R, same chips,
+    # same chip-80 re-measured traces.
+    plot_photoresponse_vs_wl(
+        traces_by_chip_v2,
+        config,
+        OUTPUT_DIR
+        / "alisson67_72_74_75_80_81_photocurrent_vs_wl_80remeasured_2026-07-01.pdf",
+        chips=all_chips,
+        ylabel=r"$|I_{ph}|\ (\mu\mathrm{A})$",
+        legend_chip_order=LEGEND_ROW_ORDER,
+    )
+    # 4:3 R panel carrying a square (1:1) |I_ph| inset over 365-505 nm.
+    plot_responsivity_vs_wl(
+        traces_by_chip_v2,
+        config,
+        OUTPUT_DIR
+        / "alisson67_72_74_75_80_81_responsivity_vs_wl_80remeasured_2026-07-01"
+          "_4x3_iph_inset.pdf",
+        chips=all_chips,
+        box_aspect=3.0 / 4.0,
+        legend_chip_order=LEGEND_ROW_ORDER,
+        iph_inset=True,
+        legend_loc="upper left",  # inset owns the upper right
+        # Dropped just below the chip-74 peak so the legend clears its marker.
+        legend_bbox_to_anchor=(0.10, 0.93),
+        legend_fontsize_extra=2.0,
+    )
+    # 4:3 (horizontal:vertical) aspect-ratio variant of the photocurrent plot.
+    plot_photoresponse_vs_wl(
+        traces_by_chip_v2,
+        config,
+        OUTPUT_DIR
+        / "alisson67_72_74_75_80_81_photocurrent_vs_wl_80remeasured_2026-07-01_4x3.pdf",
+        chips=all_chips,
+        ylabel=r"$|I_{ph}|\ (\mu\mathrm{A})$",
+        box_aspect=3.0 / 4.0,
+        legend_chip_order=LEGEND_ROW_ORDER,
     )
 
     # Chip-80 It corrected overlay for the re-measured data (single chip only).

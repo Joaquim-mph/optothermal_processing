@@ -10,11 +10,7 @@ from typing import Any, Dict, List, Optional
 import numpy as np
 import polars as pl
 
-from src.derived.algorithms.linear_fit import fit_linear, linear_model
-from src.derived.algorithms.stretched_exponential import (
-    fit_stretched_exponential,
-    stretched_exponential,
-)
+from src.derived.algorithms.drift_correction import fit_drift_baseline
 from src.models.derived_metrics import DerivedMetric, MetricCategory
 
 from .base import MetricExtractor
@@ -80,36 +76,29 @@ class CorrectedDeltaIExtractor(MetricExtractor):
         t = t[finite]
         i = i[finite]
 
-        mask = (t >= self.fit_t_start) & (t <= self.fit_t_end)
-        if mask.size:
-            mask[0] = False  # always exclude first sample (acquisition artifact)
-        if mask.sum() < 10:
-            return self._failure(metadata, flags="INSUFFICIENT_FIT_POINTS")
-
         try:
-            if self.model == "stretched_exponential":
-                fit = fit_stretched_exponential(t[mask], i[mask])
-                fit_full = stretched_exponential(
-                    t, fit["baseline"], fit["amplitude"], fit["tau"], fit["beta"]
-                )
-                fit_params = {
-                    "baseline": fit["baseline"],
-                    "amplitude": fit["amplitude"],
-                    "tau": fit["tau"],
-                    "beta": fit["beta"],
-                }
-                converged = bool(fit["converged"])
-                r_squared = float(fit["r_squared"])
-            else:
-                fit = fit_linear(t[mask], i[mask])
-                fit_full = linear_model(t, fit["slope"], fit["intercept"])
-                fit_params = {"slope": fit["slope"], "intercept": fit["intercept"]}
-                converged = True
-                r_squared = float(fit["r_squared"])
-        except (ValueError, RuntimeError) as exc:
+            drift = fit_drift_baseline(
+                t,
+                i,
+                model=self.model,
+                fit_t_start=self.fit_t_start,
+                fit_t_end=self.fit_t_end,
+            )
+        except ValueError as exc:
+            if "insufficient fit points" in str(exc):
+                return self._failure(metadata, flags="INSUFFICIENT_FIT_POINTS")
             logger.debug(f"{self.metric_name} fit failed: {exc}",
                          extra={"run_id": metadata.get("run_id")})
             return self._failure(metadata, flags="FIT_FAILED")
+        except RuntimeError as exc:
+            logger.debug(f"{self.metric_name} fit failed: {exc}",
+                         extra={"run_id": metadata.get("run_id")})
+            return self._failure(metadata, flags="FIT_FAILED")
+
+        fit_full = drift["fit_full"]
+        fit_params = drift["fit_params"]
+        converged = drift["converged"]
+        r_squared = drift["r_squared"]
 
         i_corrected = i - fit_full
 

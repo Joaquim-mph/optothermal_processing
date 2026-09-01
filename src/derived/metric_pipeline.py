@@ -193,6 +193,8 @@ class MetricPipeline:
             MobilityExtractor(branch="electrons", direction="average"),
             ITSRiseFallExtractor(mode="rise"),
             ITSRiseFallExtractor(mode="fall"),
+            ITSRiseFallExtractor(mode="rise", corrected=True),
+            ITSRiseFallExtractor(mode="fall", corrected=True),
         ]
 
     def _default_pairwise_extractors(self) -> List[PairwiseMetricExtractor]:

@@ -784,6 +784,8 @@ def main() -> None:
         ),
         x_mode="irradiance",
     )
+    # Same panel c as the ..._irradiance_inset composite (linear-scale inset,
+    # labelled 0.2/2/20 ticks, same legend), with the LED-on annotations on.
     build_figure(
         config,
         histories,
@@ -793,6 +795,8 @@ def main() -> None:
             "Alisson67_75may14_It_sequential_holes_and_powerlaw_365nm_led_irradiance"
         ),
         x_mode="irradiance",
+        powerlaw_y_ticks=[0.2, 2, 20],
+        powerlaw_linear_inset=True,
     )
     # Same composite as ..._365nm_irradiance, but panel c carries a linear-scale
     # inset (same points + fits) and labelled 0.2/2/20 ticks in place of 10^n.

@@ -8,6 +8,14 @@ Chips / fixed gate voltage (all 365 nm, powers 6, 12, 18, 24 µW):
     75  Vg = -0.5  V
     76  Vg = -0.7  V
     72  Vg = -0.35 V
+    80  Vg = -1.2  V
+    67  Vg = -0.4  V  (2025-10-14 session, seq 41-44 -- see CHIPS)
+
+Chip 67 has no 2026-05-14 sweep, so its holes branch is taken from the
+2025-10-14 session used by
+scripts/power_sweeps/plot_it_sequential_and_powerlaw_67_75_365nm.py. The LED
+powers there are the same 6/12/18/24 µW, so the points land at the same
+irradiance as every other chip on the comparison figures.
 
 Correction: stretched-exponential fit on t ∈ [1, 60] s subtracted from the
 trace. The photoresponse Δi_corrected is the peak drift-corrected deviation
@@ -152,6 +160,10 @@ def label_for_chip(
 
 
 # history_chip: which Alisson{N}_history.parquet to read from (defaults to chip).
+# date: measurement date to select (defaults to DATE, the 2026-05-14 session).
+#       Chip 67 has no 2026-05-14 sweep, so it is pulled from its own session.
+# seqs: explicit sequential numbers, when the date + Vg filter alone is not
+#       enough to pin down the four-power sweep.
 # vg_filter: required vg_fixed_v value to disambiguate when multiple Vg sweeps
 #            exist on the same date.
 # gamma_anchor: "left" (default, leftmost point) or "right" (rightmost point).
@@ -214,6 +226,20 @@ CHIPS: list[dict] = [
         "color": "#ff7f00",
         "marker": "v",
     },
+    # hBN reference from the 2025-10-14 session (same LED powers, 6/12/18/24 µW,
+    # hence the same irradiance as the 2026-05-14 chips). Traces and selection
+    # match the holes branch of
+    # scripts/power_sweeps/plot_it_sequential_and_powerlaw_67_75_365nm.py; the
+    # drift correction here is this script's own (FIT_T_START = 1 s), so every
+    # chip on the comparison figures is corrected the same way.
+    {
+        "chip": 67,
+        "date": "2025-10-14",
+        "seqs": [41, 42, 43, 44],
+        "vg_filter": -0.4,
+        "color": "#f781bf",
+        "marker": "X",
+    },
 ]
 
 _EXTRACTORS: dict[float, CorrectedDeltaIExtractor] = {}
@@ -261,13 +287,21 @@ def delta_i_for_row(row: dict, fit_t_start: float) -> float | None:
     return v if np.isfinite(v) else None
 
 
+def date_for_chip(chip: dict) -> str:
+    """Measurement date for this chip (chips without a 2026-05-14 sweep set it)."""
+    return str(chip.get("date", DATE))
+
+
 def rows_for_chip(hist: pl.DataFrame, chip: dict) -> pl.DataFrame:
     flt = (
-        (pl.col("date") == DATE)
+        (pl.col("date") == date_for_chip(chip))
         & (pl.col("proc") == "It")
         & (pl.col("has_light"))
         & (pl.col("wavelength_nm") == WAVELENGTH_NM)
     )
+    seqs = chip.get("seqs")
+    if seqs:
+        flt = flt & (pl.col("seq").is_in(seqs))
     vg = chip.get("vg_filter")
     if vg is not None:
         flt = flt & (pl.col("vg_fixed_v") == vg)
@@ -466,7 +500,8 @@ def plot_it_overlay(config: PlotConfig, hist: pl.DataFrame, chip: dict) -> None:
     plt.tight_layout()
 
     filename = (
-        f"Alisson{chip['chip']}_It_sequential_with_overlay_{DATE}_365nm.{config.format}"
+        f"Alisson{chip['chip']}_It_sequential_with_overlay_"
+        f"{date_for_chip(chip)}_365nm.{config.format}"
     )
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     out = OUTPUT_DIR / filename
@@ -545,7 +580,8 @@ def plot_corrected_overlay_full(
     plt.tight_layout()
 
     filename = (
-        f"Alisson{chip['chip']}_It_corrected_overlay_full_{DATE}_365nm.{config.format}"
+        f"Alisson{chip['chip']}_It_corrected_overlay_full_"
+        f"{date_for_chip(chip)}_365nm.{config.format}"
     )
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     out = OUTPUT_DIR / filename
@@ -590,7 +626,10 @@ def plot_photoresponse_vs_power(
         f"|Δi|=[{di.min():.3g},{di.max():.3g}] µA  γ={gamma:.3f}"
     )
 
-    filename = f"Alisson{chip['chip']}_photoresponse_vs_power_semilogy_{DATE}_365nm.{config.format}"
+    filename = (
+        f"Alisson{chip['chip']}_photoresponse_vs_power_semilogy_"
+        f"{date_for_chip(chip)}_365nm.{config.format}"
+    )
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     out = OUTPUT_DIR / filename
     plt.savefig(out, dpi=config.dpi, bbox_inches="tight")
@@ -682,8 +721,8 @@ def plot_responsivity_vs_power(
 
     x_tag = "power" if x_mode == "irradiance" else "led_power"
     filename = (
-        f"Alisson{chip['chip']}_responsivity_vs_{x_tag}_semilogy_{DATE}_365nm."
-        f"{config.format}"
+        f"Alisson{chip['chip']}_responsivity_vs_{x_tag}_semilogy_"
+        f"{date_for_chip(chip)}_365nm.{config.format}"
     )
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     out = OUTPUT_DIR / filename
@@ -726,8 +765,12 @@ def plot_comparison(
     ax.set_ylabel(r"$|\Delta i_{\mathrm{corr}}|$ ($\mu$A)")
     ax.set_xticks([6, 12, 18, 24])
     ax.set_xticklabels(["6", "12", "18", "24"])
-    ax.set_yticks([5, 10, 20, 40])
-    ax.set_yticklabels(["5", "10", "20", "40"])
+    # 1-2-5 decade steps: chip 67 sits ~2 decades below the 2026-05-14 chips,
+    # so the range spans more than the original 5-40 µA. Ticks outside the data
+    # range are simply not drawn.
+    _yt = [0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 40]
+    ax.set_yticks(_yt)
+    ax.set_yticklabels([f"{v:g}" for v in _yt])
     ax.yaxis.set_minor_locator(plt.NullLocator())
     ax.legend(loc="best", framealpha=0.9)
 

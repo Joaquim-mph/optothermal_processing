@@ -199,6 +199,37 @@ def plot_panel(
     )
 
 
+def scaled_tick(exponent: int | None):
+    """Tick formatter that divides out a common power of ten.
+
+    With ``exponent=3`` the decade ticks read 0.1, 1, 10 instead of 1e2, 1e3,
+    1e4; the shared "e3" is written once above the axis by ``annotate_exponent``.
+    ``None`` leaves the values as they are.
+    """
+
+    def fmt(value: float, _pos: int | None = None) -> str:
+        if exponent is None:
+            return f"{value:g}"
+        return f"{round(value / 10.0**exponent, 6):g}"
+
+    return mpl.ticker.FuncFormatter(fmt)
+
+
+def annotate_exponent(ax: plt.Axes, exponent: int) -> None:
+    """The factored-out decade, written above the top of the y axis."""
+    # Just inside the left spine, matplotlib's usual offset-text spot; anchoring
+    # it outside instead would crowd the panel letter.
+    ax.text(
+        0.01,
+        1.01,
+        f"e{exponent}",
+        transform=ax.transAxes,
+        ha="left",
+        va="bottom",
+        fontsize=mpl.rcParams["ytick.labelsize"],
+    )
+
+
 def annotate_panel_letter(ax: plt.Axes, letter: str) -> None:
     """Bold panel letter outside the axes, above the y-axis label."""
     ax.text(
@@ -213,7 +244,9 @@ def annotate_panel_letter(ax: plt.Axes, letter: str) -> None:
     )
 
 
-def build_figure(config: PlotConfig, quantity: str, filename: str) -> None:
+def build_figure(
+    config: PlotConfig, quantity: str, filename: str, y_exponent: int | None = None
+) -> None:
     # 34 x 20. At 1:1 box aspect the panel size is capped by the figure height,
     # but tight_layout counts each panel's legend as part of that panel, and the
     # two-column legend is wider than the box -- so narrowing the figure to close
@@ -248,7 +281,9 @@ def build_figure(config: PlotConfig, quantity: str, filename: str) -> None:
         mpl.ticker.LogLocator(base=10.0, subs=(1.0, 2.0, 5.0))
     )
     axes[0].yaxis.set_minor_locator(plt.NullLocator())
-    axes[0].yaxis.set_major_formatter(mpl.ticker.FuncFormatter(lambda v, _p: f"{v:g}"))
+    axes[0].yaxis.set_major_formatter(scaled_tick(y_exponent))
+    if y_exponent is not None:
+        annotate_exponent(axes[0], y_exponent)
 
     plt.tight_layout()
     out = config.get_output_path(filename, create_dirs=True)
@@ -271,10 +306,12 @@ def main() -> None:
         quantity="photoresponse",
         filename="photoresponse_vs_irradiance_regimes_1x2_365nm",
     )
+    # R spans 1e2-2e4 A/W, so the shared e3 is factored out of the tick labels.
     build_figure(
         config,
         quantity="responsivity",
         filename="responsivity_vs_irradiance_regimes_1x2_365nm",
+        y_exponent=3,
     )
 
 

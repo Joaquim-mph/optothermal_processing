@@ -112,6 +112,8 @@ class ChipCurves:
     vds_v: float
     # direction -> (vg ascending, I in A, gm = dI/dVg in S)
     legs: dict[str, tuple[np.ndarray, np.ndarray, np.ndarray]]
+    # direction -> CNP voltage (V)
+    cnps: dict[str, float]
     # mu_cm2 = mu_factor * |gm|;  None when the chip stack is unknown.
     mu_factor: float | None
 
@@ -165,14 +167,17 @@ def load_chip(chip_number: int, encap_cfg) -> ChipCurves | None:
     i = df["I (A)"].to_numpy()
 
     legs: dict[str, tuple[np.ndarray, np.ndarray, np.ndarray]] = {}
+    cnps: dict[str, float] = {}
     for vg_leg, i_leg, direction in split_full_range_legs(vg, i):
         # peak_gm_on_leg sorts the leg ascending and runs the same Sav-Gol
         # derivative the mobility extractor uses, so the curves below and
         # the pipeline's peak-mobility metrics come from identical gm.
-        *_, vg_s, i_s, gm, _cnp = peak_gm_on_leg(vg_leg, i_leg)
+        *_, vg_s, i_s, gm, cnp = peak_gm_on_leg(vg_leg, i_leg)
         if gm.size == 0:
             continue
         legs[direction] = (vg_s, i_s, gm)
+        if cnp is not None and np.isfinite(cnp):
+            cnps[direction] = float(cnp)
     if not legs:
         print(
             f"[warn] Alisson{chip_number} seq {row['seq']}: sweep is not a full "
@@ -206,6 +211,7 @@ def load_chip(chip_number: int, encap_cfg) -> ChipCurves | None:
         date=str(row["date"]),
         vds_v=float(vds) if vds is not None else float("nan"),
         legs=legs,
+        cnps=cnps,
         mu_factor=mu_factor,
     )
     print(
@@ -334,6 +340,16 @@ def _save(fig, config: PlotConfig, filename: str) -> None:
     print(f"saved {out}")
 
 
+def _share_y(ax_left, ax_right) -> None:
+    """Unify y-limits and hide the right panel's y-axis labels."""
+    y0 = min(ax_left.get_ylim()[0], ax_right.get_ylim()[0])
+    y1 = max(ax_left.get_ylim()[1], ax_right.get_ylim()[1])
+    ax_left.set_ylim(y0, y1)
+    ax_right.set_ylim(y0, y1)
+    ax_right.set_ylabel("")
+    ax_right.tick_params(labelleft=False)
+
+
 def plot_transfer_mobility_2x2(
     left: list[ChipCurves], right: list[ChipCurves], config: PlotConfig
 ) -> None:
@@ -344,6 +360,8 @@ def plot_transfer_mobility_2x2(
     draw_transfer_panel(axes[0, 1], right)
     draw_mobility_panel(axes[1, 0], left)
     draw_mobility_panel(axes[1, 1], right)
+
+    _share_y(axes[1, 0], axes[1, 1])
 
     _annotate_panel_letters(axes, ["a", "b", "c", "d"])
     fig.tight_layout()
@@ -370,9 +388,104 @@ def plot_mobility_1x2(
     draw_mobility_panel(axes[0], left, box_aspect=3 / 4)
     draw_mobility_panel(axes[1], right, box_aspect=3 / 4)
 
+    _share_y(axes[0], axes[1])
+
     _annotate_panel_letters(axes, ["a", "b"])
     fig.tight_layout()
     _save(fig, config, "first_IVg_mobility_1x2.pdf")
+
+
+def _chip_table_row(chip: ChipCurves) -> tuple[float, float, float, float] | None:
+    """Return (V_CNP_avg, delta_V_CNP, mu_h_avg, mu_e_avg) or None."""
+    if chip.mu_factor is None:
+        return None
+    cnp_f = chip.cnps.get("forward")
+    cnp_b = chip.cnps.get("backward")
+    if cnp_f is None or cnp_b is None:
+        return None
+
+    v_cnp = (cnp_f + cnp_b) / 2
+    dv_cnp = abs(cnp_f - cnp_b)
+
+    mu_vals: dict[str, tuple[float, float]] = {}
+    for direction in ("forward", "backward"):
+        leg = chip.legs.get(direction)
+        if leg is None:
+            continue
+        _vg, _i, gm = leg
+        mu = chip.mu_factor * gm * 1e-4
+        mu_vals[direction] = (abs(float(np.min(mu))), float(np.max(mu)))
+
+    if not mu_vals:
+        return None
+    mu_h = np.mean([v[0] for v in mu_vals.values()])
+    mu_e = np.mean([v[1] for v in mu_vals.values()])
+    return v_cnp, dv_cnp, float(mu_h), float(mu_e)
+
+
+def write_mobility_table(
+    left: list[ChipCurves], right: list[ChipCurves]
+) -> None:
+    """Write a LaTeX table matching the publication format."""
+
+    def _group_rows(chips: list[ChipCurves], material: str) -> list[str]:
+        sorted_chips = sorted(chips, key=lambda c: c.chip_number)
+        lines: list[str] = []
+        for i, chip in enumerate(sorted_chips):
+            vals = _chip_table_row(chip)
+            if vals is None:
+                continue
+            v_cnp, dv_cnp, mu_h, mu_e = vals
+            prefix = f"\\multirow{{{len(sorted_chips)}}}{{*}}{{{material}}}" if i == 0 else ""
+            lines.append(
+                f"        {prefix}\n"
+                f"        & {chip.chip_number}"
+                f" & {v_cnp:.2f}"
+                f" & {dv_cnp:.2f}"
+                f" & {mu_h:.2f} & {mu_e:.2f} \\\\"
+            )
+        return lines
+
+    hbn_rows = _group_rows(left, "hBN")
+    bio_rows = _group_rows(right, "biotite")
+
+    tex = r"""\begin{table}[h!]
+    \centering
+    \caption{
+        Transport parameters extracted from the initial transfer curves.
+        $V_{\mathrm{CNP}}$ is the average of the CNP voltages
+        obtained from the forward and reverse sweeps,
+        and $\Delta V_{\mathrm{CNP}}$ is their difference.
+        The hole and electron field-effect mobilities,
+        $\mu_h$ and $\mu_e$, are averaged over the two sweep directions.
+    }
+    \label{tab:extracted_params}
+    \begin{tabular}{ l c c c c c}
+        \toprule
+        \textbf{Back-gate material}
+        & \textbf{Device ID}
+        & {\textbf{\boldmath $V_{\mathrm{CNP}}$ (\unit{\volt})}}
+        & {\textbf{\boldmath $\Delta V_{\mathrm{CNP}}$ (\unit{\volt})}}
+        & \multicolumn{2}{c}{%
+            \textbf{\boldmath $\mu$
+            ($10^{4}$~\unit{\centi\meter\squared\per\volt\per\second})}
+        } \\
+        \cmidrule(lr){5-6}
+        & & {} & {} & {\textbf{\boldmath $\mu_h$}} & {\textbf{\boldmath $\mu_e$}} \\
+        \midrule
+
+"""
+    tex += "\n".join(hbn_rows) + "\n\n        \\midrule\n\n"
+    tex += "\n".join(bio_rows) + "\n\n"
+    tex += r"""        \bottomrule
+    \end{tabular}
+\end{table}
+"""
+
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    out = OUTPUT_DIR / "first_IVg_mobility_table.tex"
+    out.write_text(tex)
+    print(f"saved {out}")
 
 
 def main() -> None:
@@ -390,6 +503,7 @@ def main() -> None:
     plot_transfer_mobility_2x2(left, right, config)
     plot_transfer_1x2(left, right, config)
     plot_mobility_1x2(left, right, config)
+    write_mobility_table(left, right)
 
 
 if __name__ == "__main__":

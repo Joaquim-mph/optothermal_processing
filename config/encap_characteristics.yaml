@@ -45,7 +45,7 @@ materials:
   hBN:
     epsilon_r_range: [3.3, 3.7]
   biotite:
-    epsilon_r_range: [5, 6]
+    epsilon_r_range: [5.7, 6.3]
 
 # ── Per-chip stack ─────────────────────────────────────────────────────
 # hBN bottom layer

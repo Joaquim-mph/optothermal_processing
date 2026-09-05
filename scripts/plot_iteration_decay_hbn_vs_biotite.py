@@ -6,21 +6,16 @@ replicates on hBN devices -- |I_ph| collapses monotonically as the trap
 population fills. Biotite devices do not show this. All clusters compared
 here sit at P ~ 6 uW (Phi ~ 60 W/m^2).
 
-Two measurement protocols are kept in separate figures throughout:
+Figures are grouped by wavelength (all in figs/iteration_decay_hbn_vs_biotite/):
 
-    "Vg held"  (lambda = 455 nm) -- gate left biased between iterations
-    "Vg reset" (lambda = 365 nm) -- gate returned to 0 V between iterations
-
-Figures (all in figs/iteration_decay_hbn_vs_biotite/):
-
-  iteration_photocurrent_vg_hold_455nm.pdf    |I_ph| (uA) vs iteration
-  iteration_photocurrent_vg_reset_365nm.pdf
-  iteration_responsivity_vg_hold_455nm.pdf    |R| (A/W) vs iteration
-  iteration_responsivity_vg_reset_365nm.pdf
-  it_corrected_overlay_vg_hold_455nm.pdf      I_corr(t), all 7 iterations
-  it_corrected_overlay_vg_reset_365nm.pdf
-  it_sequential_vg_hold_455nm.pdf             raw I_ds(t), segments stitched
-  it_sequential_vg_reset_365nm.pdf
+  iteration_photocurrent_455nm.pdf    |I_ph| (uA) vs iteration
+  iteration_photocurrent_365nm.pdf
+  iteration_responsivity_455nm.pdf    |R| (A/W) vs iteration
+  iteration_responsivity_365nm.pdf
+  it_corrected_overlay_455nm.pdf      I_corr(t), all 7 iterations
+  it_corrected_overlay_365nm.pdf
+  it_sequential_455nm.pdf             raw I_ds(t), segments stitched
+  it_sequential_365nm.pdf
   it_sequential_with_overlay_inset_*.pdf      the same, plus an overlay inset
 
 Responsivity is R = I_ph / P_device, with P_device = P_beam * (A_flake /
@@ -136,32 +131,31 @@ CLUSTERS: list[dict] = [
         "date": "2026-08-28",
         "wavelength_nm": 365.0,
         "laser_voltage_v": 3.8,
-        "protocol": "reset",
         "vg_v": -0.5,
         "seqs": [196, 197, 198, 199, 200, 201, 202],
         "color": HBN_COLOR,
         "marker": "o",
         "linestyle": "-",
-        "inset_bbox": [0.5, 0.36, 0.40, 0.40],
+        "inset_bbox": [0.55, 0.52, 0.40, 0.40],
     },
     {
-        "chip": 75,
-        "date": "2026-07-08",
+        "chip": 74,
+        "date": "2026-09-03",
         "wavelength_nm": 365.0,
-        "laser_voltage_v": 1.06,
-        "protocol": "reset",
-        "vg_v": -1.0,
-        "seqs": [200, 201, 202, 203, 204, 205, 206],
+        "laser_voltage_v": 2.75,
+        "vg_v": -0.4,
+        # seq 127 (the 8th run) dropped so every cluster has 7 iterations.
+        "seqs": [120, 121, 122, 123, 124, 125, 126],
         "color": BIOTITE_COLOR,
         "marker": "o",
         "linestyle": "-",
+        "inset_bbox": [0.55, 0.52, 0.40, 0.40],
     },
     {
         "chip": 81,
         "date": "2025-10-28",
         "wavelength_nm": 455.0,
         "laser_voltage_v": 1.25,
-        "protocol": "hold",
         "vg_v": -1.7,
         # seq 139 (the 8th run) dropped so every cluster has 7 iterations.
         "seqs": [132, 133, 134, 135, 136, 137, 138],
@@ -174,7 +168,6 @@ CLUSTERS: list[dict] = [
         "date": "2026-08-28",
         "wavelength_nm": 455.0,
         "laser_voltage_v": 1.18,
-        "protocol": "hold",
         "vg_v": -0.4,
         "seqs": [229, 230, 231, 232, 233, 234, 235],
         "color": BIOTITE_COLOR,
@@ -183,10 +176,7 @@ CLUSTERS: list[dict] = [
     },
 ]
 
-PROTOCOLS: dict[str, dict] = {
-    "hold": {"label": r"$V_g$ held", "wavelength_nm": 455, "stem": "vg_hold_455nm"},
-    "reset": {"label": r"$V_g$ reset", "wavelength_nm": 365, "stem": "vg_reset_365nm"},
-}
+WAVELENGTHS: list[float] = [365.0, 455.0]
 
 
 def _encap() -> dict:
@@ -415,9 +405,9 @@ def _plot_points(
     )
 
 
-def figure_iteration(config: PlotConfig, protocol: str, quantity: str) -> None:
-    """|I_ph| (uA) or |R| (A/W) vs iteration index, one protocol per figure."""
-    clusters = [c for c in CLUSTERS if c["protocol"] == protocol]
+def figure_iteration(config: PlotConfig, wavelength_nm: float, quantity: str) -> None:
+    """|I_ph| (uA) or |R| (A/W) vs iteration index, one wavelength per figure."""
+    clusters = [c for c in CLUSTERS if c["wavelength_nm"] == wavelength_nm]
     fig, ax = plt.subplots(figsize=(20, 20))
 
     n_max = 0
@@ -450,12 +440,54 @@ def figure_iteration(config: PlotConfig, protocol: str, quantity: str) -> None:
 
     plt.tight_layout()
     stem = "responsivity" if quantity == "responsivity" else "photocurrent"
-    _save(fig, config, f"iteration_{stem}_{PROTOCOLS[protocol]['stem']}")
+    _save(fig, config, f"iteration_{stem}_{int(wavelength_nm)}nm")
 
 
-def figure_overlay(config: PlotConfig, protocol: str) -> None:
+def figure_normalized(config: PlotConfig) -> None:
+    """Normalized |I_ph| / |I_ph(1)| vs iteration, all 4 clusters on one axes."""
+    box_aspect = 3.0 / 4.0
+    side = float(config.figsize_timeseries[1])
+    fig, ax = plt.subplots(figsize=(side / box_aspect, side))
+
+    wl_markers = {365.0: "o", 455.0: "D"}
+    wl_linestyles = {365.0: "-", 455.0: "--"}
+    n_max = 0
+    for cluster in CLUSTERS:
+        idx, di_a, _ = cluster_series(cluster)
+        if di_a.size == 0:
+            continue
+        n_max = max(n_max, idx.size)
+        y = np.abs(di_a)
+        y = y / y[0]
+
+        wl = int(cluster["wavelength_nm"])
+        label = rf"{cluster_label(cluster)}, {wl} nm"
+        ax.plot(
+            idx,
+            y,
+            marker=wl_markers.get(cluster["wavelength_nm"], "o"),
+            markersize=MARKER_SIZE,
+            linestyle=wl_linestyles.get(cluster["wavelength_nm"], "-"),
+            linewidth=LINE_WIDTH,
+            color=cluster["color"],
+            label=label,
+        )
+
+    ax.set_xlabel("Iteration index")
+    ax.set_ylabel(r"Retained $|I_{ph}|$")
+    ax.set_xticks(np.arange(1, n_max + 1))
+    ax.set_ylim(0, 1.1)
+    ax.set_box_aspect(box_aspect)
+    legend_fs = _legend_fontsize() - LEGEND_FONTSIZE_BUMP + 2.0
+    ax.legend(loc="best", fontsize=legend_fs, framealpha=LEGEND_FRAMEALPHA)
+
+    plt.tight_layout()
+    _save(fig, config, "iteration_photocurrent_normalized")
+
+
+def figure_overlay(config: PlotConfig, wavelength_nm: float) -> None:
     """Drift-corrected I(t), all iterations overlaid, colored by iteration."""
-    clusters = [c for c in CLUSTERS if c["protocol"] == protocol]
+    clusters = [c for c in CLUSTERS if c["wavelength_nm"] == wavelength_nm]
     fig, axes = plt.subplots(1, len(clusters), figsize=(20 * len(clusters), 20))
     axes = np.atleast_1d(axes)
     cmap = mpl.colormaps["viridis"]
@@ -512,17 +544,17 @@ def figure_overlay(config: PlotConfig, protocol: str) -> None:
         )
 
     plt.tight_layout()
-    _save(fig, config, f"it_corrected_overlay_{PROTOCOLS[protocol]['stem']}")
+    _save(fig, config, f"it_corrected_overlay_{int(wavelength_nm)}nm")
 
 
-def figure_sequential(config: PlotConfig, protocol: str, inset: bool = False) -> None:
+def figure_sequential(config: PlotConfig, wavelength_nm: float, inset: bool = False) -> None:
     """Raw I_ds(t) with each cluster's It segments stitched end to end.
 
     With inset=True each panel also carries a small drift-corrected overlay
     (the same traces as figure_overlay), following the inset convention of
     scripts/plot_iteration_It_overlays_alisson81.py.
     """
-    clusters = [c for c in CLUSTERS if c["protocol"] == protocol]
+    clusters = [c for c in CLUSTERS if c["wavelength_nm"] == wavelength_nm]
     fig, axes = plt.subplots(1, len(clusters), figsize=(20 * len(clusters), 20))
     axes = np.atleast_1d(axes)
 
@@ -575,7 +607,7 @@ def figure_sequential(config: PlotConfig, protocol: str, inset: bool = False) ->
 
     plt.tight_layout()
     stem = "it_sequential" + ("_with_overlay_inset" if inset else "")
-    _save(fig, config, f"{stem}_{PROTOCOLS[protocol]['stem']}")
+    _save(fig, config, f"{stem}_{int(wavelength_nm)}nm")
 
 
 def _overlay_inset(ax, cluster: dict, config: PlotConfig) -> None:
@@ -630,13 +662,16 @@ def main() -> None:
     config = PlotConfig()
     set_plot_style(config.theme)
 
-    for protocol, meta in PROTOCOLS.items():
-        print(f"\n{meta['label']} — {meta['wavelength_nm']} nm")
+    print("\nNormalized decay")
+    figure_normalized(config)
+
+    for wl in WAVELENGTHS:
+        print(f"\n{int(wl)} nm")
         for quantity in ("photocurrent", "responsivity"):
-            figure_iteration(config, protocol, quantity)
-        figure_overlay(config, protocol)
-        figure_sequential(config, protocol)
-        figure_sequential(config, protocol, inset=True)
+            figure_iteration(config, wl, quantity)
+        figure_overlay(config, wl)
+        figure_sequential(config, wl)
+        figure_sequential(config, wl, inset=True)
 
 
 if __name__ == "__main__":

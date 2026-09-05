@@ -110,6 +110,10 @@ EXCLUDE_MONTHS = ("2026-08",)
 
 # Individual (chip, date) sessions dropped because the *device*, not the fit,
 # misbehaved -- these pass every structural check, so nothing else catches them.
+#   (74, 2026-05-25): 7 sweeps (6 full + 1 partial) with CNP shifted to
+#     -1.84 .. -1.11 V, drifting back toward zero over the session. Both chips
+#     73 and 74 were measured that day and both showed anomalous negative
+#     doping that later recovered -- likely a transient environmental artifact.
 #   (80, 2025-10-10): 3 sweeps whose gate modulation collapsed to on/off 2.33
 #     against 4.69-5.02 in every other chip-80 session at the same Vds, with
 #     I(0 V) doubled (76 uA vs 26-45) and I_max down to 92 uA (vs 119-126).
@@ -120,7 +124,7 @@ EXCLUDE_MONTHS = ("2026-08",)
 #     that fully recovers in three days is not credible.
 # Note the test has to be per chip: chip 72 runs at on/off ~2.8 throughout, so
 # an absolute modulation threshold would wrongly delete all of it.
-EXCLUDE_SESSIONS = ((80, "2025-10-10"),)
+EXCLUDE_SESSIONS = ((80, "2025-10-10"), (74, "2026-05-25"))
 
 LOCAL_TZ = "America/Santiago"
 

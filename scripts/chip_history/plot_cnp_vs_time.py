@@ -106,7 +106,7 @@ MIN_CONFIDENCE = 0.5
 
 # Sessions dropped wholesale, as "YYYY-MM". 2026-08 is chip 75's 2026-08-28
 # session, excluded by request.
-EXCLUDE_MONTHS = ("2026-08",)
+EXCLUDE_MONTHS = ("2026-08", "2026-09")
 
 # Individual (chip, date) sessions dropped because the *device*, not the fit,
 # misbehaved -- these pass every structural check, so nothing else catches them.
@@ -131,7 +131,7 @@ LOCAL_TZ = "America/Santiago"
 # Sized against the theme (font.size 35, lines.markersize 22): open markers a
 # little under the theme default, so the dense within-session clusters stay
 # resolvable rather than merging into a blob.
-MARKER_SIZE = 14.0
+MARKER_SIZE = 16.0
 MARKER_EDGE_WIDTH = 2.5
 ZERO_LINE_WIDTH = 2.0
 LEGEND_FONTSIZE_BUMP = 2.0

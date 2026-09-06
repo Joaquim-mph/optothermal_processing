@@ -131,7 +131,7 @@ def draw_broken(ax_left, ax_right, rows, specs) -> None:
     ax_left.set_ylabel(r"$V_{CNP}$ (V)")
     fig = ax_left.get_figure()
     fig.text(0.5, 0.0, "Date", ha="center", va="bottom",
-             fontsize=plt.rcParams["font.size"])
+             fontsize=plt.rcParams["axes.labelsize"])
     ax_left.legend(loc="best", framealpha=0.9, fontsize=_legend_fontsize())
 
 

@@ -59,6 +59,11 @@ DATASETS: list[Dataset] = [
         # disconnected. Use the redo triplets (136-138, 139-141).
         triplets=[(122, 123, 124), (125, 126, 127), (136, 137, 138), (139, 140, 141)],
     ),
+    Dataset(
+        chip_number=75,
+        date="2026-09-03",
+        triplets=[(237, 238, 239), (240, 241, 242), (243, 244, 245), (246, 247, 248)],
+    ),
 ]
 
 

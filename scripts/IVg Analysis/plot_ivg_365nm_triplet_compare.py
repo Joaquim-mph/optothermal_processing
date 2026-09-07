@@ -110,6 +110,17 @@ TRIPLETS: list[Triplet] = [
         inset2_vg=2.25,
         inset2_bbox=(0.7, 0.25, 0.2, 0.2),  # bottom-right
     ),
+    Triplet(
+        75,
+        "2026-09-03",
+        237,
+        238,
+        239,
+        inset_vg=-2.0,
+        inset_bbox=(0.12, 0.25, 0.2, 0.2),
+        inset2_vg=2.5,
+        inset2_bbox=(0.7, 0.25, 0.2, 0.2),
+    ),
 ]
 
 
@@ -1243,6 +1254,52 @@ def plot_chip_photocurrent_wavelength(
     print(f"saved {out}")
 
 
+def plot_chip_responsivity_wavelength(
+    chip_number: int, materials: dict[int, str], config: PlotConfig
+) -> None:
+    """Single-panel multi-wavelength responsivity overlay for one chip."""
+    if chip_number not in WAVELENGTH_TRIPLETS_BY_CHIP:
+        print(
+            f"[warn] no wavelength triplets configured for chip {chip_number}; "
+            "skipping standalone responsivity overlay"
+        )
+        return
+    areas = _device_areas_um2()
+    if chip_number not in areas:
+        print(
+            f"[warn] no flake_area_um2 for chip {chip_number}; "
+            "skipping standalone responsivity overlay"
+        )
+        return
+
+    wl_date, wl_triplets = WAVELENGTH_TRIPLETS_BY_CHIP[chip_number]
+
+    fig, ax = plt.subplots(figsize=(20, 20))
+    _draw_wavelength_photocurrent_overlay_on_ax(
+        ax,
+        chip_number,
+        wl_date,
+        wl_triplets,
+        show_legend=True,
+        responsivity=True,
+        device_area_um2=areas[chip_number],
+    )
+    fig.tight_layout()
+
+    filename = f"Alisson{chip_number}_IVg_responsivity_wavelength_{wl_date}"
+    out = config.get_output_path(
+        filename,
+        chip_number=chip_number,
+        procedure="IVg",
+        metadata={"has_light": True},
+        special_type="photocurrent",
+        create_dirs=True,
+    )
+    fig.savefig(out, dpi=config.dpi)
+    plt.close(fig)
+    print(f"saved {out}")
+
+
 def plot_74_72_photocurrent_wavelength_1x2(
     materials: dict[int, str], config: PlotConfig
 ) -> None:
@@ -1389,12 +1446,96 @@ def plot_74_72_photocurrent_gm_1x2(
     axes[1].tick_params(labelleft=False)
     axes[1].set_ylabel("")
 
-    # Panel a keeps its y tick labels, so its letter needs more clearance;
-    # panel b has none and sits close to a, so its letter hugs its own spine.
     _annotate_panel_letters(axes, ["a", "b"], x=[-0.20, -0.07])
     fig.tight_layout(w_pad=0.9)
 
     filename = f"Compare_IVg_photocurrent_gm_norm_1x2_7274_{WAVELENGTH_NM}nm"
+    out = config.get_output_path(
+        filename,
+        procedure="IVg",
+        metadata={"has_light": True},
+        special_type="photocurrent",
+        create_dirs=True,
+    )
+    fig.savefig(out, dpi=config.dpi)
+    plt.close(fig)
+    print(f"saved {out}")
+
+
+def plot_74_72_photocurrent_gm_1x2_square(
+    triplets: list[Triplet], materials: dict[int, str], config: PlotConfig
+) -> None:
+    """1x2 grid for chips 72 and 74 with square subplots: normalized 365 nm
+    photocurrent overlaid on normalized dark transconductance."""
+    by_chip = {t.chip_number: t for t in triplets}
+    chips = [72, 74]
+    missing = [c for c in chips if c not in by_chip]
+    if missing:
+        print(f"[warn] no {WAVELENGTH_NM} nm triplet for chips {missing}; skipping 1x2 square gm grid")
+        return
+
+    fig, axes = plt.subplots(1, 2, figsize=(32, 16), gridspec_kw={"wspace": 0.18})
+
+    for col, chip in enumerate(chips):
+        _draw_photocurrent_gm_on_ax(axes[col], by_chip[chip], show_legend=True)
+        axes[col].set_box_aspect(1)
+
+    y_lo = min(axes[0].get_ylim()[0], axes[1].get_ylim()[0])
+    y_hi = max(axes[0].get_ylim()[1], axes[1].get_ylim()[1])
+    for ax in axes:
+        ax.set_ylim(y_lo, y_hi)
+    axes[1].tick_params(labelleft=False)
+    axes[1].set_ylabel("")
+
+    _annotate_panel_letters(axes, ["a", "b"], x=[-0.20, -0.07])
+    fig.tight_layout(w_pad=0.9)
+
+    filename = f"Compare_IVg_photocurrent_gm_norm_1x2_sq_7274_{WAVELENGTH_NM}nm"
+    out = config.get_output_path(
+        filename,
+        procedure="IVg",
+        metadata={"has_light": True},
+        special_type="photocurrent",
+        create_dirs=True,
+    )
+    fig.savefig(out, dpi=config.dpi)
+    plt.close(fig)
+    print(f"saved {out}")
+
+
+def plot_photocurrent_gm_1x3_square(
+    triplets: list[Triplet], materials: dict[int, str], config: PlotConfig
+) -> None:
+    """1x3 grid (72, 74, 75) with square subplots: normalized 365 nm
+    photocurrent overlaid on normalized dark transconductance."""
+    by_chip = {t.chip_number: t for t in triplets}
+    chips = [72, 74, 75]
+    missing = [c for c in chips if c not in by_chip]
+    if missing:
+        print(
+            f"[warn] no {WAVELENGTH_NM} nm triplet for chips {missing}; "
+            "skipping 1x3 square gm grid"
+        )
+        return
+
+    fig, axes = plt.subplots(1, 3, figsize=(48, 16), gridspec_kw={"wspace": 0.18})
+
+    for col, chip in enumerate(chips):
+        _draw_photocurrent_gm_on_ax(axes[col], by_chip[chip], show_legend=True)
+        axes[col].set_box_aspect(1)
+
+    y_lo = min(ax.get_ylim()[0] for ax in axes)
+    y_hi = max(ax.get_ylim()[1] for ax in axes)
+    for ax in axes:
+        ax.set_ylim(y_lo, y_hi)
+    for ax in axes[1:]:
+        ax.tick_params(labelleft=False)
+        ax.set_ylabel("")
+
+    _annotate_panel_letters(axes, ["a", "b", "c"], x=[-0.20, -0.07, -0.07])
+    fig.tight_layout(w_pad=0.9)
+
+    filename = f"Compare_IVg_photocurrent_gm_norm_1x3_sq_727475_{WAVELENGTH_NM}nm"
     out = config.get_output_path(
         filename,
         procedure="IVg",
@@ -1432,8 +1573,11 @@ def main() -> None:
     plot_74_72_on_off_responsivity_fwd_bwd_2x2(triplets, materials, config)
     plot_74_72_photocurrent_wavelength_1x2(materials, config)
     plot_74_72_photocurrent_gm_1x2(triplets, materials, config)
-    for chip in (74, 72):
+    plot_74_72_photocurrent_gm_1x2_square(triplets, materials, config)
+    plot_photocurrent_gm_1x3_square(triplets, materials, config)
+    for chip in (74, 72, 75):
         plot_chip_photocurrent_wavelength(chip, materials, config)
+        plot_chip_responsivity_wavelength(chip, materials, config)
 
 
 if __name__ == "__main__":

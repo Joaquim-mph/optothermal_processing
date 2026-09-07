@@ -489,6 +489,51 @@ def plot_responsivity_vs_wl(
     print(f"saved {output_path}")
 
 
+def plot_photocurrent_vs_wl(
+    chip_nums: list[int],
+    traces_by_chip: dict[int, list[dict]],
+    config: PlotConfig,
+    output_path: Path,
+    *,
+    box_aspect: float = 0.75,
+) -> None:
+    """|ΔI| vs wavelength, styled identically to the responsivity figure."""
+    set_plot_style(config.theme)
+    side = float(config.figsize_timeseries[1])
+    fig, ax = plt.subplots(1, 1, figsize=(side / box_aspect, side))
+
+    for chip_num in chip_nums:
+        pts = []
+        for tr in traces_by_chip[chip_num]:
+            wl = tr["wavelength_nm"]
+            di = photoresponse_at_post(tr)
+            if np.isfinite(wl) and np.isfinite(di):
+                pts.append((wl, di))
+        if not pts:
+            continue
+        pts.sort()
+        ax.plot(
+            [p[0] for p in pts], [p[1] for p in pts],
+            color=CHIP_COLORS.get(chip_num, "k"),
+            marker=CHIP_MARKERS.get(chip_num, "o"),
+            markersize=MARKER_SIZE,
+            linestyle="-",
+            linewidth=LINE_WIDTH,
+            label=CHIPS[chip_num]["label"],
+        )
+
+    ax.set_xlabel(r"Wavelength (nm)")
+    ax.set_ylabel(r"$I_{ph}\ (\mu\mathrm{A})$")
+    ax.set_box_aspect(box_aspect)
+    ax.legend(loc="best", framealpha=0.9, fontsize=_legend_fontsize())
+
+    plt.tight_layout()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    plt.savefig(output_path, dpi=config.dpi, bbox_inches="tight")
+    plt.close(fig)
+    print(f"saved {output_path}")
+
+
 def plot_photoresponse_vs_wl(
     chip_nums: list[int],
     traces_by_chip: dict[int, list[dict]],
@@ -543,6 +588,10 @@ def main() -> None:
     plot_responsivity_vs_wl(
         [68, 75], traces_by_chip, config,
         OUTPUT_DIR / "uva_uvb_68_75_responsivity_vs_wl_4x3.pdf",
+    )
+    plot_photocurrent_vs_wl(
+        [68, 75], traces_by_chip, config,
+        OUTPUT_DIR / "uva_uvb_68_75_photocurrent_vs_wl_4x3.pdf",
     )
     plot_photoresponse_vs_wl(
         [68, 75, 80], traces_by_chip, config,

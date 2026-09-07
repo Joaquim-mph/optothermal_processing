@@ -395,6 +395,20 @@ def plot_mobility_1x2(
     _save(fig, config, "first_IVg_mobility_1x2.pdf")
 
 
+def plot_mobility_1x2_square(
+    left: list[ChipCurves], right: list[ChipCurves], config: PlotConfig
+) -> None:
+    fig, axes = plt.subplots(1, 2, figsize=(40, 20), gridspec_kw={"wspace": 0.28})
+    draw_mobility_panel(axes[0], left, box_aspect=1.0)
+    draw_mobility_panel(axes[1], right, box_aspect=1.0)
+
+    _share_y(axes[0], axes[1])
+
+    _annotate_panel_letters(axes, ["a", "b"])
+    fig.tight_layout()
+    _save(fig, config, "first_IVg_mobility_1x2_square.pdf")
+
+
 def _chip_table_row(chip: ChipCurves) -> tuple[float, float, float, float] | None:
     """Return (V_CNP_avg, delta_V_CNP, mu_h_avg, mu_e_avg) or None."""
     if chip.mu_factor is None:
@@ -503,6 +517,7 @@ def main() -> None:
     plot_transfer_mobility_2x2(left, right, config)
     plot_transfer_1x2(left, right, config)
     plot_mobility_1x2(left, right, config)
+    plot_mobility_1x2_square(left, right, config)
     write_mobility_table(left, right)
 
 
